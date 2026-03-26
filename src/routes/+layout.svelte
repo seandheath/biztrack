@@ -26,6 +26,10 @@
   let isSettingsSub = $derived(isSettings && !isSettingsRoot);
   let backHref = $derived(isSettingsSub ? '/settings' : '/');
 
+  // Public routes bypass the auth guard entirely — needed for OAuth consent screen URLs
+  const PUBLIC_ROUTES = ['/privacy', '/terms'];
+  let isPublicRoute = $derived(PUBLIC_ROUTES.includes($page.url.pathname));
+
   // ---------------------------------------------------------------------------
   // Auth state
   // ---------------------------------------------------------------------------
@@ -112,10 +116,17 @@
 </script>
 
 <!-- =========================================================================
+     PUBLIC: No auth, no app shell (privacy policy, terms of service)
+     ========================================================================= -->
+
+{#if isPublicRoute}
+  {@render children()}
+
+<!-- =========================================================================
      UNAUTHENTICATED: Full-page sign-in screen
      ========================================================================= -->
 
-{#if !$isAuthenticated}
+{:else if !$isAuthenticated}
   <div
     class="min-h-screen flex flex-col items-center justify-center px-6 gap-8"
     style="background-color: var(--color-surface); color: var(--color-text);"
