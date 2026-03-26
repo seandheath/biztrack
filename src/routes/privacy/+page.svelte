@@ -2,9 +2,9 @@
   <title>Privacy Policy — BizTrack</title>
 </svelte:head>
 
-<div class="max-w-2xl mx-auto px-6 py-12" style="color: #1f2937; font-family: system-ui, sans-serif;">
+<div class="max-w-2xl mx-auto px-6 py-12" style="color: var(--color-text); font-family: system-ui, sans-serif;">
   <h1 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.25rem;">Privacy Policy</h1>
-  <p style="color: #6b7280; margin-bottom: 2rem;">Last updated: March 2026</p>
+  <p style="color: var(--color-text-muted); margin-bottom: 2rem;">Last updated: March 2026</p>
 
   <section style="margin-bottom: 2rem;">
     <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Overview</h2>
@@ -18,7 +18,7 @@
 
   <section style="margin-bottom: 2rem;">
     <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Google Account Access</h2>
-    <p>BizTrack uses Google Sign-In and requests the <code style="background: #f3f4f6; padding: 0.1em 0.3em; border-radius: 3px;">drive.file</code> permission scope. This scope grants access only to files that BizTrack itself creates — we cannot access any pre-existing files in your Google Drive. Your access token is held in browser memory only and is never written to disk or transmitted to any server other than Google's.</p>
+    <p>BizTrack uses Google Sign-In and requests the <code style="background: var(--color-surface-3); padding: 0.1em 0.3em; border-radius: 3px;">drive.file</code> permission scope. This scope grants access only to files that BizTrack itself creates — we cannot access any pre-existing files in your Google Drive. Your access token is held in browser memory only and is never written to disk or transmitted to any server other than Google's.</p>
   </section>
 
   <section style="margin-bottom: 2rem;">
@@ -40,17 +40,17 @@
       <li>Google Sheets API (expense ledger)</li>
       <li>Google Picker API (folder selection)</li>
     </ul>
-    <p style="margin-top: 0.75rem;">Your use of these services is governed by <a href="https://policies.google.com/privacy" style="color: #2563eb;">Google's Privacy Policy</a>.</p>
+    <p style="margin-top: 0.75rem;">Your use of these services is governed by <a href="https://policies.google.com/privacy" style="color: var(--color-primary);">Google's Privacy Policy</a>.</p>
   </section>
 
   <section style="margin-bottom: 2rem;">
     <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Contact</h2>
-    <p>Questions about this privacy policy can be sent to <a href="mailto:info@biztrack.lol" style="color: #2563eb;">info@biztrack.lol</a>.</p>
+    <p>Questions about this privacy policy can be sent to <a href="mailto:info@biztrack.lol" style="color: var(--color-primary);">info@biztrack.lol</a>.</p>
   </section>
 
   <p style="margin-top: 3rem;">
-    <a href="/" style="color: #2563eb;">← Back to BizTrack</a>
+    <a href="/" style="color: var(--color-primary);">← Back to BizTrack</a>
     &nbsp;·&nbsp;
-    <a href="/terms" style="color: #2563eb;">Terms of Service</a>
+    <a href="/terms" style="color: var(--color-primary);">Terms of Service</a>
   </p>
 </div>
