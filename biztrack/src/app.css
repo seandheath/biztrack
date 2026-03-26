@@ -1,0 +1,92 @@
+/* Tailwind v4 — single import replaces @tailwind base/components/utilities */
+@import 'tailwindcss';
+
+/* ============================================================
+   CSS custom properties for light/dark theming.
+   Components use these vars instead of hardcoded Tailwind colors
+   so that the theme switches automatically with prefers-color-scheme.
+   ============================================================ */
+
+:root {
+  /* Surfaces */
+  --color-surface: #ffffff;
+  --color-surface-2: #f8fafc;
+  --color-surface-3: #f1f5f9;
+  --color-border: #e2e8f0;
+
+  /* Text */
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+
+  /* Primary action (blue) */
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-text: #ffffff;
+
+  /* Success / error */
+  --color-success: #16a34a;
+  --color-error: #dc2626;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-surface: #0f172a;
+    --color-surface-2: #1e293b;
+    --color-surface-3: #334155;
+    --color-border: #334155;
+
+    --color-text: #f8fafc;
+    --color-text-muted: #94a3b8;
+
+    --color-primary: #60a5fa;
+    --color-primary-hover: #93c5fd;
+    --color-primary-text: #0f172a;
+
+    --color-success: #4ade80;
+    --color-error: #f87171;
+  }
+}
+
+/* ============================================================
+   Base resets and global styles
+   ============================================================ */
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  /* Prevent iOS bounce scroll on the body */
+  overscroll-behavior: none;
+}
+
+/* Minimum 48×48px touch targets for all interactive elements (spec §6.1) */
+button,
+a,
+[role='button'] {
+  min-height: 48px;
+  min-width: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Native form inputs — base styling */
+input,
+select,
+textarea {
+  background-color: var(--color-surface-2);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  width: 100%;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 0;
+  border-color: var(--color-primary);
+}
