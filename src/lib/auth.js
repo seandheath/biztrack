@@ -26,7 +26,7 @@
 // ---------------------------------------------------------------------------
 
 /** @type {string} OAuth 2.0 client ID from Google Cloud Console */
-const GOOGLE_CLIENT_ID = 'YOUR_CLIENT_ID.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = '208716243485-kfipff1kipg2up02t0n7b18c75d9n44g.apps.googleusercontent.com';
 
 /** Drive scope — non-sensitive, covers all Drive + Sheets ops on app-created files */
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
@@ -35,13 +35,13 @@ export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
  * API key restricted to Google Picker API.
  * Public by design — see spec §9.3 ("No secrets in client-side code").
  */
-export const GOOGLE_API_KEY = 'YOUR_API_KEY';
+export const GOOGLE_API_KEY = 'AIzaSyA_z7NntCFOmoqU5VRk9ef7afP7Apd75Xo';
 
 /**
  * Google Cloud project number (numeric string), required by the Picker API.
  * Found under IAM & Admin → Settings → Project number.
  */
-export const GOOGLE_APP_ID = 'YOUR_PROJECT_NUMBER';
+export const GOOGLE_APP_ID = '208716243485';
 
 // ---------------------------------------------------------------------------
 // Private module state
