@@ -1,16 +1,19 @@
 <script>
-  // Settings screen (Phase 7.3 for businesses/payments/favorites sections).
-  // Account section wired here in Phase 2.
-  import { userEmail } from '$lib/store.js';
-
-  // handleSignOut is exported from +layout.svelte.
-  // SvelteKit doesn't provide a direct way to call parent layout methods,
-  // so we import revokeToken directly and let the layout's _onTokenUpdate
-  // callback handle clearing the stores.
+  import { userEmail, businesses, selectedBusiness } from '$lib/store.js';
   import { revokeToken } from '$lib/auth.js';
+  import { get } from 'svelte/store';
 
   function signOut() {
     revokeToken();
+  }
+
+  function deleteBusiness(business) {
+    businesses.update((list) => list.filter((b) => b.name !== business.name));
+    // If this was the selected business, select the first remaining one (or null)
+    if (get(selectedBusiness)?.name === business.name) {
+      const remaining = get(businesses);
+      selectedBusiness.set(remaining[0] ?? null);
+    }
   }
 </script>
 
@@ -22,10 +25,25 @@
       Businesses
     </h2>
     <div class="rounded-xl border divide-y overflow-hidden" style="border-color: var(--color-border); background-color: var(--color-surface-2);">
+      {#each $businesses as business (business.name)}
+        <div class="flex items-center justify-between px-4" style="min-height: 48px;">
+          <span class="text-base truncate" style="color: var(--color-text);">{business.name}</span>
+          <button
+            onclick={() => deleteBusiness(business)}
+            class="ml-3 flex-shrink-0 rounded p-1 hover:opacity-70 transition-opacity"
+            aria-label="Remove {business.name}"
+            style="color: var(--color-text-muted);"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      {/each}
       <a
         href="/settings/business"
         class="flex items-center justify-between px-4 hover:opacity-70 transition-opacity"
-        style="color: var(--color-primary);"
+        style="color: var(--color-primary); min-height: 48px;"
       >
         <span class="text-base">Add Business</span>
         <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -33,9 +51,6 @@
         </svg>
       </a>
     </div>
-    <p class="text-xs mt-1 px-1" style="color: var(--color-text-muted);">
-      Business list coming in Phase 7.
-    </p>
   </section>
 
   <!-- Per-business settings -->
