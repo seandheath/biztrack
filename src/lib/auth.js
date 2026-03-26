@@ -26,22 +26,25 @@
 // ---------------------------------------------------------------------------
 
 /** @type {string} OAuth 2.0 client ID from Google Cloud Console */
-const GOOGLE_CLIENT_ID = '208716243485-kfipff1kipg2up02t0n7b18c75d9n44g.apps.googleusercontent.com';
+// Vite inlines these at build time — they end up in the compiled JS bundle.
+// Values live in .env locally and in GitHub Actions repository secrets for CI.
+// See .env.example for required variable names.
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 /** Drive scope — non-sensitive, covers all Drive + Sheets ops on app-created files */
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
 /**
  * API key restricted to Google Picker API.
- * Public by design — see spec §9.3 ("No secrets in client-side code").
+ * Public by design — see spec §9.3 — but kept out of source control via .env.
  */
-export const GOOGLE_API_KEY = 'AIzaSyA_z7NntCFOmoqU5VRk9ef7afP7Apd75Xo';
+export const GOOGLE_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY;
 
 /**
  * Google Cloud project number (numeric string), required by the Picker API.
  * Found under IAM & Admin → Settings → Project number.
  */
-export const GOOGLE_APP_ID = '208716243485';
+export const GOOGLE_APP_ID = import.meta.env.VITE_GOOGLE_APP_ID;
 
 // ---------------------------------------------------------------------------
 // Private module state
