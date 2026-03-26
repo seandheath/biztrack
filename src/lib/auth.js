@@ -21,30 +21,14 @@
  */
 
 // ---------------------------------------------------------------------------
-// Credentials
-// TODO Phase 6: migrate these to src/lib/constants.js
+// Credentials (migrated to constants.js in Phase 6)
 // ---------------------------------------------------------------------------
 
-/** @type {string} OAuth 2.0 client ID from Google Cloud Console */
-// Vite inlines these at build time — they end up in the compiled JS bundle.
-// Values live in .env locally and in GitHub Actions repository secrets for CI.
-// See .env.example for required variable names.
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+import { GOOGLE_CLIENT_ID, DRIVE_SCOPE } from './constants.js';
 
-/** Drive scope — non-sensitive, covers all Drive + Sheets ops on app-created files */
-export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
-
-/**
- * API key restricted to Google Picker API.
- * Public by design — see spec §9.3 — but kept out of source control via .env.
- */
-export const GOOGLE_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY;
-
-/**
- * Google Cloud project number (numeric string), required by the Picker API.
- * Found under IAM & Admin → Settings → Project number.
- */
-export const GOOGLE_APP_ID = import.meta.env.VITE_GOOGLE_APP_ID;
+// Re-export for callers that imported these from auth.js before Phase 6.
+export { DRIVE_SCOPE } from './constants.js';
+export { GOOGLE_API_KEY, GOOGLE_APP_ID } from './constants.js';
 
 // ---------------------------------------------------------------------------
 // Private module state
@@ -142,7 +126,7 @@ export function requestToken() {
   return new Promise((resolve, reject) => {
     _pendingResolve = resolve;
     _pendingReject = reject;
-    _tokenClient.requestAccessToken({ prompt: 'consent' });
+    _tokenClient.requestAccessToken({ prompt: 'select_account' });
   });
 }
 
