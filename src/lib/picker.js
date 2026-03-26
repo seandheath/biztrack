@@ -7,7 +7,8 @@
  * Used only during business setup (Phase 7). Not called during expense entry.
  */
 
-import { GOOGLE_API_KEY, GOOGLE_APP_ID, getToken } from './auth.js';
+import { GOOGLE_API_KEY, GOOGLE_APP_ID } from './constants.js';
+import { getToken } from './auth.js';
 
 // ---------------------------------------------------------------------------
 // Script loading
