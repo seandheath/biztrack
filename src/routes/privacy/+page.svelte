@@ -45,7 +45,7 @@
 
   <section style="margin-bottom: 2rem;">
     <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Contact</h2>
-    <p>Questions about this privacy policy can be sent to <a href="mailto:contact@example.com" style="color: #2563eb;">contact@example.com</a>.</p>
+    <p>Questions about this privacy policy can be sent to <a href="mailto:info@biztrack.lol" style="color: #2563eb;">info@biztrack.lol</a>.</p>
   </section>
 
   <p style="margin-top: 3rem;">
