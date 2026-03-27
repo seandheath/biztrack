@@ -12,7 +12,6 @@
    */
 
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
   import {
     businesses,
     selectedBusiness,
@@ -20,10 +19,9 @@
     vendorCache,
     pendingReceipt,
   } from '$lib/store.js';
-  import { downloadJson } from '$lib/drive.js';
+  import { downloadJson, findFile, listFileNames, uploadFile } from '$lib/drive.js';
   import { appendRow, readColumn } from '$lib/sheets.js';
   import { ensureYearFolder, saveMileageFavorite } from '$lib/business.js';
-  import { findFile, listFileNames, uploadFile } from '$lib/drive.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
   import { QUICKBOOKS_CATEGORIES, IRS_RATES } from '$lib/constants.js';
   import BusinessDropdown from '../components/BusinessDropdown.svelte';
@@ -398,6 +396,33 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Year-rollover helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Silently ensures the Drive year-folder exists for a given ISO date string.
+   * Called from date field onchange handlers so the year folder is ready before
+   * the user hits submit — avoids a delay at submission time.
+   * Fast path (already cached) is synchronous, so this is a no-op in most cases.
+   *
+   * @param {string} isoDate - e.g. "2025-01-15"
+   */
+  async function prefetchYearFolder(isoDate) {
+    const biz = $selectedBusiness;
+    if (!biz || !isoDate) return;
+    const year = new Date(isoDate + 'T00:00:00').getFullYear();
+    if (biz.yearFolders?.[year]) return; // already cached, nothing to do
+    try {
+      const updated = await ensureYearFolder(biz, year);
+      businesses.update((list) => list.map((b) => b.name === biz.name ? updated : b));
+      selectedBusiness.set(updated);
+    } catch (err) {
+      // Non-fatal: submit handler will retry if year folder is still missing
+      console.warn('[main] prefetchYearFolder failed:', err);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
 
@@ -495,8 +520,14 @@
 
           <!-- Date -->
           <div class="flex flex-col gap-1">
-            <label class="text-sm font-medium" style="color: var(--color-text-muted);">Date</label>
-            <input type="date" bind:value={expDate} required />
+            <label for="exp-date" class="text-sm font-medium" style="color: var(--color-text-muted);">Date</label>
+            <input
+              id="exp-date"
+              type="date"
+              bind:value={expDate}
+              onchange={() => prefetchYearFolder(expDate)}
+              required
+            />
             {#if expErrors.date}
               <span class="text-xs" style="color: var(--color-error);">{expErrors.date}</span>
             {/if}
@@ -504,8 +535,8 @@
 
           <!-- Vendor -->
           <div class="flex flex-col gap-1">
-            <label class="text-sm font-medium" style="color: var(--color-text-muted);">Vendor / Payee</label>
-            <VendorAutocomplete bind:value={expVendor} bind:inputEl={vendorInputEl} />
+            <label for="exp-vendor" class="text-sm font-medium" style="color: var(--color-text-muted);">Vendor / Payee</label>
+            <VendorAutocomplete id="exp-vendor" bind:value={expVendor} bind:inputEl={vendorInputEl} />
             {#if expErrors.vendor}
               <span class="text-xs" style="color: var(--color-error);">{expErrors.vendor}</span>
             {/if}
@@ -513,16 +544,17 @@
 
           <!-- Description -->
           <div class="flex flex-col gap-1">
-            <label class="text-sm font-medium" style="color: var(--color-text-muted);">
+            <label for="exp-desc" class="text-sm font-medium" style="color: var(--color-text-muted);">
               Description <span style="color: var(--color-text-muted); font-weight: 400;">(optional)</span>
             </label>
-            <input type="text" bind:value={expDesc} placeholder="What was this for?" />
+            <input id="exp-desc" type="text" bind:value={expDesc} placeholder="What was this for?" />
           </div>
 
           <!-- Amount -->
           <div class="flex flex-col gap-1">
-            <label class="text-sm font-medium" style="color: var(--color-text-muted);">Amount ($)</label>
+            <label for="exp-amount" class="text-sm font-medium" style="color: var(--color-text-muted);">Amount ($)</label>
             <input
+              id="exp-amount"
               type="text"
               inputmode="decimal"
               bind:value={expAmount}
@@ -537,8 +569,8 @@
 
           <!-- Category -->
           <div class="flex flex-col gap-1">
-            <label class="text-sm font-medium" style="color: var(--color-text-muted);">Category</label>
-            <select bind:value={expCategory} required>
+            <label for="exp-category" class="text-sm font-medium" style="color: var(--color-text-muted);">Category</label>
+            <select id="exp-category" bind:value={expCategory} required>
               <option value="" disabled>Select category…</option>
               {#each QUICKBOOKS_CATEGORIES as cat (cat)}
                 <option value={cat}>{cat}</option>
@@ -551,16 +583,16 @@
 
           <!-- Payment Method -->
           <div class="flex flex-col gap-1">
-            <label class="text-sm font-medium" style="color: var(--color-text-muted);">Payment Method</label>
+            <label for="exp-payment" class="text-sm font-medium" style="color: var(--color-text-muted);">Payment Method</label>
             {#if $businessConfig?.payment_accounts?.length}
-              <select bind:value={expPayment} required>
+              <select id="exp-payment" bind:value={expPayment} required>
                 <option value="" disabled>Select method…</option>
                 {#each $businessConfig.payment_accounts as method (method)}
                   <option value={method}>{method}</option>
                 {/each}
               </select>
             {:else}
-              <select disabled>
+              <select id="exp-payment" disabled>
                 <option>Loading…</option>
               </select>
             {/if}
@@ -579,10 +611,11 @@
 
           <!-- Notes -->
           <div class="flex flex-col gap-1">
-            <label class="text-sm font-medium" style="color: var(--color-text-muted);">
+            <label for="exp-notes" class="text-sm font-medium" style="color: var(--color-text-muted);">
               Notes <span style="color: var(--color-text-muted); font-weight: 400;">(optional)</span>
             </label>
             <textarea
+              id="exp-notes"
               bind:value={expNotes}
               rows="2"
               placeholder="Any additional notes…"
@@ -636,8 +669,14 @@
 
           <!-- Date -->
           <div class="flex flex-col gap-1">
-            <label class="text-sm font-medium" style="color: var(--color-text-muted);">Date</label>
-            <input type="date" bind:value={milDate} required />
+            <label for="mil-date" class="text-sm font-medium" style="color: var(--color-text-muted);">Date</label>
+            <input
+              id="mil-date"
+              type="date"
+              bind:value={milDate}
+              onchange={() => prefetchYearFolder(milDate)}
+              required
+            />
             {#if milErrors.date}
               <span class="text-xs" style="color: var(--color-error);">{milErrors.date}</span>
             {/if}
@@ -645,8 +684,8 @@
 
           <!-- From -->
           <div class="flex flex-col gap-1">
-            <label class="text-sm font-medium" style="color: var(--color-text-muted);">From</label>
-            <input type="text" bind:value={milFrom} placeholder="Starting address or city" />
+            <label for="mil-from" class="text-sm font-medium" style="color: var(--color-text-muted);">From</label>
+            <input id="mil-from" type="text" bind:value={milFrom} placeholder="Starting address or city" />
             {#if milErrors.from}
               <span class="text-xs" style="color: var(--color-error);">{milErrors.from}</span>
             {/if}
@@ -654,8 +693,8 @@
 
           <!-- To -->
           <div class="flex flex-col gap-1">
-            <label class="text-sm font-medium" style="color: var(--color-text-muted);">To</label>
-            <input type="text" bind:value={milTo} placeholder="Destination" />
+            <label for="mil-to" class="text-sm font-medium" style="color: var(--color-text-muted);">To</label>
+            <input id="mil-to" type="text" bind:value={milTo} placeholder="Destination" />
             {#if milErrors.to}
               <span class="text-xs" style="color: var(--color-error);">{milErrors.to}</span>
             {/if}
@@ -663,8 +702,8 @@
 
           <!-- Purpose -->
           <div class="flex flex-col gap-1">
-            <label class="text-sm font-medium" style="color: var(--color-text-muted);">Purpose</label>
-            <input type="text" bind:value={milPurpose} placeholder="Client meeting, site visit…" />
+            <label for="mil-purpose" class="text-sm font-medium" style="color: var(--color-text-muted);">Purpose</label>
+            <input id="mil-purpose" type="text" bind:value={milPurpose} placeholder="Client meeting, site visit…" />
             {#if milErrors.purpose}
               <span class="text-xs" style="color: var(--color-error);">{milErrors.purpose}</span>
             {/if}
@@ -673,8 +712,8 @@
           <!-- Miles + IRS rate + Deduction -->
           <div class="grid gap-3" style="grid-template-columns: 1fr 1fr;">
             <div class="flex flex-col gap-1">
-              <label class="text-sm font-medium" style="color: var(--color-text-muted);">Miles</label>
-              <input type="text" inputmode="decimal" bind:value={milMiles} placeholder="0.0" required />
+              <label for="mil-miles" class="text-sm font-medium" style="color: var(--color-text-muted);">Miles</label>
+              <input id="mil-miles" type="text" inputmode="decimal" bind:value={milMiles} placeholder="0.0" required />
               {#if milErrors.miles}
                 <span class="text-xs" style="color: var(--color-error);">{milErrors.miles}</span>
               {/if}

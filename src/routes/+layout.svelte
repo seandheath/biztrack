@@ -13,6 +13,7 @@
     onAuthRequired,
   } from '$lib/auth.js';
   import { authToken, userEmail, isAuthenticated } from '$lib/store.js';
+  import * as storage from '$lib/storage.js';
 
   /** @type {{ children: import('svelte').Snippet }} */
   let { children } = $props();
@@ -52,8 +53,10 @@
    */
   let showIosInstallPrompt = $state(false);
 
-  /** User dismissed the iOS install prompt */
+  /** User dismissed the iOS install prompt (persisted to localStorage) */
   let iosPromptDismissed = $state(false);
+
+  const IOS_PROMPT_KEY = 'biztrack_ios_prompt_dismissed';
 
   onMount(() => {
     // Initialize online state and listen for changes
@@ -64,10 +67,12 @@
     window.addEventListener('offline', setOffline);
 
     // iOS install prompt: show when running in Safari (not standalone) on iOS
+    // and the user hasn't permanently dismissed it
     const isIos        = /iphone|ipad|ipod/i.test(navigator.userAgent);
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches
                       || ('standalone' in navigator && navigator.standalone);
-    if (isIos && !isStandalone) {
+    const alreadyDismissed = storage.get(IOS_PROMPT_KEY, false);
+    if (isIos && !isStandalone && !alreadyDismissed) {
       showIosInstallPrompt = true;
     }
 
@@ -355,7 +360,7 @@
           </p>
         </div>
         <button
-          onclick={() => { iosPromptDismissed = true; }}
+          onclick={() => { iosPromptDismissed = true; storage.set(IOS_PROMPT_KEY, true); }}
           class="flex-shrink-0 rounded p-1 hover:opacity-70 transition-opacity"
           aria-label="Dismiss"
           style="color: var(--color-text-muted); min-width: 36px; min-height: 36px;"

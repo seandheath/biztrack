@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<rect width="512" height="512" rx="96" fill="#0f766e"/>
+<g transform="translate(116, 76)">
+<path d="M50 0 L230 0 Q280 0 280 50 L280 340 L260 318 L240 340 L220 318 L200 340 L180 318 L160 340 L140 318 L120 340 L100 318 L80 340 L60 318 L40 340 L20 318 L0 340 L0 50 Q0 0 50 0Z" fill="#ffffff"/>
+<rect x="44" y="68" width="192" height="14" rx="7" fill="#0f766e" opacity="0.25"/>
+<rect x="44" y="104" width="148" height="14" rx="7" fill="#0f766e" opacity="0.25"/>
+<rect x="44" y="140" width="172" height="14" rx="7" fill="#0f766e" opacity="0.25"/>
+<line x1="44" y1="184" x2="236" y2="184" stroke="#0f766e" stroke-width="2" opacity="0.3"/>
+<rect x="156" y="206" width="80" height="24" rx="6" fill="#0f766e"/>
+<text x="196" y="223" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="15" font-weight="600">$0.00</text>
+<circle cx="228" cy="50" r="46" fill="#f59e0b"/>
+<text x="228" y="60" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="40" font-weight="700">$</text>
+</g>
+</svg>
