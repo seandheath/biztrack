@@ -13,6 +13,7 @@
     value = $bindable(''),
     inputEl = $bindable(null),
     placeholder = 'Vendor/Payee',
+    id = undefined,
   } = $props();
 
   let open = $state(false);
@@ -73,6 +74,7 @@
     bind:this={inputEl}
     bind:value
     type="text"
+    {id}
     {placeholder}
     autocomplete="off"
     autocorrect="off"
