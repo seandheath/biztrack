@@ -25,6 +25,7 @@
   let isSettings = $derived($page.url.pathname.startsWith('/settings'));
   let isSettingsRoot = $derived($page.url.pathname === '/settings');
   let isSettingsSub = $derived(isSettings && !isSettingsRoot);
+  let isHistory = $derived($page.url.pathname.startsWith('/history'));
   let backHref = $derived(isSettingsSub ? '/settings' : '/');
 
   // Public routes bypass the auth guard entirely — needed for OAuth consent screen URLs
@@ -301,6 +302,21 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
           </svg>
         </a>
+      {:else if !isSettings && !isHistory}
+        <!-- History clock icon — visible on main screen -->
+        <a
+          href="/history"
+          class="rounded-lg hover:opacity-70 transition-opacity"
+          aria-label="View history"
+          style="color: var(--color-text-muted);"
+        >
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </a>
+      {:else}
+        <div class="w-8" aria-hidden="true"></div>
       {/if}
 
       <!-- App title -->
@@ -311,12 +327,12 @@
       <!-- Gear / close icon -->
       {#if !isSettingsSub}
         <a
-          href={isSettings ? '/' : '/settings'}
+          href={isSettings || isHistory ? '/' : '/settings'}
           class="rounded-lg hover:opacity-70 transition-opacity"
-          aria-label={isSettings ? 'Go to main screen' : 'Open settings'}
+          aria-label={isSettings || isHistory ? 'Go to main screen' : 'Open settings'}
           style="color: var(--color-text-muted);"
         >
-          {#if isSettings}
+          {#if isSettings || isHistory}
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
