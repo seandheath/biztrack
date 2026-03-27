@@ -40,19 +40,23 @@ export async function setupBusiness(name, folderId) {
   const configId = await findFile('config.json', folderId);
 
   let config;
+  let configFileId;
   if (configId) {
     config = await downloadJson(configId);
+    configFileId = configId;
     // Guard against malformed config missing required keys
     if (!Array.isArray(config.payment_accounts)) config.payment_accounts = [...DEFAULT_PAYMENT_METHODS];
     if (!Array.isArray(config.mileage_favorites)) config.mileage_favorites = [];
   } else {
-    await uploadJson('config.json', defaultConfig, folderId);
+    const { id } = await uploadJson('config.json', defaultConfig, folderId);
+    configFileId = id;
     config = defaultConfig;
   }
 
   const business = {
     name,
     folderId,
+    configFileId,
     yearFolders: {},
     sheetIds: {},
     receiptFolderIds: {},
