@@ -34,6 +34,9 @@
   // Auth state
   // ---------------------------------------------------------------------------
 
+  /** Tracks whether the device currently has network access */
+  let isOnline = $state(true);
+
   /** Whether the sign-in popup/script is in flight */
   let signingIn = $state(false);
 
@@ -43,7 +46,31 @@
   /** True when token has < 5 minutes remaining — shows the refresh banner */
   let refreshBannerVisible = $state(false);
 
+  /**
+   * True on iOS Safari when the app is NOT already installed as a PWA.
+   * Triggers the "Add to Home Screen" install prompt.
+   */
+  let showIosInstallPrompt = $state(false);
+
+  /** User dismissed the iOS install prompt */
+  let iosPromptDismissed = $state(false);
+
   onMount(() => {
+    // Initialize online state and listen for changes
+    isOnline = navigator.onLine;
+    const setOnline  = () => { isOnline = true; };
+    const setOffline = () => { isOnline = false; };
+    window.addEventListener('online',  setOnline);
+    window.addEventListener('offline', setOffline);
+
+    // iOS install prompt: show when running in Safari (not standalone) on iOS
+    const isIos        = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+                      || ('standalone' in navigator && navigator.standalone);
+    if (isIos && !isStandalone) {
+      showIosInstallPrompt = true;
+    }
+
     // Bridge auth.js events → Svelte stores.
     // auth.js is framework-agnostic; these callbacks are the integration seam.
     onTokenUpdate(({ token, email }) => {
@@ -67,8 +94,12 @@
       }
     }, 30_000);
 
-    // onMount cleanup: clear interval when layout is destroyed
-    return () => clearInterval(interval);
+    // onMount cleanup
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('online',  setOnline);
+      window.removeEventListener('offline', setOffline);
+    };
   });
 
   // ---------------------------------------------------------------------------
@@ -208,6 +239,20 @@
      ========================================================================= -->
 
 {:else}
+  <!-- Offline banner — z-30 so it renders above the session banner -->
+  {#if !isOnline}
+    <div
+      class="sticky top-0 z-30 flex items-center justify-center px-4 py-2 text-sm font-medium"
+      style="background-color: var(--color-error); color: #ffffff;"
+      role="status"
+    >
+      <svg class="w-4 h-4 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M12 12h.01M3 3l18 18" />
+      </svg>
+      No connection — entries cannot be saved
+    </div>
+  {/if}
+
   <!-- Session expiry banner — z-20 so it renders above the sticky header -->
   {#if refreshBannerVisible}
     <div
@@ -283,11 +328,43 @@
       {/if}
     </header>
 
-    <main
-      class="flex-1 overflow-y-auto"
-      style="padding-bottom: env(safe-area-inset-bottom);"
-    >
+    <main class="flex-1 overflow-y-auto">
       {@render children()}
     </main>
+
+    <!-- iOS install prompt — fixed bottom bar, only on iOS Safari when not installed -->
+    {#if showIosInstallPrompt && !iosPromptDismissed}
+      <div
+        class="fixed bottom-0 left-0 right-0 z-40 px-4 py-3 flex items-start gap-3 border-t shadow-lg"
+        style="
+          background-color: var(--color-surface-2);
+          border-color: var(--color-border);
+          padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+        "
+        role="complementary"
+        aria-label="Install BizTrack"
+      >
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-semibold" style="color: var(--color-text);">Install BizTrack</p>
+          <p class="text-xs mt-0.5" style="color: var(--color-text-muted);">
+            Tap
+            <svg class="w-4 h-4 inline-block mx-0.5 align-text-bottom" fill="currentColor" viewBox="0 0 24 24" aria-label="Share">
+              <path d="M12 2l-4 4h3v8h2V6h3L12 2zm-7 14v4h14v-4h-2v2H7v-2H5z"/>
+            </svg>
+            then <strong>Add to Home Screen</strong>
+          </p>
+        </div>
+        <button
+          onclick={() => { iosPromptDismissed = true; }}
+          class="flex-shrink-0 rounded p-1 hover:opacity-70 transition-opacity"
+          aria-label="Dismiss"
+          style="color: var(--color-text-muted); min-width: 36px; min-height: 36px;"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    {/if}
   </div>
 {/if}
