@@ -195,15 +195,6 @@
     }
   }
 
-  // Reload when year or tab changes (after mount)
-  $effect(() => {
-    // Access reactive dependencies explicitly
-    const _year = selectedYear;
-    const _tab = activeTab;
-    const _id = spreadsheetId;
-    if (_year && _id) loadRows();
-  });
-
   // ---------------------------------------------------------------------------
   // Edit open / close
   // ---------------------------------------------------------------------------
@@ -339,6 +330,7 @@
       const years = Object.keys($selectedBusiness.sheetIds ?? {}).sort().reverse();
       const currentYear = String(new Date().getFullYear());
       selectedYear = years.includes(currentYear) ? currentYear : (years[0] ?? '');
+      if (selectedYear) loadRows();
     }
   });
 </script>
@@ -374,6 +366,7 @@
       {#if availableYears.length > 0}
         <select
           bind:value={selectedYear}
+          onchange={loadRows}
           class="text-sm"
           style="min-height: 40px; flex-shrink: 0;"
           aria-label="Select year"
@@ -397,7 +390,7 @@
             type="button"
             role="tab"
             aria-selected={activeTab === tab}
-            onclick={() => { activeTab = tab; }}
+            onclick={() => { activeTab = tab; loadRows(); }}
             class="flex-1 text-sm font-medium capitalize transition-colors"
             style="
               min-height: 40px;
