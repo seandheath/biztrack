@@ -10,7 +10,7 @@
 <script>
   import { isImage } from '$lib/receipt.js';
 
-  let { file = $bindable(null) } = $props();
+  let { file = $bindable(null), id = undefined } = $props();
 
   /** ObjectURL for image preview — revoked on clear or new selection. */
   let previewUrl = $state(null);
@@ -65,6 +65,7 @@
   <!-- Add receipt button -->
   <button
     type="button"
+    {id}
     onclick={() => inputEl?.click()}
     class="w-full flex items-center gap-3 rounded-xl border px-4 text-sm font-medium transition-opacity hover:opacity-70"
     style="

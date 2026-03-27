@@ -19,6 +19,9 @@
   let open = $state(false);
   let activeIdx = $state(-1);
 
+  /** Derived id for the listbox element, referenced by aria-controls. */
+  let listboxId = $derived(id ? `${id}-listbox` : 'vendor-listbox');
+
   /** Top 5 cache entries that include the current query. */
   let suggestions = $derived(
     value.trim().length > 0
@@ -76,6 +79,7 @@
     type="text"
     {id}
     {placeholder}
+    role="combobox"
     autocomplete="off"
     autocorrect="off"
     spellcheck="false"
@@ -85,10 +89,13 @@
     onkeydown={handleKeydown}
     aria-autocomplete="list"
     aria-expanded={open}
+    aria-haspopup="listbox"
+    aria-controls={listboxId}
   />
 
   {#if open && suggestions.length > 0}
     <ul
+      id={listboxId}
       class="absolute z-30 w-full rounded-xl border shadow-lg overflow-hidden"
       style="
         background-color: var(--color-surface-2);

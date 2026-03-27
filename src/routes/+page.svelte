@@ -603,10 +603,10 @@
 
           <!-- Receipt -->
           <div class="flex flex-col gap-1">
-            <label class="text-sm font-medium" style="color: var(--color-text-muted);">
+            <label for="exp-receipt" class="text-sm font-medium" style="color: var(--color-text-muted);">
               Receipt <span style="color: var(--color-text-muted); font-weight: 400;">(optional)</span>
             </label>
-            <ReceiptPicker bind:file={expReceipt} />
+            <ReceiptPicker id="exp-receipt" bind:file={expReceipt} />
           </div>
 
           <!-- Notes -->
@@ -719,8 +719,9 @@
               {/if}
             </div>
             <div class="flex flex-col gap-1">
-              <label class="text-sm font-medium" style="color: var(--color-text-muted);">IRS Rate</label>
+              <label for="mil-irs-rate" class="text-sm font-medium" style="color: var(--color-text-muted);">IRS Rate</label>
               <input
+                id="mil-irs-rate"
                 type="text"
                 value="${milRate()}/mi"
                 readonly
