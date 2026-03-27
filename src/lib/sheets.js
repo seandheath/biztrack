@@ -240,3 +240,143 @@ export async function readColumn(spreadsheetId, sheetName, column) {
     .map((row) => row[0])
     .filter((v) => v !== undefined && v !== '');
 }
+
+// ---------------------------------------------------------------------------
+// History: readRows, updateRow, deleteRow
+// ---------------------------------------------------------------------------
+
+/**
+ * Converts a 1-based column index to a column letter (1→'A', 8→'H').
+ * @param {number} n
+ * @returns {string}
+ */
+function _colLetter(n) {
+  return String.fromCharCode(64 + n);
+}
+
+/**
+ * Module-level cache: "spreadsheetId::sheetName" → numeric sheetId.
+ * Avoids re-fetching spreadsheet metadata on every delete.
+ * @type {Map<string, number>}
+ */
+const _sheetTabIdCache = new Map();
+
+/**
+ * Returns the numeric Sheets tab ID for a named tab within a spreadsheet.
+ * Required by the deleteDimension batchUpdate request.
+ * Results are cached for the lifetime of the page session.
+ *
+ * @param {string} spreadsheetId
+ * @param {string} sheetName
+ * @returns {Promise<number>}
+ */
+async function _getSheetTabId(spreadsheetId, sheetName) {
+  const cacheKey = `${spreadsheetId}::${sheetName}`;
+  if (_sheetTabIdCache.has(cacheKey)) return _sheetTabIdCache.get(cacheKey);
+
+  const url = `${SHEETS_BASE}/${spreadsheetId}?fields=sheets.properties`;
+  const response = await apiFetch(url);
+  if (!response.ok) await _throwSheetsError(response, 'getSheetTabId');
+
+  const data = await response.json();
+  for (const sheet of data.sheets ?? []) {
+    const key = `${spreadsheetId}::${sheet.properties.title}`;
+    _sheetTabIdCache.set(key, sheet.properties.sheetId);
+  }
+
+  if (!_sheetTabIdCache.has(cacheKey)) {
+    throw new Error(`Sheet tab "${sheetName}" not found in spreadsheet ${spreadsheetId}`);
+  }
+  return _sheetTabIdCache.get(cacheKey);
+}
+
+/**
+ * Reads all data rows from the specified sheet tab, skipping the header.
+ *
+ * @param {string} spreadsheetId
+ * @param {string} sheetName - "Expenses" or "Mileage"
+ * @returns {Promise<{ rows: string[][], rowNums: number[] }>}
+ *   rows[i] is a flat string array of cell values for data row i.
+ *   rowNums[i] is the 1-based sheet row number (i + 2, since row 1 is the header).
+ *   Short rows are padded with empty strings to match the expected column count.
+ */
+export async function readRows(spreadsheetId, sheetName) {
+  const range = encodeURIComponent(`${sheetName}!A:Z`);
+  const url = `${SHEETS_BASE}/${spreadsheetId}/values/${range}`;
+
+  const response = await apiFetch(url);
+  if (!response.ok) await _throwSheetsError(response, 'readRows');
+
+  const data = await response.json();
+  const all = data.values ?? [];
+
+  // Row 0 is the header — skip it. Data starts at index 1.
+  const dataRows = all.slice(1);
+  const rows = dataRows.map((row) => row.map((cell) => String(cell ?? '')));
+  // rowNum is 1-based; data row i corresponds to sheet row i + 2
+  const rowNums = dataRows.map((_, i) => i + 2);
+
+  return { rows, rowNums };
+}
+
+/**
+ * Overwrites a single data row in-place.
+ *
+ * @param {string} spreadsheetId
+ * @param {string} sheetName - "Expenses" or "Mileage"
+ * @param {number} rowNum - 1-based sheet row number (as returned by readRows)
+ * @param {Array<string|number>} values - Full row values in column order
+ * @returns {Promise<void>}
+ */
+export async function updateRow(spreadsheetId, sheetName, rowNum, values) {
+  const endCol = _colLetter(values.length);
+  const range = encodeURIComponent(`${sheetName}!A${rowNum}:${endCol}${rowNum}`);
+  const url =
+    `${SHEETS_BASE}/${spreadsheetId}/values/${range}` +
+    `?valueInputOption=USER_ENTERED`;
+
+  const response = await apiFetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values: [values] }),
+  });
+
+  if (!response.ok) await _throwSheetsError(response, 'updateRow');
+}
+
+/**
+ * Hard-deletes a row from the sheet. All rows below shift up by one.
+ * Uses the batchUpdate deleteDimension request, which requires the numeric
+ * sheet tab ID (not the name) — resolved via _getSheetTabId.
+ *
+ * @param {string} spreadsheetId
+ * @param {string} sheetName - "Expenses" or "Mileage"
+ * @param {number} rowNum - 1-based sheet row number (as returned by readRows)
+ * @returns {Promise<void>}
+ */
+export async function deleteRow(spreadsheetId, sheetName, rowNum) {
+  const sheetId = await _getSheetTabId(spreadsheetId, sheetName);
+
+  // DeleteDimensionRequest uses 0-based half-open [startIndex, endIndex).
+  // Sheet row 1 = index 0, row 2 = index 1, etc.
+  const startIndex = rowNum - 1;
+
+  const response = await apiFetch(`${SHEETS_BASE}/${spreadsheetId}:batchUpdate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      requests: [{
+        deleteDimension: {
+          range: {
+            sheetId,
+            dimension: 'ROWS',
+            startIndex,
+            endIndex: startIndex + 1,
+          },
+        },
+      }],
+    }),
+  });
+
+  if (!response.ok) await _throwSheetsError(response, 'deleteRow');
+}
