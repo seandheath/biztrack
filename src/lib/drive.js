@@ -58,6 +58,23 @@ export async function createFolder(name, parentId) {
 }
 
 /**
+ * Lists names of all non-trashed files (non-folder) directly inside a folder.
+ * Used to enumerate existing receipt filenames for increment generation.
+ *
+ * @param {string} parentId - Parent folder ID
+ * @returns {Promise<string[]>} Array of file names
+ */
+export async function listFileNames(parentId) {
+  const q = `'${parentId}' in parents and mimeType!='${FOLDER_MIME}' and trashed=false`;
+  const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(name)&pageSize=1000`;
+
+  const response = await apiFetch(url);
+  if (!response.ok) await _throwDriveError(response, 'listFileNames');
+  const data = await response.json();
+  return (data.files ?? []).map((f) => f.name);
+}
+
+/**
  * Lists all non-trashed folders directly inside a parent folder.
  *
  * @param {string} parentId - Parent folder ID

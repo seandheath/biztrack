@@ -10,9 +10,12 @@ export default {
     sveltekit(),
     SvelteKitPWA({
       registerType: 'autoUpdate',
-      // Workbox precaches the app shell (HTML, CSS, JS, icons).
-      // API calls to Google are NOT cached — always network.
-      workbox: {
+      // injectManifest: custom sw.js handles Web Share Target (Phase 9.4).
+      // Workbox precache manifest is injected at build time via self.__WB_MANIFEST.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'service-worker.js',
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}']
       },
       manifest: {

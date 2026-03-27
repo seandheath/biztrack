@@ -18,14 +18,17 @@
     selectedBusiness,
     businessConfig,
     vendorCache,
+    pendingReceipt,
   } from '$lib/store.js';
   import { downloadJson } from '$lib/drive.js';
   import { appendRow, readColumn } from '$lib/sheets.js';
   import { ensureYearFolder } from '$lib/business.js';
-  import { findFile } from '$lib/drive.js';
+  import { findFile, listFileNames, uploadFile } from '$lib/drive.js';
+  import { processReceipt, generateFilename } from '$lib/receipt.js';
   import { QUICKBOOKS_CATEGORIES, IRS_RATES } from '$lib/constants.js';
   import BusinessDropdown from '../components/BusinessDropdown.svelte';
   import VendorAutocomplete from '../components/VendorAutocomplete.svelte';
+  import ReceiptPicker from '../components/ReceiptPicker.svelte';
   import Toast from '../components/Toast.svelte';
 
   // ---------------------------------------------------------------------------
@@ -53,6 +56,7 @@
   let expCategory  = $state('');
   let expPayment   = $state('');
   let expNotes     = $state('');
+  let expReceipt   = $state(/** @type {File|null} */(null));
   let expErrors    = $state(/** @type {Record<string,string>} */({}));
   let expSubmitting = $state(false);
 
@@ -193,8 +197,18 @@
         selectedBusiness.set(biz);
       }
 
-      const spreadsheetId = biz.sheetIds[year];
-      const amount = parseFloat(expAmount).toFixed(2);
+      const spreadsheetId   = biz.sheetIds[year];
+      const receiptFolderId = biz.receiptFolderIds[year];
+      const amount          = parseFloat(expAmount).toFixed(2);
+
+      // Upload receipt if one is attached
+      let receiptFilename = '';
+      if (expReceipt && receiptFolderId) {
+        const { blob, ext }   = await processReceipt(expReceipt);
+        const existingNames   = await listFileNames(receiptFolderId);
+        receiptFilename       = generateFilename(expVendor.trim(), expDate, ext, existingNames);
+        await uploadFile(receiptFilename, blob, blob.type || 'application/octet-stream', receiptFolderId);
+      }
 
       await appendRow(spreadsheetId, 'Expenses', [
         expDate,
@@ -203,7 +217,7 @@
         amount,
         expCategory,
         expPayment,
-        '',          // Receipt column — filled in Phase 9
+        receiptFilename,
         expNotes.trim(),
       ]);
 
@@ -214,11 +228,12 @@
       );
 
       // Clear fields — preserve date, category, payment for rapid entry
-      expVendor = '';
-      expDesc   = '';
-      expAmount = '';
-      expNotes  = '';
-      expErrors = {};
+      expVendor   = '';
+      expDesc     = '';
+      expAmount   = '';
+      expNotes    = '';
+      expReceipt  = null;
+      expErrors   = {};
 
       showToast('Expense saved!', 'success');
 
@@ -244,6 +259,11 @@
   onMount(() => {
     if ($selectedBusiness) {
       loadBusinessData($selectedBusiness);
+    }
+    // Pick up any receipt shared from another app via Android Web Share Target
+    if ($pendingReceipt) {
+      expReceipt = $pendingReceipt;
+      pendingReceipt.set(null);
     }
   });
 </script>
@@ -402,6 +422,14 @@
             {#if expErrors.payment}
               <span class="text-xs" style="color: var(--color-error);">{expErrors.payment}</span>
             {/if}
+          </div>
+
+          <!-- Receipt -->
+          <div class="flex flex-col gap-1">
+            <label class="text-sm font-medium" style="color: var(--color-text-muted);">
+              Receipt <span style="color: var(--color-text-muted); font-weight: 400;">(optional)</span>
+            </label>
+            <ReceiptPicker bind:file={expReceipt} />
           </div>
 
           <!-- Notes -->
