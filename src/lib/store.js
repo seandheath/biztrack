@@ -78,6 +78,14 @@ export const businessConfig = writable(null);
  */
 export const vendorCache = writable(storage.get(KEY_VENDOR_CACHE, []));
 
+/**
+ * A receipt File shared via the Android Web Share Target.
+ * Set by the /share route on mount; cleared by the expense form after attaching.
+ * NOT persisted — the file blob is held in the SW cache until consumed.
+ * @type {import('svelte/store').Writable<File|null>}
+ */
+export const pendingReceipt = writable(null);
+
 // ---------------------------------------------------------------------------
 // Persistence subscriptions
 // ---------------------------------------------------------------------------
