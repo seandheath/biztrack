@@ -1,4 +1,5 @@
 <script>
+  import { goto } from '$app/navigation';
   import { userEmail, businesses, selectedBusiness } from '$lib/store.js';
   import { revokeToken } from '$lib/auth.js';
   import { get } from 'svelte/store';
@@ -7,13 +8,19 @@
     revokeToken();
   }
 
-  function deleteBusiness(business) {
+  function deleteBusiness(e, business) {
+    e.preventDefault();
+    e.stopPropagation();
     businesses.update((list) => list.filter((b) => b.name !== business.name));
-    // If this was the selected business, select the first remaining one (or null)
     if (get(selectedBusiness)?.name === business.name) {
       const remaining = get(businesses);
       selectedBusiness.set(remaining[0] ?? null);
     }
+  }
+
+  function openBusiness(business) {
+    selectedBusiness.set(business);
+    goto('/settings/business-config');
   }
 </script>
 
@@ -26,11 +33,21 @@
     </h2>
     <div class="rounded-xl border divide-y overflow-hidden" style="border-color: var(--color-border); background-color: var(--color-surface-2);">
       {#each $businesses as business (business.name)}
-        <div class="flex items-center justify-between px-4" style="min-height: 48px;">
-          <span class="text-base truncate" style="color: var(--color-text);">{business.name}</span>
+        <div
+          role="button"
+          tabindex="0"
+          onclick={() => openBusiness(business)}
+          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') openBusiness(business); }}
+          class="flex items-center justify-between px-4 hover:opacity-70 transition-opacity cursor-pointer"
+          style="min-height: 48px;"
+        >
+          <span class="text-base truncate flex-1" style="color: var(--color-text);">{business.name}</span>
+          <svg class="w-4 h-4 flex-shrink-0 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-text-muted);">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          </svg>
           <button
-            onclick={() => deleteBusiness(business)}
-            class="ml-3 flex-shrink-0 rounded p-1 hover:opacity-70 transition-opacity"
+            onclick={(e) => deleteBusiness(e, business)}
+            class="flex-shrink-0 rounded p-1 hover:opacity-70 transition-opacity"
             aria-label="Remove {business.name}"
             style="color: var(--color-text-muted);"
           >
@@ -46,45 +63,6 @@
         style="color: var(--color-primary); min-height: 48px;"
       >
         <span class="text-base">Add Business</span>
-        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-        </svg>
-      </a>
-    </div>
-  </section>
-
-  <!-- Per-business settings -->
-  <section>
-    <h2 class="text-xs font-semibold uppercase tracking-wider mb-2 px-1" style="color: var(--color-text-muted);">
-      Per-Business
-    </h2>
-    <div class="rounded-xl border divide-y overflow-hidden" style="border-color: var(--color-border); background-color: var(--color-surface-2);">
-      <a
-        href="/settings/name"
-        class="flex items-center justify-between px-4 hover:opacity-70 transition-opacity"
-        style="color: var(--color-text);"
-      >
-        <span class="text-base">Business Name</span>
-        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-        </svg>
-      </a>
-      <a
-        href="/settings/payments"
-        class="flex items-center justify-between px-4 hover:opacity-70 transition-opacity"
-        style="color: var(--color-text);"
-      >
-        <span class="text-base">Payment Methods</span>
-        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-        </svg>
-      </a>
-      <a
-        href="/settings/favorites"
-        class="flex items-center justify-between px-4 hover:opacity-70 transition-opacity"
-        style="color: var(--color-text);"
-      >
-        <span class="text-base">Mileage Favorites</span>
         <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
         </svg>
