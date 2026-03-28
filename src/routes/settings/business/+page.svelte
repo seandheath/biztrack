@@ -260,7 +260,7 @@
 
       <!-- Optional parent folder -->
       <div class="flex flex-col gap-1">
-        <label class="text-xs" style="color: var(--color-text-muted);">Store Inside (optional)</label>
+        <span class="text-xs" style="color: var(--color-text-muted);">Store Inside (optional)</span>
         <button
           onclick={() => openBrowser('parent')}
           disabled={loading}
