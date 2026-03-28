@@ -23,6 +23,7 @@ const EXPENSE_HEADERS = [
   'Payment Method',
   'Receipt',
   'Notes',
+  'Submitted By',
 ];
 
 const MILEAGE_HEADERS = [

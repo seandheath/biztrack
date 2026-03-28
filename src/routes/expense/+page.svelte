@@ -16,6 +16,7 @@
     businessConfig,
     vendorCache,
     pendingReceipt,
+    userEmail,
   } from '$lib/store.js';
   import { downloadJson, findFile, listFileNames, uploadFile } from '$lib/drive.js';
   import { appendRow, readColumn } from '$lib/sheets.js';
@@ -202,6 +203,7 @@
         expPayment,
         receiptFilename,
         expNotes.trim(),
+        $userEmail ?? '',
       ]);
 
       // Update vendor autocomplete cache
