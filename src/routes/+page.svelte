@@ -135,9 +135,16 @@
                 <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.vendor}</span>
                 <span class="text-xs" style="color: var(--color-text-muted);">{row.date}{row.category ? ' · ' + row.category : ''}</span>
               </div>
-              <span class="text-sm font-semibold flex-shrink-0" style="color: var(--color-primary);">
-                ${row.amount}
-              </span>
+              <div class="flex items-center gap-1.5 flex-shrink-0">
+                {#if row.syncStatus !== 'synced'}
+                  <span
+                    class="w-2 h-2 rounded-full"
+                    title={row.syncStatus === 'error' ? 'Sync failed' : row.syncStatus === 'conflict' ? 'Conflict' : 'Saving…'}
+                    style="background-color: {row.syncStatus === 'error' ? 'var(--color-error)' : row.syncStatus === 'conflict' ? '#f59e0b' : 'var(--color-text-muted)'};"
+                  ></span>
+                {/if}
+                <span class="text-sm font-semibold" style="color: var(--color-primary);">${row.amount}</span>
+              </div>
             </a>
           {/each}
         </div>

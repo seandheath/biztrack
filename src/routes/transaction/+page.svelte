@@ -21,6 +21,7 @@
 
   let loading = $state(true);
   let loadError = $state('');
+  let syncStatus = $state('');
   let deleting = $state(false);
   let confirmDelete = $state(false);
   let deleteError = $state('');
@@ -169,6 +170,7 @@
             submittedBy: local.submittedBy   ?? '',
           };
         }
+        syncStatus = local.syncStatus;
       } else {
         // Fallback: read from Sheets (covers shared links and pre-migration data)
         if (type === 'mileage') {
@@ -330,6 +332,15 @@
               <span class="text-sm text-right truncate max-w-[60%]" style="color: var(--color-text-muted);">{fields.submittedBy}</span>
             </div>
           {/if}
+        {/if}
+
+        {#if syncStatus && syncStatus !== 'synced'}
+          <div class="flex justify-between items-baseline gap-3 py-0.5 mt-1">
+            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Sync</span>
+            <span class="text-sm text-right" style="color: {syncStatus === 'error' ? 'var(--color-error)' : syncStatus === 'conflict' ? '#f59e0b' : 'var(--color-text-muted)'};">
+              {syncStatus === 'pending' ? 'Saving locally…' : syncStatus === 'error' ? 'Sync failed' : 'Conflict'}
+            </span>
+          </div>
         {/if}
 
       </div>
