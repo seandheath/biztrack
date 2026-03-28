@@ -187,7 +187,7 @@
                     style="background-color: {row.syncStatus === 'error' ? 'var(--color-error)' : row.syncStatus === 'conflict' ? '#f59e0b' : 'var(--color-text-muted)'};"
                   ></span>
                 {/if}
-                <span class="text-sm font-semibold" style="color: var(--color-primary);">${row.amount}</span>
+                <span class="text-sm font-semibold" style="color: var(--color-primary);">${Number(row.amount).toFixed(2)}</span>
               </div>
             </a>
           {:else}

@@ -162,7 +162,7 @@
             date:        local.date          ?? '',
             vendor:      local.vendor        ?? '',
             desc:        local.description   ?? '',
-            amount:      String(local.amount ?? ''),
+            amount:      local.amount != null ? Number(local.amount).toFixed(2) : '',
             category:    local.category      ?? '',
             payment:     local.paymentMethod ?? '',
             receipt:     local.receiptDriveId ?? '',
