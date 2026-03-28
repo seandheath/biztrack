@@ -24,6 +24,7 @@ const EXPENSE_HEADERS = [
   'Receipt',
   'Notes',
   'Submitted By',
+  'ID',
 ];
 
 const MILEAGE_HEADERS = [
@@ -318,6 +319,42 @@ export async function readRows(spreadsheetId, sheetName) {
   const rowNums = dataRows.map((_, i) => i + 2);
 
   return { rows, rowNums };
+}
+
+/**
+ * Reads a single data row by 1-based row number.
+ * Returns a flat string array of cell values (A through J), padded with empty strings.
+ *
+ * @param {string} spreadsheetId
+ * @param {string} sheetName
+ * @param {number} rowNum - 1-based sheet row number
+ * @returns {Promise<string[]>}
+ */
+export async function readRow(spreadsheetId, sheetName, rowNum) {
+  const range = encodeURIComponent(`${sheetName}!A${rowNum}:J${rowNum}`);
+  const url = `${SHEETS_BASE}/${spreadsheetId}/values/${range}`;
+
+  const response = await apiFetch(url);
+  if (!response.ok) await _throwSheetsError(response, 'readRow');
+
+  const data = await response.json();
+  const row = data.values?.[0] ?? [];
+  return Array.from({ length: 10 }, (_, i) => String(row[i] ?? ''));
+}
+
+/**
+ * Scans column J (ID) of the Expenses sheet for a transaction UUID.
+ * Returns the 1-based row number of the matching row, or null if not found.
+ *
+ * @param {string} spreadsheetId
+ * @param {string} txnId - UUID to search for
+ * @returns {Promise<number|null>}
+ */
+export async function findRowByTxnId(spreadsheetId, txnId) {
+  const ids = await readColumn(spreadsheetId, 'Expenses', 'J');
+  const idx = ids.findIndex((v) => v === txnId);
+  if (idx === -1) return null;
+  return idx + 2; // row 1 is header; data index 0 → sheet row 2
 }
 
 /**

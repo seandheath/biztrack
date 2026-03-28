@@ -59,7 +59,34 @@
       payment:  raw[5] ?? '',
       receipt:  raw[6] ?? '',
       notes:    raw[7] ?? '',
+      // raw[8] = submittedBy (not displayed on home page)
+      txnId:    raw[9] ?? '',
     };
+  }
+
+  function buildShareUrl(bizId, year, txnId) {
+    const u = new URL('/expense', window.location.origin);
+    u.searchParams.set('biz',  bizId);
+    u.searchParams.set('year', String(year));
+    u.searchParams.set('txn',  txnId);
+    return u.toString();
+  }
+
+  async function shareRow(row) {
+    const year = new Date(row.date + 'T00:00:00').getFullYear();
+    const url = buildShareUrl($selectedBusiness.id, year, row.txnId);
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'Complete this expense', url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        toastMessage = 'Link copied!';
+        toastType    = 'success';
+        toastVisible = true;
+      }
+    } catch {
+      // User cancelled share
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -257,6 +284,21 @@
                   >
                     Close
                   </button>
+                  {#if row.txnId && $selectedBusiness?.id}
+                    <button
+                      type="button"
+                      onclick={() => shareRow(row)}
+                      class="rounded-xl text-sm px-4 font-medium transition-opacity hover:opacity-80"
+                      style="
+                        min-height: 40px;
+                        background-color: var(--color-surface-2);
+                        color: var(--color-text);
+                        border: 1px solid var(--color-border);
+                      "
+                    >
+                      Share
+                    </button>
+                  {/if}
                   <a
                     href="/history"
                     class="flex-1 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-opacity hover:opacity-80"
