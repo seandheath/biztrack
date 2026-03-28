@@ -5,9 +5,10 @@
    * Allows editing the business name and links to payment/mileage sub-settings.
    */
 
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { businesses, selectedBusiness, businessConfig } from '$lib/store.js';
-  import { saveConfig } from '$lib/business.js';
+  import { loadConfig, saveConfig } from '$lib/business.js';
   import { get } from 'svelte/store';
 
   // Snapshot the business at load time so name changes don't cause reactivity issues
@@ -22,6 +23,17 @@
 
   /** @type {string} */
   let error = $state('');
+
+  /** @type {boolean} */
+  let configLoading = $state(false);
+
+  onMount(async () => {
+    if (!get(businessConfig) && initialBiz) {
+      configLoading = true;
+      try { await loadConfig(initialBiz); }
+      finally { configLoading = false; }
+    }
+  });
 
   async function handleSave() {
     const trimmed = name.trim();
@@ -108,7 +120,7 @@
         />
         <button
           onclick={handleSave}
-          disabled={saving || !name.trim() || name.trim() === $selectedBusiness?.name}
+          disabled={saving || configLoading || !name.trim() || name.trim() === $selectedBusiness?.name}
           class="rounded-xl px-4 font-semibold text-sm transition-opacity hover:opacity-80 disabled:opacity-40 flex-shrink-0"
           style="
             min-height: 48px;
