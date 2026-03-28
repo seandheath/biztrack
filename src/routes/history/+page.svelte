@@ -7,8 +7,9 @@
    */
 
   import { onMount } from 'svelte';
+  import { liveQuery } from 'dexie';
   import { selectedBusiness } from '$lib/store.js';
-  import { readRows } from '$lib/sheets.js';
+  import { db } from '$lib/db/dexie.js';
 
   // ---------------------------------------------------------------------------
   // Tab / year state
@@ -24,97 +25,49 @@
       .reverse()
   );
 
-  /** Currently selected year string. */
-  let selectedYear = $state('');
-
-  /** Spreadsheet ID for the selected year. */
-  let spreadsheetId = $derived($selectedBusiness?.sheetIds?.[selectedYear] ?? null);
+  /** Currently selected year (number). */
+  let selectedYear = $state(new Date().getFullYear());
 
   // ---------------------------------------------------------------------------
-  // Row state
+  // Live row state — driven by Dexie liveQuery
   // ---------------------------------------------------------------------------
 
-  /** @type {Array<Object>} */
+  /** @type {import('$lib/db/dexie.js').Transaction[]} */
   let rows = $state([]);
-  let loading = $state(false);
-  let loadError = $state('');
+
+  // Re-subscribe whenever business, year, or tab changes.
+  $effect(() => {
+    const bizId = $selectedBusiness?.id;
+    const year  = Number(selectedYear);
+    const type  = activeTab; // tracked as reactive dependency
+
+    if (!bizId || !year) { rows = []; return; }
+
+    const sub = liveQuery(() =>
+      db.transactions
+        .where('[businessId+type+year]')
+        .equals([bizId, type, year])
+        .toArray()
+        .then((arr) => arr.sort((a, b) => b.date.localeCompare(a.date)))
+    ).subscribe({
+      next:  (r) => { rows = r; },
+      error: (err) => { console.error('[history] liveQuery:', err); },
+    });
+
+    return () => sub.unsubscribe();
+  });
 
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 
-  function friendlyError(err) {
-    const msg = err?.message ?? '';
-    if (msg.includes('401')) return 'Session expired. Please sign in again.';
-    if (msg.includes('403')) return 'Permission denied. Check Drive sharing.';
-    return 'Network error. Try again.';
-  }
-
-  /** Parse a flat string array from Sheets into a typed expense object. */
-  function parseExpenseRow(raw, rowNum) {
-    return {
-      rowNum,
-      date:     raw[0] ?? '',
-      vendor:   raw[1] ?? '',
-      desc:     raw[2] ?? '',
-      amount:   raw[3] ?? '',
-      category: raw[4] ?? '',
-      payment:  raw[5] ?? '',
-      receipt:  raw[6] ?? '',
-      notes:    raw[7] ?? '',
-      // raw[8] = submittedBy (not displayed in history)
-      txnId:    raw[9] ?? '',
-    };
-  }
-
-  /** Parse a flat string array from Sheets into a typed mileage object. */
-  function parseMileageRow(raw, rowNum) {
-    return {
-      rowNum,
-      date:      raw[0] ?? '',
-      from:      raw[1] ?? '',
-      to:        raw[2] ?? '',
-      purpose:   raw[3] ?? '',
-      miles:     raw[4] ?? '',
-      rate:      raw[5] ?? '',
-      deduction: raw[6] ?? '',
-      txnId:     raw[7] ?? '',
-    };
-  }
-
-  function transactionUrl(row, type = 'expense') {
+  function transactionUrl(row) {
     const u = new URL('/transaction', window.location.origin);
     u.searchParams.set('biz',  $selectedBusiness.id);
     u.searchParams.set('year', String(selectedYear));
-    u.searchParams.set('txn',  row.txnId);
-    if (type === 'mileage') u.searchParams.set('type', 'mileage');
+    u.searchParams.set('txn',  row.id);
+    if (activeTab === 'mileage') u.searchParams.set('type', 'mileage');
     return u.toString();
-  }
-
-  // ---------------------------------------------------------------------------
-  // Data loading
-  // ---------------------------------------------------------------------------
-
-  async function loadRows() {
-    if (!spreadsheetId) { rows = []; return; }
-    loading = true;
-    loadError = '';
-    try {
-      const sheetName = activeTab === 'expense' ? 'Expenses' : 'Mileage';
-      const { rows: raw, rowNums } = await readRows(spreadsheetId, sheetName);
-      const parsed = raw.map((r, i) =>
-        activeTab === 'expense'
-          ? parseExpenseRow(r, rowNums[i])
-          : parseMileageRow(r, rowNums[i])
-      );
-      // Most recent first
-      rows = parsed.toReversed();
-    } catch (err) {
-      console.error('[history] loadRows:', err);
-      loadError = friendlyError(err);
-    } finally {
-      loading = false;
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -125,8 +78,8 @@
     if ($selectedBusiness) {
       const years = Object.keys($selectedBusiness.sheetIds ?? {}).sort().reverse();
       const currentYear = String(new Date().getFullYear());
-      selectedYear = years.includes(currentYear) ? currentYear : (years[0] ?? '');
-      if (selectedYear) loadRows();
+      const bestYear = years.includes(currentYear) ? currentYear : (years[0] ?? String(currentYear));
+      selectedYear = Number(bestYear);
     }
   });
 </script>
@@ -161,8 +114,8 @@
       <!-- Year selector -->
       {#if availableYears.length > 0}
         <select
-          bind:value={selectedYear}
-          onchange={loadRows}
+          value={String(selectedYear)}
+          onchange={(e) => { selectedYear = Number(e.target.value); }}
           class="text-sm"
           style="min-height: 40px; flex-shrink: 0;"
           aria-label="Select year"
@@ -186,7 +139,7 @@
             type="button"
             role="tab"
             aria-selected={activeTab === tab}
-            onclick={() => { activeTab = tab; loadRows(); }}
+            onclick={() => { activeTab = tab; }}
             class="flex-1 text-sm font-medium capitalize transition-colors"
             style="
               min-height: 40px;
@@ -200,40 +153,24 @@
       </div>
     </div>
 
-    <!-- Loading -->
-    {#if loading}
-      <div class="flex items-center justify-center py-12 gap-3">
-        <svg class="w-5 h-5 animate-spin" style="color: var(--color-text-muted);" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
-        </svg>
-        <span class="text-sm" style="color: var(--color-text-muted);">Loading…</span>
-      </div>
-
-    <!-- Load error -->
-    {:else if loadError}
-      <p class="text-sm rounded-xl px-4 py-3" style="color: var(--color-error); background-color: var(--color-surface-2);">
-        {loadError}
-      </p>
-
     <!-- Empty state -->
-    {:else if rows.length === 0 && selectedYear}
+    {#if rows.length === 0}
       <div class="text-center py-12">
         <p class="text-base" style="color: var(--color-text-muted);">
           No {activeTab} entries in {selectedYear}.
         </p>
       </div>
 
-    <!-- Row list -->
+    <!-- Row list — keyed by UUID, reactive via liveQuery -->
     {:else}
       <div
         class="rounded-xl border overflow-hidden divide-y"
         style="border-color: var(--color-border); background-color: var(--color-surface-2);"
       >
-        {#each rows as row (row.rowNum)}
+        {#each rows as row (row.id)}
           {#if activeTab === 'expense'}
             <a
-              href={transactionUrl(row, 'expense')}
+              href={transactionUrl(row)}
               class="w-full flex items-center justify-between px-4 hover:opacity-80 transition-opacity"
               style="min-height: 52px; display: flex;"
               aria-label="View entry from {row.date}"
@@ -246,7 +183,7 @@
             </a>
           {:else}
             <a
-              href={transactionUrl(row, 'mileage')}
+              href={transactionUrl(row)}
               class="w-full flex items-center justify-between px-4 hover:opacity-80 transition-opacity"
               style="min-height: 52px; display: flex;"
               aria-label="View entry from {row.date}"

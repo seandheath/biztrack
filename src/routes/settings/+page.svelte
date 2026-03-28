@@ -3,6 +3,10 @@
   import { userEmail, businesses, selectedBusiness } from '$lib/store.js';
   import { revokeToken } from '$lib/auth.js';
 
+  // Injected by vite.config.js at build time
+  /* global __APP_VERSION__ */
+  const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
+
   function signOut() {
     revokeToken();
   }
@@ -71,5 +75,12 @@
       </button>
     </div>
   </section>
+
+  <!-- App version -->
+  {#if appVersion}
+    <p class="text-center text-xs pb-2" style="color: var(--color-text-muted);">
+      BizTrack v{appVersion}
+    </p>
+  {/if}
 
 </div>

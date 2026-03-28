@@ -8,15 +8,18 @@
     requestToken,
     refreshToken,
     revokeToken,
+    attemptSilentAuth,
+    isTokenValid,
     getTokenSecondsRemaining,
     onTokenUpdate,
     onAuthRequired,
   } from '$lib/auth.js';
   import { get } from 'svelte/store';
-  import { authToken, userEmail, isAuthenticated, businesses } from '$lib/store.js';
+  import { authToken, userEmail, isAuthenticated, businesses, selectedBusiness } from '$lib/store.js';
   import { ensureBizTrackFolder, loadProfile, saveProfile } from '$lib/profile.js';
   import { loadConfig } from '$lib/business.js';
   import * as storage from '$lib/storage.js';
+  import { startSyncEngine, stopSyncEngine, pullTransactions } from '$lib/services/sync.js';
 
   /** @type {{ children: import('svelte').Snippet }} */
   let { children } = $props();
@@ -108,7 +111,25 @@
 
   const IOS_PROMPT_KEY = 'biztrack_ios_prompt_dismissed';
 
-  onMount(() => {
+  onMount(async () => {
+    // Attempt silent re-auth if there's no valid token in sessionStorage but
+    // a login hint exists in localStorage from a prior session.
+    // This makes opening the app after a tab close feel instant — no popup
+    // as long as Google's session cookie is still alive (days to weeks lifetime).
+    if (!isTokenValid()) {
+      const hint = localStorage.getItem('bt_email_hint');
+      if (hint) {
+        try {
+          await loadGisScript();
+          initTokenClient();
+          await attemptSilentAuth(hint);
+          // Success — onTokenUpdate fires, auth stores update, app opens authenticated
+        } catch {
+          // Google session expired or user revoked — fall through to sign-in screen
+        }
+      }
+    }
+
     // Initialize online state and listen for changes
     isOnline = navigator.onLine;
     const setOnline  = () => { isOnline = true; };
@@ -131,11 +152,25 @@
     onTokenUpdate(({ token, email }) => {
       authToken.set(token);
       if (email) userEmail.set(email);
-      if (token) syncProfile();
+      if (token) {
+        syncProfile().then(() => {
+          // First-launch pull: seed Dexie from Sheets for the current business + year.
+          // Non-blocking — liveQuery components update as rows arrive.
+          const biz = get(businesses).find((b) => b.id === get(selectedBusiness)?.id) ?? get(businesses)[0];
+          if (biz?.id) {
+            const year = new Date().getFullYear();
+            pullTransactions(biz.id, year).catch((err) =>
+              console.warn('[layout] first-launch pull failed:', err)
+            );
+          }
+        });
+        startSyncEngine();
+      }
     });
     onAuthRequired(() => {
       authToken.set(null);
       userEmail.set(null);
+      stopSyncEngine();
     });
 
     // Check token expiry every 30 seconds (spec §4.2).
@@ -201,8 +236,9 @@
     }
   }
 
-  /** Called by Settings → Account sign-out button (wired in Phase 7) */
+  /** Called by Settings → Account sign-out button */
   export function handleSignOut() {
+    stopSyncEngine();
     revokeToken();
     // _onTokenUpdate fires → authToken.set(null) → sign-in screen shows
   }
@@ -323,7 +359,7 @@
       <svg class="w-4 h-4 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M12 12h.01M3 3l18 18" />
       </svg>
-      No connection — entries cannot be saved
+      No connection — changes will sync when online
     </div>
   {/if}
 

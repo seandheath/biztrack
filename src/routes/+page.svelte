@@ -11,82 +11,51 @@
 
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { liveQuery } from 'dexie';
   import { businesses, selectedBusiness, pendingReceipt } from '$lib/store.js';
-  import { readRows } from '$lib/sheets.js';
+  import { db } from '$lib/db/dexie.js';
   import BusinessDropdown from '../components/BusinessDropdown.svelte';
 
   // ---------------------------------------------------------------------------
-  // State
+  // Live state — driven by Dexie liveQuery
   // ---------------------------------------------------------------------------
 
-  let loading = $state(false);
-  let loadError = $state('');
-  /** @type {Array<{rowNum:number,date:string,vendor:string,desc:string,amount:string,category:string,payment:string,receipt:string,notes:string,txnId:string}>} */
+  /** @type {import('$lib/db/dexie.js').Transaction[]} */
   let rows = $state([]);
 
-  // ---------------------------------------------------------------------------
-  // Derived
-  // ---------------------------------------------------------------------------
+  // Re-subscribe whenever the selected business changes.
+  // $effect tracks $selectedBusiness reactively — when it changes, the old
+  // subscription is cleaned up and a new one starts.
+  $effect(() => {
+    const bizId = $selectedBusiness?.id;
+    if (!bizId) { rows = []; return; }
+    const year = new Date().getFullYear();
 
-  /** Spreadsheet ID for the current calendar year, if the selected business has one. */
-  let spreadsheetId = $derived(
-    $selectedBusiness?.sheetIds?.[String(new Date().getFullYear())] ?? null
-  );
+    const sub = liveQuery(() =>
+      db.transactions
+        .where('[businessId+type+year]')
+        .equals([bizId, 'expense', year])
+        .toArray()
+        .then((arr) => arr.sort((a, b) => b.date.localeCompare(a.date)))
+    ).subscribe({
+      next: (r) => { rows = r; },
+      error: (err) => { console.error('[home] liveQuery:', err); },
+    });
+
+    return () => sub.unsubscribe();
+  });
 
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
-
-  function friendlyError(err) {
-    const msg = err?.message ?? '';
-    if (msg.includes('401')) return 'Session expired. Please sign in again.';
-    if (msg.includes('403')) return 'Permission denied. Check Drive sharing.';
-    return 'Network error. Try again.';
-  }
-
-  /** Parse a flat string array (from Sheets) into a typed expense object. */
-  function parseExpenseRow(raw, rowNum) {
-    return {
-      rowNum,
-      date:     raw[0] ?? '',
-      vendor:   raw[1] ?? '',
-      desc:     raw[2] ?? '',
-      amount:   raw[3] ?? '',
-      category: raw[4] ?? '',
-      payment:  raw[5] ?? '',
-      receipt:  raw[6] ?? '',
-      notes:    raw[7] ?? '',
-      // raw[8] = submittedBy (not displayed on home page)
-      txnId:    raw[9] ?? '',
-    };
-  }
 
   function transactionUrl(row) {
     const year = new Date(row.date + 'T00:00:00').getFullYear();
     const u = new URL('/transaction', window.location.origin);
     u.searchParams.set('biz',  $selectedBusiness.id);
     u.searchParams.set('year', String(year));
-    u.searchParams.set('txn',  row.txnId);
+    u.searchParams.set('txn',  row.id);
     return u.toString();
-  }
-
-  // ---------------------------------------------------------------------------
-  // Data loading
-  // ---------------------------------------------------------------------------
-
-  async function loadRows() {
-    if (!spreadsheetId) { rows = []; return; }
-    loading = true;
-    loadError = '';
-    try {
-      const { rows: raw, rowNums } = await readRows(spreadsheetId, 'Expenses');
-      rows = raw.map((r, i) => parseExpenseRow(r, rowNums[i])).toReversed();
-    } catch (err) {
-      console.error('[home] loadRows:', err);
-      loadError = friendlyError(err);
-    } finally {
-      loading = false;
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -97,10 +66,6 @@
     // Redirect Android Web Share Target receipts to the entry form
     if ($pendingReceipt) {
       goto('/expense');
-      return;
-    }
-    if ($selectedBusiness && spreadsheetId) {
-      loadRows();
     }
   });
 </script>
@@ -132,30 +97,15 @@
 
     <!-- Business selector -->
     <div class="px-4 pt-3 pb-2 flex-shrink-0">
-      <BusinessDropdown onchange={() => loadRows()} />
+      <BusinessDropdown />
     </div>
 
     <!-- =====================================================================
-         Row list area — fills remaining space, scrollable when row expanded
+         Row list area — fills remaining space, scrollable
          ===================================================================== -->
     <div class="flex-1 overflow-y-auto px-4 pb-2">
 
-      {#if loading}
-        <!-- Loading spinner -->
-        <div class="flex items-center justify-center py-12 gap-3">
-          <svg class="w-5 h-5 animate-spin" style="color: var(--color-text-muted);" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
-          </svg>
-          <span class="text-sm" style="color: var(--color-text-muted);">Loading…</span>
-        </div>
-
-      {:else if loadError}
-        <p class="text-sm rounded-xl px-4 py-3 mt-2" style="color: var(--color-error); background-color: var(--color-surface-2);">
-          {loadError}
-        </p>
-
-      {:else if !$selectedBusiness}
+      {#if !$selectedBusiness}
         <p class="text-center py-12 text-sm" style="color: var(--color-text-muted);">
           Select a business above.
         </p>
@@ -169,12 +119,12 @@
         </div>
 
       {:else}
-        <!-- Row list -->
+        <!-- Row list — keyed by UUID, reactive via liveQuery -->
         <div
           class="rounded-xl border overflow-hidden divide-y"
           style="border-color: var(--color-border); background-color: var(--color-surface-2);"
         >
-          {#each rows as row (row.rowNum)}
+          {#each rows as row (row.id)}
             <a
               href={transactionUrl(row)}
               class="w-full flex items-center px-4 text-left hover:opacity-80 transition-opacity"

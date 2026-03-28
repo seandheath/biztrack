@@ -16,6 +16,7 @@
   } from '$lib/store.js';
   import { downloadJson, findFile } from '$lib/drive.js';
   import { appendRow, updateRow, readRow, findRowByTxnId } from '$lib/sheets.js';
+  import { enqueueCreate, enqueueUpdate } from '$lib/services/sync.js';
   import { ensureYearFolder, saveMileageFavorite } from '$lib/business.js';
   import { IRS_RATES } from '$lib/constants.js';
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
@@ -180,10 +181,6 @@
 
   async function submitMileage() {
     if (!validateMileage()) return;
-    if (!navigator.onLine) {
-      showToast('No connection. Please try again when online.', 'error');
-      return;
-    }
 
     milSubmitting = true;
     try {
@@ -198,25 +195,35 @@
 
       const rate      = milRate();
       const deduction = milDeduction();
-
-      const values = [
-        milDate,
-        milFrom.trim(),
-        milTo.trim(),
-        milPurpose.trim(),
-        parseFloat(milMiles),
-        rate,
-        parseFloat(deduction),
-      ];
+      const miles     = parseFloat(milMiles);
 
       if (editMode) {
-        await updateRow(editSheetId, 'Mileage', editRowNum, [...values, editTxnId]);
+        await enqueueUpdate(editTxnId, {
+          date:      milDate,
+          from:      milFrom.trim(),
+          to:        milTo.trim(),
+          purpose:   milPurpose.trim(),
+          miles,
+          irsRate:   rate,
+          deduction: parseFloat(deduction),
+        });
         showToast('Mileage updated!', 'success');
         goto('/');
         return;
       }
 
-      await appendRow(biz.sheetIds[year], 'Mileage', [...values, crypto.randomUUID()]);
+      await enqueueCreate({
+        businessId: biz.id,
+        type:       'mileage',
+        year,
+        date:       milDate,
+        from:       milFrom.trim(),
+        to:         milTo.trim(),
+        purpose:    milPurpose.trim(),
+        miles,
+        irsRate:    rate,
+        deduction:  parseFloat(deduction),
+      });
 
       // Clear fields — preserve date
       milFrom     = '';

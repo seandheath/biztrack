@@ -10,7 +10,9 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { businesses, selectedBusiness } from '$lib/store.js';
-  import { findRowByTxnId, readRow, deleteRow } from '$lib/sheets.js';
+  import { findRowByTxnId, readRow } from '$lib/sheets.js';
+  import { getTransaction } from '$lib/db/queries.js';
+  import { enqueueDelete } from '$lib/services/sync.js';
   import Toast from '../../components/Toast.svelte';
 
   // ---------------------------------------------------------------------------
@@ -100,8 +102,8 @@
     deleting = true;
     deleteError = '';
     try {
-      const sheetName = type === 'mileage' ? 'Mileage' : 'Expenses';
-      await deleteRow(spreadsheetId, sheetName, rowNum);
+      // Enqueue delete — sync engine removes from Sheets and then from Dexie
+      await enqueueDelete(txnId, bizId, year);
       goto('/');
     } catch (err) {
       console.error('[transaction] delete:', err);
@@ -138,36 +140,68 @@
       if (!sheetId) throw new Error(`No sheet found for ${year}.`);
       spreadsheetId = sheetId;
 
-      if (type === 'mileage') {
-        const rn = await findRowByTxnId(sheetId, txnId, 'Mileage', 'H');
-        if (rn === null) throw new Error('Mileage entry not found.');
-        rowNum = rn;
-        const raw = await readRow(sheetId, 'Mileage', rowNum);
-        fields = {
-          date:      raw[0] ?? '',
-          from:      raw[1] ?? '',
-          to:        raw[2] ?? '',
-          purpose:   raw[3] ?? '',
-          miles:     raw[4] ?? '',
-          rate:      raw[5] ?? '',
-          deduction: raw[6] ?? '',
-        };
+      // Try Dexie first (fast, works offline). Fall back to Sheets API if not found
+      // (e.g. shared link opened before first-launch pull, or legacy transaction).
+      const local = await getTransaction(txnId);
+
+      if (local) {
+        // Populate fields from Dexie
+        if (local.type === 'mileage') {
+          fields = {
+            date:      local.date      ?? '',
+            from:      local.from      ?? '',
+            to:        local.to        ?? '',
+            purpose:   local.purpose   ?? '',
+            miles:     String(local.miles     ?? ''),
+            rate:      String(local.irsRate   ?? ''),
+            deduction: String(local.deduction ?? ''),
+          };
+        } else {
+          fields = {
+            date:        local.date          ?? '',
+            vendor:      local.vendor        ?? '',
+            desc:        local.description   ?? '',
+            amount:      String(local.amount ?? ''),
+            category:    local.category      ?? '',
+            payment:     local.paymentMethod ?? '',
+            receipt:     local.receiptDriveId ?? '',
+            notes:       local.notes         ?? '',
+            submittedBy: local.submittedBy   ?? '',
+          };
+        }
       } else {
-        const rn = await findRowByTxnId(sheetId, txnId);
-        if (rn === null) throw new Error('Transaction not found.');
-        rowNum = rn;
-        const raw = await readRow(sheetId, 'Expenses', rowNum);
-        fields = {
-          date:        raw[0] ?? '',
-          vendor:      raw[1] ?? '',
-          desc:        raw[2] ?? '',
-          amount:      raw[3] ?? '',
-          category:    raw[4] ?? '',
-          payment:     raw[5] ?? '',
-          receipt:     raw[6] ?? '',
-          notes:       raw[7] ?? '',
-          submittedBy: raw[8] ?? '',
-        };
+        // Fallback: read from Sheets (covers shared links and pre-migration data)
+        if (type === 'mileage') {
+          const rn = await findRowByTxnId(sheetId, txnId, 'Mileage', 'H');
+          if (rn === null) throw new Error('Mileage entry not found.');
+          rowNum = rn;
+          const raw = await readRow(sheetId, 'Mileage', rowNum);
+          fields = {
+            date:      raw[0] ?? '',
+            from:      raw[1] ?? '',
+            to:        raw[2] ?? '',
+            purpose:   raw[3] ?? '',
+            miles:     raw[4] ?? '',
+            rate:      raw[5] ?? '',
+            deduction: raw[6] ?? '',
+          };
+        } else {
+          const rn = await findRowByTxnId(sheetId, txnId);
+          if (rn === null) throw new Error('Transaction not found.');
+          rowNum = rn;
+          const raw = await readRow(sheetId, 'Expenses', rowNum);
+          fields = {
+            date:        raw[0] ?? '',
+            vendor:      raw[1] ?? '',
+            desc:        raw[2] ?? '',
+            amount:      raw[3] ?? '',
+            category:    raw[4] ?? '',
+            payment:     raw[5] ?? '',
+            receipt:     raw[6] ?? '',
+            notes:       raw[7] ?? '',
+            submittedBy: raw[8] ?? '',
+          };
+        }
       }
     } catch (err) {
       console.error('[transaction] load:', err);

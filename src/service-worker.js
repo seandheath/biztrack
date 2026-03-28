@@ -13,6 +13,8 @@
 
 import { cleanupOutdatedCaches, precacheAndRoute, createHandlerBoundToURL } from 'workbox-precaching';
 import { NavigationRoute, registerRoute } from 'workbox-routing';
+import { CacheFirst, NetworkFirst, NetworkOnly } from 'workbox-strategies';
+import { ExpirationPlugin } from 'workbox-expiration';
 
 // Remove precache entries from previous SW installs
 cleanupOutdatedCaches();
@@ -61,6 +63,68 @@ self.addEventListener('fetch', (event) => {
     })()
   );
 });
+
+// ---------------------------------------------------------------------------
+// Background Sync — wake the sync engine in the main thread
+// ---------------------------------------------------------------------------
+// The actual queue flush runs in the main thread (sync.ts), not in the SW.
+// The SW just posts a message to all open clients when the sync tag fires.
+
+self.addEventListener('sync', (event) => {
+  if (event.tag !== 'sync-transactions') return;
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: 'window', includeUncontrolled: false })
+      .then((clients) => clients.forEach((c) => c.postMessage({ type: 'BG_SYNC' })))
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Static assets — cache-first, 30-day expiration
+// Cache JS/CSS/images/fonts that are already fingerprinted by Vite.
+// ---------------------------------------------------------------------------
+
+registerRoute(
+  ({ request }) =>
+    request.destination === 'image' ||
+    request.destination === 'font'  ||
+    request.destination === 'style' ||
+    request.destination === 'script',
+  new CacheFirst({
+    cacheName: 'static-assets',
+    plugins: [
+      new ExpirationPlugin({ maxAgeSeconds: 30 * 24 * 60 * 60 }),
+    ],
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Google Sheets / Drive API — network-first, short cache fallback
+// IndexedDB (via Dexie liveQuery) is the real offline fallback; this cache
+// only covers the brief window before Dexie is hydrated on first load.
+// ---------------------------------------------------------------------------
+
+registerRoute(
+  ({ url }) =>
+    url.hostname === 'sheets.googleapis.com' ||
+    url.hostname === 'www.googleapis.com',
+  new NetworkFirst({
+    cacheName: 'api-responses',
+    networkTimeoutSeconds: 5,
+    plugins: [
+      new ExpirationPlugin({ maxEntries: 50, maxAgeSeconds: 24 * 60 * 60 }),
+    ],
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Google OAuth endpoints — network-only (tokens must never be cached)
+// ---------------------------------------------------------------------------
+
+registerRoute(
+  ({ url }) => url.hostname === 'accounts.google.com',
+  new NetworkOnly()
+);
 
 // ---------------------------------------------------------------------------
 // SPA navigation fallback — serve the precached app shell for all navigations
