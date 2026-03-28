@@ -26,8 +26,15 @@ export const GOOGLE_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY;
  */
 export const GOOGLE_APP_ID = import.meta.env.VITE_GOOGLE_APP_ID;
 
-/** Drive OAuth scope — non-sensitive, covers all Drive + Sheets ops on app-created files */
-export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+/**
+ * Drive OAuth scopes:
+ *   drive.file            — create/read/write files the app creates (expenses, receipts, config)
+ *   drive.metadata.readonly — list all user folders so the custom folder browser can navigate
+ *                             beyond app-created folders (required for "Select Existing Folder")
+ */
+export const DRIVE_SCOPE =
+  'https://www.googleapis.com/auth/drive.file ' +
+  'https://www.googleapis.com/auth/drive.metadata.readonly';
 
 // ---------------------------------------------------------------------------
 // Payment methods
