@@ -281,6 +281,14 @@
     }
   }
 
+  function handleAmountInput(e) {
+    const digits = e.target.value.replace(/\D/g, '');
+    if (!digits) { expAmount = ''; return; }
+    expAmount = (parseInt(digits, 10) / 100).toFixed(2);
+    // Rewrite displayed value so next keystroke appends to the formatted string
+    e.target.value = expAmount;
+  }
+
   function handleAmountBlur() {
     const val = parseFloat(expAmount);
     if (!isNaN(val)) expAmount = val.toFixed(2);
@@ -485,8 +493,9 @@
         <input
           id="exp-amount"
           type="text"
-          inputmode="decimal"
+          inputmode="numeric"
           bind:value={expAmount}
+          oninput={handleAmountInput}
           onblur={handleAmountBlur}
           placeholder="0.00"
           required
