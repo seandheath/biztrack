@@ -13,6 +13,7 @@
    */
 
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { selectedBusiness } from '$lib/store.js';
   import { readRows, updateRow, deleteRow } from '$lib/sheets.js';
   import { IRS_RATES } from '$lib/constants.js';
@@ -149,26 +150,12 @@
     };
   }
 
-  function buildShareUrl(year, txnId) {
-    const u = new URL('/expense', window.location.origin);
+  function transactionUrl(row) {
+    const u = new URL('/transaction', window.location.origin);
     u.searchParams.set('biz',  $selectedBusiness.id);
-    u.searchParams.set('year', String(year));
-    u.searchParams.set('txn',  txnId);
+    u.searchParams.set('year', String(selectedYear));
+    u.searchParams.set('txn',  row.txnId);
     return u.toString();
-  }
-
-  async function shareExpenseRow(fields) {
-    const url = buildShareUrl(selectedYear, fields.txnId);
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: 'Complete this expense', url });
-      } else {
-        await navigator.clipboard.writeText(url);
-        showToast('Link copied!', 'success');
-      }
-    } catch {
-      // User cancelled share
-    }
   }
 
   /** Parse a flat string array from Sheets into a typed mileage object. */
@@ -432,29 +419,34 @@
                Collapsed row summary
                --------------------------------------------------------------- -->
           {#if viewRowNum !== row.rowNum}
-            <button
-              type="button"
-              onclick={() => openView(row)}
-              class="w-full flex items-center justify-between px-4 text-left hover:opacity-80 transition-opacity"
-              style="min-height: 52px;"
-              aria-label="View entry from {row.date}"
-            >
-              <div class="flex flex-col gap-0.5 min-w-0 flex-1 pr-3">
-                <span class="text-xs" style="color: var(--color-text-muted);">{row.date}</span>
-                {#if activeTab === 'expense'}
+            {#if activeTab === 'expense'}
+              <a
+                href={transactionUrl(row)}
+                class="w-full flex items-center justify-between px-4 hover:opacity-80 transition-opacity"
+                style="min-height: 52px; display: flex;"
+                aria-label="View entry from {row.date}"
+              >
+                <div class="flex flex-col gap-0.5 min-w-0 flex-1 pr-3">
+                  <span class="text-xs" style="color: var(--color-text-muted);">{row.date}</span>
                   <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.vendor}</span>
-                {:else}
+                </div>
+                <span class="text-sm font-semibold flex-shrink-0" style="color: var(--color-primary);">${row.amount}</span>
+              </a>
+            {:else}
+              <button
+                type="button"
+                onclick={() => openView(row)}
+                class="w-full flex items-center justify-between px-4 text-left hover:opacity-80 transition-opacity"
+                style="min-height: 52px;"
+                aria-label="View entry from {row.date}"
+              >
+                <div class="flex flex-col gap-0.5 min-w-0 flex-1 pr-3">
+                  <span class="text-xs" style="color: var(--color-text-muted);">{row.date}</span>
                   <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.from} → {row.to}</span>
-                {/if}
-              </div>
-              <span class="text-sm font-semibold flex-shrink-0" style="color: var(--color-primary);">
-                {#if activeTab === 'expense'}
-                  ${row.amount}
-                {:else}
-                  {row.miles} mi
-                {/if}
-              </span>
-            </button>
+                </div>
+                <span class="text-sm font-semibold flex-shrink-0" style="color: var(--color-primary);">{row.miles} mi</span>
+              </button>
+            {/if}
 
           <!-- ---------------------------------------------------------------
                Read-only detail view
@@ -462,147 +454,56 @@
           {:else if editRowNum !== row.rowNum}
             <div class="px-4 py-4 flex flex-col gap-1.5">
 
-              {#if activeTab === 'expense'}
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Date</span>
-                  <span class="text-sm text-right" style="color: var(--color-text);">{row.date}</span>
-                </div>
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Vendor</span>
-                  <span class="text-sm text-right" style="color: var(--color-text);">{row.vendor}</span>
-                </div>
-                {#if row.desc}
-                  <div class="flex justify-between items-baseline gap-3 py-0.5">
-                    <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Description</span>
-                    <span class="text-sm text-right" style="color: var(--color-text);">{row.desc}</span>
-                  </div>
-                {/if}
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Amount</span>
-                  <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">${row.amount}</span>
-                </div>
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Category</span>
-                  <span class="text-sm text-right" style="color: var(--color-text);">{row.category}</span>
-                </div>
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Payment</span>
-                  <span class="text-sm text-right" style="color: var(--color-text);">{row.payment}</span>
-                </div>
-                {#if row.receipt}
-                  <div class="flex justify-between items-baseline gap-3 py-0.5">
-                    <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Receipt</span>
-                    <span class="text-sm text-right truncate max-w-[60%]" style="color: var(--color-text);">{row.receipt}</span>
-                  </div>
-                {/if}
-                {#if row.notes}
-                  <div class="flex justify-between items-baseline gap-3 py-0.5">
-                    <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Notes</span>
-                    <span class="text-sm text-right" style="color: var(--color-text);">{row.notes}</span>
-                  </div>
-                {/if}
-              {:else}
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Date</span>
-                  <span class="text-sm text-right" style="color: var(--color-text);">{row.date}</span>
-                </div>
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">From</span>
-                  <span class="text-sm text-right" style="color: var(--color-text);">{row.from}</span>
-                </div>
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">To</span>
-                  <span class="text-sm text-right" style="color: var(--color-text);">{row.to}</span>
-                </div>
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Purpose</span>
-                  <span class="text-sm text-right" style="color: var(--color-text);">{row.purpose}</span>
-                </div>
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Miles</span>
-                  <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">{row.miles} mi</span>
-                </div>
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">IRS Rate</span>
-                  <span class="text-sm text-right" style="color: var(--color-text);">${row.rate}/mi</span>
-                </div>
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Deduction</span>
-                  <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">${row.deduction}</span>
-                </div>
-              {/if}
-
-              <!-- Action row -->
-              {#if activeTab === 'expense'}
-                {#if editError}
-                  <p class="text-sm rounded-xl px-3 py-2 mt-1" style="color: var(--color-error); background-color: var(--color-surface-3);">
-                    {editError}
-                  </p>
-                {/if}
-                <div class="flex gap-2 pt-2 flex-wrap">
-                  <button
-                    type="button"
-                    onclick={closeView}
-                    class="rounded-xl text-sm px-4 flex-shrink-0 transition-opacity hover:opacity-70"
-                    style="min-height: 44px; background-color: var(--color-surface-3); color: var(--color-text-muted);"
-                  >
-                    Close
-                  </button>
-                  <button
-                    type="button"
-                    onclick={() => shareExpenseRow(editFields)}
-                    class="rounded-xl text-sm px-4 font-medium flex-shrink-0 transition-opacity hover:opacity-80"
-                    style="min-height: 44px; background-color: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border);"
-                  >
-                    Share
-                  </button>
-                  <button
-                    type="button"
-                    onclick={handleDelete}
-                    disabled={deleting}
-                    class="rounded-xl text-sm px-4 flex-shrink-0 disabled:opacity-50 transition-all"
-                    style="
-                      min-height: 44px;
-                      background-color: {confirmDelete ? 'var(--color-error)' : 'var(--color-surface-3)'};
-                      color: {confirmDelete ? '#ffffff' : 'var(--color-error)'};
-                    "
-                  >
-                    {#if deleting}Deleting…{:else if confirmDelete}Confirm delete?{:else}Delete{/if}
-                  </button>
-                  <a
-                    href={buildShareUrl(selectedYear, editFields.txnId)}
-                    class="flex-1 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80 flex items-center justify-center gap-2"
-                    style="min-height: 44px; background-color: var(--color-primary); color: var(--color-primary-text);"
-                  >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                    </svg>
-                    Edit
-                  </a>
-                </div>
-              {:else}
-                <div class="flex gap-2 pt-2">
-                  <button
-                    type="button"
-                    onclick={closeView}
-                    class="rounded-xl text-sm px-4 flex-shrink-0 transition-opacity hover:opacity-70"
-                    style="min-height: 44px; background-color: var(--color-surface-3); color: var(--color-text-muted);"
-                  >
-                    Close
-                  </button>
-                  <button
-                    type="button"
-                    onclick={startEdit}
-                    class="flex-1 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80 flex items-center justify-center gap-2"
-                    style="min-height: 44px; background-color: var(--color-primary); color: var(--color-primary-text);"
-                  >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                    </svg>
-                    Edit
-                  </button>
-                </div>
-              {/if}
+              <div class="flex justify-between items-baseline gap-3 py-0.5">
+                <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Date</span>
+                <span class="text-sm text-right" style="color: var(--color-text);">{row.date}</span>
+              </div>
+              <div class="flex justify-between items-baseline gap-3 py-0.5">
+                <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">From</span>
+                <span class="text-sm text-right" style="color: var(--color-text);">{row.from}</span>
+              </div>
+              <div class="flex justify-between items-baseline gap-3 py-0.5">
+                <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">To</span>
+                <span class="text-sm text-right" style="color: var(--color-text);">{row.to}</span>
+              </div>
+              <div class="flex justify-between items-baseline gap-3 py-0.5">
+                <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Purpose</span>
+                <span class="text-sm text-right" style="color: var(--color-text);">{row.purpose}</span>
+              </div>
+              <div class="flex justify-between items-baseline gap-3 py-0.5">
+                <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Miles</span>
+                <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">{row.miles} mi</span>
+              </div>
+              <div class="flex justify-between items-baseline gap-3 py-0.5">
+                <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">IRS Rate</span>
+                <span class="text-sm text-right" style="color: var(--color-text);">${row.rate}/mi</span>
+              </div>
+              <div class="flex justify-between items-baseline gap-3 py-0.5">
+                <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Deduction</span>
+                <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">${row.deduction}</span>
+              </div>
+              <!-- Action row (mileage only — expenses navigate to /transaction) -->
+              <div class="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onclick={closeView}
+                  class="rounded-xl text-sm px-4 flex-shrink-0 transition-opacity hover:opacity-70"
+                  style="min-height: 44px; background-color: var(--color-surface-3); color: var(--color-text-muted);"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onclick={startEdit}
+                  class="flex-1 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80 flex items-center justify-center gap-2"
+                  style="min-height: 44px; background-color: var(--color-primary); color: var(--color-primary-text);"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                  Edit
+                </button>
+              </div>
 
             </div>
 
