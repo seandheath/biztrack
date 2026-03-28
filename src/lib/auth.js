@@ -237,12 +237,15 @@ function _handleTokenError(error) {
  */
 async function _fetchUserEmail() {
   try {
-    const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-      headers: { Authorization: `Bearer ${_token}` },
-    });
+    // Use Drive About API (drive.file scope is sufficient) instead of the
+    // userinfo endpoint, which requires the 'email'/'openid' scope.
+    const resp = await fetch(
+      'https://www.googleapis.com/drive/v3/about?fields=user',
+      { headers: { Authorization: `Bearer ${_token}` } },
+    );
     if (resp.ok) {
       const data = await resp.json();
-      _userEmail = data.email ?? null;
+      _userEmail = data.user?.emailAddress ?? null;
       try { sessionStorage.setItem(_SS_EMAIL, _userEmail); } catch {}
       _onTokenUpdate?.({ token: _token, expiry: _tokenExpiry, email: _userEmail });
     }
@@ -330,6 +333,12 @@ export function onTokenUpdate(callback) {
   // authenticated without waiting for a new sign-in.
   if (_token && _tokenExpiry) {
     callback({ token: _token, expiry: _tokenExpiry, email: _userEmail });
+    // Email may be absent if _fetchUserEmail() failed or hadn't completed when
+    // the page was last navigated away from. Re-fetch it now so the Account
+    // section in Settings can display the signed-in address.
+    if (!_userEmail) {
+      _fetchUserEmail();
+    }
   }
 }
 
