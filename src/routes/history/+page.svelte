@@ -13,14 +13,9 @@
    */
 
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
-  import { selectedBusiness, businessConfig } from '$lib/store.js';
+  import { selectedBusiness } from '$lib/store.js';
   import { readRows, updateRow, deleteRow } from '$lib/sheets.js';
-  import { uploadFile, listFileNames } from '$lib/drive.js';
-  import { processReceipt, generateFilename } from '$lib/receipt.js';
-  import { IRS_RATES, QUICKBOOKS_CATEGORIES } from '$lib/constants.js';
-  import VendorAutocomplete from '../../components/VendorAutocomplete.svelte';
-  import ReceiptPicker from '../../components/ReceiptPicker.svelte';
+  import { IRS_RATES } from '$lib/constants.js';
   import Toast from '../../components/Toast.svelte';
 
   // ---------------------------------------------------------------------------
@@ -93,11 +88,6 @@
   let deleting = $state(false);
   let editError = $state('');
   let confirmDelete = $state(false);
-
-  /** New receipt file chosen by the user during edit. */
-  let receiptFile = $state(/** @type {File|null} */(null));
-  /** True if the user tapped "Remove" on an existing receipt. */
-  let receiptCleared = $state(false);
 
   // IRS rate derived from editFields.date (for mileage edit)
   let editMilRate = $derived.by(() => {
@@ -232,13 +222,11 @@
     viewRowNum = row.rowNum;
     editRowNum = null;
     editFields = { ...row };
-    receiptFile = null;
-    receiptCleared = false;
     confirmDelete = false;
     editError = '';
   }
 
-  /** Enter edit mode from the read-only view. */
+  /** Enter edit mode from the read-only view (mileage only). */
   function startEdit() {
     editRowNum = viewRowNum;
   }
@@ -246,8 +234,6 @@
   /** Cancel edit — return to read-only view. */
   function closeEdit() {
     editRowNum = null;
-    receiptFile = null;
-    receiptCleared = false;
     confirmDelete = false;
     editError = '';
   }
@@ -256,8 +242,6 @@
   function closeView() {
     viewRowNum = null;
     editRowNum = null;
-    receiptFile = null;
-    receiptCleared = false;
     confirmDelete = false;
     editError = '';
   }
@@ -271,62 +255,26 @@
     saving = true;
     editError = '';
     try {
-      const sheetName = activeTab === 'expense' ? 'Expenses' : 'Mileage';
-      let receiptFilename = editFields.receipt ?? '';
+      const rate = editMilRate;
+      const miles = parseFloat(editFields.miles || '0');
+      const deduction = isNaN(miles) ? 0 : parseFloat((miles * rate).toFixed(2));
+      const values = [
+        editFields.date,
+        editFields.from,
+        editFields.to,
+        editFields.purpose,
+        isNaN(miles) ? editFields.miles : miles,
+        rate,
+        deduction,
+      ];
 
-      if (receiptFile) {
-        // Upload replacement receipt
-        const receiptFolderId = $selectedBusiness?.receiptFolderIds?.[selectedYear];
-        if (receiptFolderId) {
-          const { blob, ext } = await processReceipt(receiptFile);
-          const existingNames = await listFileNames(receiptFolderId);
-          receiptFilename = generateFilename(
-            editFields.vendor ?? editFields.from ?? '',
-            editFields.date,
-            ext,
-            existingNames
-          );
-          await uploadFile(receiptFilename, blob, blob.type || 'application/octet-stream', receiptFolderId);
-        }
-      } else if (receiptCleared) {
-        receiptFilename = '';
-      }
-
-      let values;
-      if (activeTab === 'expense') {
-        values = [
-          editFields.date,
-          editFields.vendor,
-          editFields.desc,
-          parseFloat(editFields.amount || '0').toFixed(2),
-          editFields.category,
-          editFields.payment,
-          receiptFilename,
-          editFields.notes,
-        ];
-      } else {
-        const rate = editMilRate;
-        const miles = parseFloat(editFields.miles || '0');
-        const deduction = isNaN(miles) ? 0 : parseFloat((miles * rate).toFixed(2));
-        values = [
-          editFields.date,
-          editFields.from,
-          editFields.to,
-          editFields.purpose,
-          isNaN(miles) ? editFields.miles : miles,
-          rate,
-          deduction,
-        ];
-      }
-
-      await updateRow(spreadsheetId, sheetName, viewRowNum, values);
+      await updateRow(spreadsheetId, 'Mileage', viewRowNum, values);
 
       // Patch local rows without reloading
-      const updatedFields = activeTab === 'expense'
-        ? { ...editFields, receipt: receiptFilename }
-        : { ...editFields, rate: String(editMilRate), deduction: editMilDeduction };
       rows = rows.map((r) =>
-        r.rowNum === viewRowNum ? { ...r, ...updatedFields } : r
+        r.rowNum === viewRowNum
+          ? { ...r, ...editFields, rate: String(editMilRate), deduction: editMilDeduction }
+          : r
       );
 
       closeView();
@@ -585,50 +533,80 @@
               {/if}
 
               <!-- Action row -->
-              <div class="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onclick={closeView}
-                  class="rounded-xl text-sm px-4 flex-shrink-0 transition-opacity hover:opacity-70"
-                  style="
-                    min-height: 44px;
-                    background-color: var(--color-surface-3);
-                    color: var(--color-text-muted);
-                  "
-                >
-                  Close
-                </button>
-                {#if activeTab === 'expense' && editFields.txnId && $selectedBusiness?.id}
+              {#if activeTab === 'expense'}
+                {#if editError}
+                  <p class="text-sm rounded-xl px-3 py-2 mt-1" style="color: var(--color-error); background-color: var(--color-surface-3);">
+                    {editError}
+                  </p>
+                {/if}
+                <div class="flex gap-2 pt-2 flex-wrap">
                   <button
                     type="button"
-                    onclick={() => shareExpenseRow(editFields)}
-                    class="rounded-xl text-sm px-4 font-medium flex-shrink-0 transition-opacity hover:opacity-80"
+                    onclick={closeView}
+                    class="rounded-xl text-sm px-4 flex-shrink-0 transition-opacity hover:opacity-70"
+                    style="min-height: 44px; background-color: var(--color-surface-3); color: var(--color-text-muted);"
+                  >
+                    Close
+                  </button>
+                  {#if editFields.txnId && $selectedBusiness?.id}
+                    <button
+                      type="button"
+                      onclick={() => shareExpenseRow(editFields)}
+                      class="rounded-xl text-sm px-4 font-medium flex-shrink-0 transition-opacity hover:opacity-80"
+                      style="min-height: 44px; background-color: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border);"
+                    >
+                      Share
+                    </button>
+                  {/if}
+                  <button
+                    type="button"
+                    onclick={handleDelete}
+                    disabled={deleting}
+                    class="rounded-xl text-sm px-4 flex-shrink-0 disabled:opacity-50 transition-all"
                     style="
                       min-height: 44px;
-                      background-color: var(--color-surface-2);
-                      color: var(--color-text);
-                      border: 1px solid var(--color-border);
+                      background-color: {confirmDelete ? 'var(--color-error)' : 'var(--color-surface-3)'};
+                      color: {confirmDelete ? '#ffffff' : 'var(--color-error)'};
                     "
                   >
-                    Share
+                    {#if deleting}Deleting…{:else if confirmDelete}Confirm delete?{:else}Delete{/if}
                   </button>
-                {/if}
-                <button
-                  type="button"
-                  onclick={startEdit}
-                  class="flex-1 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80 flex items-center justify-center gap-2"
-                  style="
-                    min-height: 44px;
-                    background-color: var(--color-primary);
-                    color: var(--color-primary-text);
-                  "
-                >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                  Edit
-                </button>
-              </div>
+                  {#if editFields.txnId && $selectedBusiness?.id}
+                    <a
+                      href={buildShareUrl(selectedYear, editFields.txnId)}
+                      class="flex-1 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80 flex items-center justify-center gap-2"
+                      style="min-height: 44px; background-color: var(--color-primary); color: var(--color-primary-text);"
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                      Edit
+                    </a>
+                  {/if}
+                </div>
+              {:else}
+                <div class="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onclick={closeView}
+                    class="rounded-xl text-sm px-4 flex-shrink-0 transition-opacity hover:opacity-70"
+                    style="min-height: 44px; background-color: var(--color-surface-3); color: var(--color-text-muted);"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onclick={startEdit}
+                    class="flex-1 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80 flex items-center justify-center gap-2"
+                    style="min-height: 44px; background-color: var(--color-primary); color: var(--color-primary-text);"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                    Edit
+                  </button>
+                </div>
+              {/if}
 
             </div>
 
@@ -644,159 +622,54 @@
                 </p>
               {/if}
 
-              {#if activeTab === 'expense'}
-                <!-- ---- Expense edit fields ---- -->
+              <!-- ---- Mileage edit fields ---- -->
 
+              <div class="flex flex-col gap-1">
+                <label for="edit-mil-date-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Date</label>
+                <input id="edit-mil-date-{row.rowNum}" type="date" bind:value={editFields.date} />
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <label for="edit-from-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">From</label>
+                <input id="edit-from-{row.rowNum}" type="text" bind:value={editFields.from} placeholder="Starting address or city" />
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <label for="edit-to-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">To</label>
+                <input id="edit-to-{row.rowNum}" type="text" bind:value={editFields.to} placeholder="Destination" />
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <label for="edit-purpose-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Purpose</label>
+                <input id="edit-purpose-{row.rowNum}" type="text" bind:value={editFields.purpose} placeholder="Client meeting, site visit…" />
+              </div>
+
+              <div class="grid gap-3" style="grid-template-columns: 1fr 1fr;">
                 <div class="flex flex-col gap-1">
-                  <label for="edit-date-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Date</label>
-                  <input id="edit-date-{row.rowNum}" type="date" bind:value={editFields.date} />
+                  <label for="edit-miles-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Miles</label>
+                  <input id="edit-miles-{row.rowNum}" type="text" inputmode="decimal" bind:value={editFields.miles} placeholder="0.0" />
                 </div>
-
                 <div class="flex flex-col gap-1">
-                  <label for="edit-vendor-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Vendor / Payee</label>
-                  <VendorAutocomplete id="edit-vendor-{row.rowNum}" bind:value={editFields.vendor} />
+                  <label for="edit-irs-rate-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">IRS Rate</label>
+                  <input
+                    id="edit-irs-rate-{row.rowNum}"
+                    type="text"
+                    value="${editMilRate}/mi"
+                    readonly
+                    tabindex="-1"
+                    style="color: var(--color-text-muted); cursor: default;"
+                  />
                 </div>
+              </div>
 
-                <div class="flex flex-col gap-1">
-                  <label for="edit-desc-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Description</label>
-                  <input id="edit-desc-{row.rowNum}" type="text" bind:value={editFields.desc} placeholder="What was this for?" />
+              {#if editMilDeduction !== ''}
+                <div
+                  class="rounded-xl px-4 py-3 flex items-center justify-between"
+                  style="background-color: var(--color-surface-3); border: 1px solid var(--color-border);"
+                >
+                  <span class="text-xs font-medium" style="color: var(--color-text-muted);">Estimated Deduction</span>
+                  <span class="text-lg font-semibold" style="color: var(--color-primary);">${editMilDeduction}</span>
                 </div>
-
-                <div class="flex flex-col gap-1">
-                  <label for="edit-amount-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Amount ($)</label>
-                  <input id="edit-amount-{row.rowNum}" type="text" inputmode="decimal" bind:value={editFields.amount} placeholder="0.00" />
-                </div>
-
-                <div class="flex flex-col gap-1">
-                  <label for="edit-category-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Category</label>
-                  <select id="edit-category-{row.rowNum}" bind:value={editFields.category}>
-                    <option value="" disabled>Select category…</option>
-                    {#each QUICKBOOKS_CATEGORIES as cat (cat)}
-                      <option value={cat}>{cat}</option>
-                    {/each}
-                  </select>
-                </div>
-
-                <div class="flex flex-col gap-1">
-                  <label for="edit-payment-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Payment Method</label>
-                  <select
-                    id="edit-payment-{row.rowNum}"
-                    value={editFields.payment}
-                    onchange={(e) => {
-                      if (e.target.value === '__add_payment__') { goto('/settings/payments'); return; }
-                      editFields.payment = e.target.value;
-                    }}
-                  >
-                    <option value="" disabled>Select method…</option>
-                    {#each ($businessConfig?.payment_accounts ?? ['Cash']) as method (method)}
-                      <option value={method}>{method}</option>
-                    {/each}
-                    <option value="__add_payment__" style="color: var(--color-primary);">+ Add Payment Method…</option>
-                  </select>
-                </div>
-
-                <!-- Receipt -->
-                <div class="flex flex-col gap-2">
-                  <span class="text-xs font-medium" style="color: var(--color-text-muted);">Receipt</span>
-
-                  {#if editFields.receipt && !receiptCleared && !receiptFile}
-                    <div class="flex items-center gap-2 rounded-xl border px-3 py-2" style="border-color: var(--color-border); background-color: var(--color-surface-3);">
-                      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-text-muted);">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                      </svg>
-                      <span class="text-xs truncate flex-1" style="color: var(--color-text);">{editFields.receipt}</span>
-                      <button
-                        type="button"
-                        onclick={() => { receiptCleared = true; }}
-                        class="text-xs flex-shrink-0 hover:opacity-70 transition-opacity"
-                        style="color: var(--color-error);"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  {:else if receiptCleared && !receiptFile}
-                    <div class="flex items-center gap-2 rounded-xl border px-3 py-2" style="border-color: var(--color-border); background-color: var(--color-surface-3);">
-                      <span class="text-xs flex-1" style="color: var(--color-text-muted);">Receipt will be removed</span>
-                      <button
-                        type="button"
-                        onclick={() => { receiptCleared = false; }}
-                        class="text-xs flex-shrink-0 hover:opacity-70 transition-opacity"
-                        style="color: var(--color-primary);"
-                      >
-                        Undo
-                      </button>
-                    </div>
-                  {/if}
-
-                  {#if !editFields.receipt || receiptCleared}
-                    <ReceiptPicker id="edit-receipt-{row.rowNum}" bind:file={receiptFile} />
-                  {:else if editFields.receipt && !receiptCleared}
-                    <button
-                      type="button"
-                      onclick={() => { receiptCleared = true; }}
-                      class="text-xs text-left hover:opacity-70 transition-opacity"
-                      style="color: var(--color-primary); min-height: 36px; background: transparent;"
-                    >
-                      Replace receipt…
-                    </button>
-                  {/if}
-                </div>
-
-                <div class="flex flex-col gap-1">
-                  <label for="edit-notes-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Notes</label>
-                  <textarea id="edit-notes-{row.rowNum}" bind:value={editFields.notes} rows="2" style="resize: none;" placeholder="Any additional notes…"></textarea>
-                </div>
-
-              {:else}
-                <!-- ---- Mileage edit fields ---- -->
-
-                <div class="flex flex-col gap-1">
-                  <label for="edit-mil-date-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Date</label>
-                  <input id="edit-mil-date-{row.rowNum}" type="date" bind:value={editFields.date} />
-                </div>
-
-                <div class="flex flex-col gap-1">
-                  <label for="edit-from-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">From</label>
-                  <input id="edit-from-{row.rowNum}" type="text" bind:value={editFields.from} placeholder="Starting address or city" />
-                </div>
-
-                <div class="flex flex-col gap-1">
-                  <label for="edit-to-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">To</label>
-                  <input id="edit-to-{row.rowNum}" type="text" bind:value={editFields.to} placeholder="Destination" />
-                </div>
-
-                <div class="flex flex-col gap-1">
-                  <label for="edit-purpose-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Purpose</label>
-                  <input id="edit-purpose-{row.rowNum}" type="text" bind:value={editFields.purpose} placeholder="Client meeting, site visit…" />
-                </div>
-
-                <div class="grid gap-3" style="grid-template-columns: 1fr 1fr;">
-                  <div class="flex flex-col gap-1">
-                    <label for="edit-miles-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Miles</label>
-                    <input id="edit-miles-{row.rowNum}" type="text" inputmode="decimal" bind:value={editFields.miles} placeholder="0.0" />
-                  </div>
-                  <div class="flex flex-col gap-1">
-                    <label for="edit-irs-rate-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">IRS Rate</label>
-                    <input
-                      id="edit-irs-rate-{row.rowNum}"
-                      type="text"
-                      value="${editMilRate}/mi"
-                      readonly
-                      tabindex="-1"
-                      style="color: var(--color-text-muted); cursor: default;"
-                    />
-                  </div>
-                </div>
-
-                {#if editMilDeduction !== ''}
-                  <div
-                    class="rounded-xl px-4 py-3 flex items-center justify-between"
-                    style="background-color: var(--color-surface-3); border: 1px solid var(--color-border);"
-                  >
-                    <span class="text-xs font-medium" style="color: var(--color-text-muted);">Estimated Deduction</span>
-                    <span class="text-lg font-semibold" style="color: var(--color-primary);">${editMilDeduction}</span>
-                  </div>
-                {/if}
               {/if}
 
               <!-- Action buttons -->
@@ -814,22 +687,6 @@
                 >
                   Cancel
                 </button>
-                {#if activeTab === 'expense' && editFields.txnId && $selectedBusiness?.id}
-                  <button
-                    type="button"
-                    onclick={() => shareExpenseRow(editFields)}
-                    disabled={saving || deleting}
-                    class="rounded-xl text-sm px-4 flex-shrink-0 disabled:opacity-50 transition-opacity hover:opacity-80"
-                    style="
-                      min-height: 44px;
-                      background-color: var(--color-surface-2);
-                      color: var(--color-text);
-                      border: 1px solid var(--color-border);
-                    "
-                  >
-                    Share
-                  </button>
-                {/if}
 
                 <button
                   type="button"
