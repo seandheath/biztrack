@@ -9,6 +9,7 @@
    */
 
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import {
     businesses,
     selectedBusiness,
@@ -370,11 +371,20 @@
       <div class="flex flex-col gap-1">
         <label for="exp-payment" class="text-sm font-medium" style="color: var(--color-text-muted);">Payment Method</label>
         {#if $businessConfig?.payment_accounts?.length}
-          <select id="exp-payment" bind:value={expPayment} required>
+          <select
+            id="exp-payment"
+            value={expPayment}
+            onchange={(e) => {
+              if (e.target.value === '__add_payment__') { goto('/settings/payments'); return; }
+              expPayment = e.target.value;
+            }}
+            required
+          >
             <option value="" disabled>Select method…</option>
             {#each $businessConfig.payment_accounts as method (method)}
               <option value={method}>{method}</option>
             {/each}
+            <option value="__add_payment__" style="color: var(--color-primary);">+ Add Payment Method…</option>
           </select>
         {:else}
           <select id="exp-payment" disabled>

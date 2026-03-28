@@ -5,12 +5,17 @@
     onchange  {(business: Object|null) => void}  — called when selection changes
 -->
 <script>
+  import { goto } from '$app/navigation';
   import { businesses, selectedBusiness } from '$lib/store.js';
 
   let { onchange } = $props();
 
   function handleChange(event) {
     const name = event.target.value;
+    if (name === '__add_business__') {
+      goto('/settings/business');
+      return;
+    }
     const biz = $businesses.find((b) => b.name === name) ?? null;
     selectedBusiness.set(biz);
     onchange?.(biz);
@@ -31,6 +36,7 @@
     {#each $businesses as b (b.name)}
       <option value={b.name}>{b.name}</option>
     {/each}
+    <option value="__add_business__" style="color: var(--color-primary);">+ Add Business…</option>
   </select>
   <!-- Chevron icon overlay -->
   <svg
