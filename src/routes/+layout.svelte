@@ -87,7 +87,6 @@
           businesses.update((local) => {
             const localNames = new Set(local.map((b) => b.name));
             const newOnes = driveBusinesses.filter((b) => !localNames.has(b.name));
-            // Only update localStorage if Drive has businesses not present locally.
             return newOnes.length ? [...local, ...newOnes] : local;
           });
         }
@@ -95,11 +94,11 @@
         // Backfill IDs for legacy businesses that predate the id field.
         // loadConfig() generates the UUID, persists it to Drive, and updates the store.
         const current = get(businesses);
-        for (const biz of current) {
-          if (!biz.id && biz.configFileId) {
-            try { await loadConfig(biz); } catch { /* non-fatal */ }
-          }
-        }
+        await Promise.all(
+          current
+            .filter((biz) => !biz.id && biz.configFileId)
+            .map((biz) => loadConfig(biz).catch((err) => console.warn('[profile] backfill failed:', err)))
+        );
       }
     } catch (err) {
       // Drive unreachable — do NOT set the session flag so sync retries on next token refresh.
