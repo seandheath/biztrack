@@ -20,7 +20,7 @@
     <h2 class="text-xs font-semibold uppercase tracking-wider mb-2 px-1" style="color: var(--color-text-muted);">
       Businesses
     </h2>
-    <div class="rounded-xl border divide-y overflow-hidden" style="border-color: var(--color-border); background-color: var(--color-surface-2);">
+    <div class="rounded-xl border divide-y overflow-hidden flex flex-col" style="border-color: var(--color-border); background-color: var(--color-surface-2);">
       {#each $businesses as business (business.name)}
         <div
           role="button"
