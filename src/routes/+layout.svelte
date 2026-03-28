@@ -12,7 +12,8 @@
     onTokenUpdate,
     onAuthRequired,
   } from '$lib/auth.js';
-  import { authToken, userEmail, isAuthenticated } from '$lib/store.js';
+  import { authToken, userEmail, isAuthenticated, businesses } from '$lib/store.js';
+  import { ensureBizTrackFolder, loadProfile, saveProfile } from '$lib/profile.js';
   import * as storage from '$lib/storage.js';
 
   /** @type {{ children: import('svelte').Snippet }} */
@@ -60,6 +61,37 @@
   /** User dismissed the iOS install prompt (persisted to localStorage) */
   let iosPromptDismissed = $state(false);
 
+  // ---------------------------------------------------------------------------
+  // Profile sync (cross-device via Drive)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Ensures the BizTrack root Drive folder exists, then merges any businesses
+   * from profile.json into the local store (once per tab session).
+   * Called non-blocking after a valid token is available.
+   */
+  async function syncProfile() {
+    try {
+      const folderId = await ensureBizTrackFolder();
+
+      // Only load from Drive once per tab session (sessionStorage-scoped flag).
+      // Subsequent page navigations within the same tab skip the Drive fetch.
+      if (!sessionStorage.getItem('bt_profile_loaded')) {
+        sessionStorage.setItem('bt_profile_loaded', '1');
+        const driveBusinesses = await loadProfile(folderId);
+        if (driveBusinesses?.length) {
+          businesses.update((local) => {
+            const localNames = new Set(local.map((b) => b.name));
+            const newOnes = driveBusinesses.filter((b) => !localNames.has(b.name));
+            return newOnes.length ? [...local, ...newOnes] : local;
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[profile] sync failed:', err);
+    }
+  }
+
   const IOS_PROMPT_KEY = 'biztrack_ios_prompt_dismissed';
 
   onMount(() => {
@@ -85,6 +117,7 @@
     onTokenUpdate(({ token, email }) => {
       authToken.set(token);
       if (email) userEmail.set(email);
+      if (token) syncProfile();
     });
     onAuthRequired(() => {
       authToken.set(null);
@@ -103,9 +136,27 @@
       }
     }, 30_000);
 
+    // Auto-save businesses to Drive on any change (debounced 2s, skip initial fire).
+    let saveTimer = null;
+    let firstFire = true;
+    const unsubBiz = businesses.subscribe((list) => {
+      if (firstFire) { firstFire = false; return; }
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(async () => {
+        try {
+          const folderId = sessionStorage.getItem('bt_biz_folder');
+          if (folderId) await saveProfile(folderId, list);
+        } catch (err) {
+          console.warn('[profile] save failed:', err);
+        }
+      }, 2000);
+    });
+
     // onMount cleanup
     return () => {
       clearInterval(interval);
+      clearTimeout(saveTimer);
+      unsubBiz();
       window.removeEventListener('online',  setOnline);
       window.removeEventListener('offline', setOffline);
     };

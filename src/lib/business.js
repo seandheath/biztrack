@@ -12,7 +12,7 @@
  * No token parameter — apiFetch() in auth.js reads the token from module state.
  */
 
-import { findFile, downloadJson, uploadJson, updateJson, createFolder, moveFile } from './drive.js';
+import { findFile, downloadJson, uploadJson, updateJson, createFolder, moveFile, listFolders } from './drive.js';
 import { createExpenseSheet } from './sheets.js';
 import { DEFAULT_PAYMENT_METHODS } from './constants.js';
 import { businessConfig } from './store.js';
@@ -167,6 +167,42 @@ export async function deleteMileageFavorite(business, config, name) {
   };
   await saveConfig(business, updated);
   return updated;
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Discovers existing year folder structure for a business already set up in Drive.
+ * Used during import to reconstruct local state without creating new Drive files.
+ *
+ * Scans the business root for subfolders whose name is a 4-digit year (e.g. "2025").
+ * For each year folder found, looks up:
+ *   - {year}_expenses  (Google Sheet → sheetId)
+ *   - {year}_Receipts  (subfolder → receiptFolderId)
+ *
+ * @param {Object} business - Business object from setupBusiness
+ * @returns {Promise<Object>} Updated business with all discovered year IDs
+ */
+export async function discoverYearFolders(business) {
+  const subfolders = await listFolders(business.folderId);
+  const yearFolders = {};
+  const sheetIds = {};
+  const receiptFolderIds = {};
+
+  for (const folder of subfolders) {
+    if (!/^\d{4}$/.test(folder.name)) continue;
+    const year = parseInt(folder.name, 10);
+    yearFolders[year] = folder.id;
+
+    const sheetId = await findFile(`${year}_expenses`, folder.id);
+    if (sheetId) sheetIds[year] = sheetId;
+
+    const inner = await listFolders(folder.id);
+    const rf = inner.find((f) => f.name === `${year}_Receipts`);
+    if (rf) receiptFolderIds[year] = rf.id;
+  }
+
+  return { ...business, yearFolders, sheetIds, receiptFolderIds };
 }
 
 // ---------------------------------------------------------------------------
