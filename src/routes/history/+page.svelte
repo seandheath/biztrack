@@ -80,8 +80,10 @@
   // Edit state
   // ---------------------------------------------------------------------------
 
-  /** Row number currently open for editing, or null. */
-  let expandedRowNum = $state(/** @type {number|null} */(null));
+  /** Row number currently expanded in read-only detail view, or null. */
+  let viewRowNum = $state(/** @type {number|null} */(null));
+  /** Row number currently in edit mode, or null. Must equal viewRowNum when set. */
+  let editRowNum = $state(/** @type {number|null} */(null));
 
   /** Live copy of the fields being edited. */
   let editFields = $state(/** @type {Record<string,string>} */({}));
@@ -176,7 +178,8 @@
     if (!spreadsheetId) { rows = []; return; }
     loading = true;
     loadError = '';
-    expandedRowNum = null;
+    viewRowNum = null;
+    editRowNum = null;
     try {
       const sheetName = activeTab === 'expense' ? 'Expenses' : 'Mileage';
       const { rows: raw, rowNums } = await readRows(spreadsheetId, sheetName);
@@ -199,9 +202,10 @@
   // Edit open / close
   // ---------------------------------------------------------------------------
 
-  /** Open inline edit for a row. */
-  function openEdit(row) {
-    expandedRowNum = row.rowNum;
+  /** Open read-only detail view for a row. */
+  function openView(row) {
+    viewRowNum = row.rowNum;
+    editRowNum = null;
     editFields = { ...row };
     receiptFile = null;
     receiptCleared = false;
@@ -209,8 +213,24 @@
     editError = '';
   }
 
+  /** Enter edit mode from the read-only view. */
+  function startEdit() {
+    editRowNum = viewRowNum;
+  }
+
+  /** Cancel edit — return to read-only view. */
   function closeEdit() {
-    expandedRowNum = null;
+    editRowNum = null;
+    receiptFile = null;
+    receiptCleared = false;
+    confirmDelete = false;
+    editError = '';
+  }
+
+  /** Close the detail view entirely. */
+  function closeView() {
+    viewRowNum = null;
+    editRowNum = null;
     receiptFile = null;
     receiptCleared = false;
     confirmDelete = false;
@@ -274,17 +294,17 @@
         ];
       }
 
-      await updateRow(spreadsheetId, sheetName, expandedRowNum, values);
+      await updateRow(spreadsheetId, sheetName, viewRowNum, values);
 
       // Patch local rows without reloading
       const updatedFields = activeTab === 'expense'
         ? { ...editFields, receipt: receiptFilename }
         : { ...editFields, rate: String(editMilRate), deduction: editMilDeduction };
       rows = rows.map((r) =>
-        r.rowNum === expandedRowNum ? { ...r, ...updatedFields } : r
+        r.rowNum === viewRowNum ? { ...r, ...updatedFields } : r
       );
 
-      closeEdit();
+      closeView();
       showToast('Saved!', 'success');
     } catch (err) {
       console.error('[history] saveEdit:', err);
@@ -308,9 +328,9 @@
     editError = '';
     try {
       const sheetName = activeTab === 'expense' ? 'Expenses' : 'Mileage';
-      await deleteRow(spreadsheetId, sheetName, expandedRowNum);
-      rows = rows.filter((r) => r.rowNum !== expandedRowNum);
-      closeEdit();
+      await deleteRow(spreadsheetId, sheetName, viewRowNum);
+      rows = rows.filter((r) => r.rowNum !== viewRowNum);
+      closeView();
       showToast('Deleted', 'success');
     } catch (err) {
       console.error('[history] deleteRow:', err);
@@ -438,13 +458,13 @@
           <!-- ---------------------------------------------------------------
                Collapsed row summary
                --------------------------------------------------------------- -->
-          {#if expandedRowNum !== row.rowNum}
+          {#if viewRowNum !== row.rowNum}
             <button
               type="button"
-              onclick={() => openEdit(row)}
+              onclick={() => openView(row)}
               class="w-full flex items-center justify-between px-4 text-left hover:opacity-80 transition-opacity"
               style="min-height: 52px;"
-              aria-label="Edit entry from {row.date}"
+              aria-label="View entry from {row.date}"
             >
               <div class="flex flex-col gap-0.5 min-w-0 flex-1 pr-3">
                 <span class="text-xs" style="color: var(--color-text-muted);">{row.date}</span>
@@ -461,13 +481,119 @@
                   {row.miles} mi
                 {/if}
               </span>
-              <svg class="w-4 h-4 ml-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-text-muted);">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-              </svg>
             </button>
 
           <!-- ---------------------------------------------------------------
-               Expanded edit form
+               Read-only detail view
+               --------------------------------------------------------------- -->
+          {:else if editRowNum !== row.rowNum}
+            <div class="px-4 py-4 flex flex-col gap-1.5">
+
+              {#if activeTab === 'expense'}
+                <div class="flex justify-between items-baseline gap-3 py-0.5">
+                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Date</span>
+                  <span class="text-sm text-right" style="color: var(--color-text);">{row.date}</span>
+                </div>
+                <div class="flex justify-between items-baseline gap-3 py-0.5">
+                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Vendor</span>
+                  <span class="text-sm text-right" style="color: var(--color-text);">{row.vendor}</span>
+                </div>
+                {#if row.desc}
+                  <div class="flex justify-between items-baseline gap-3 py-0.5">
+                    <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Description</span>
+                    <span class="text-sm text-right" style="color: var(--color-text);">{row.desc}</span>
+                  </div>
+                {/if}
+                <div class="flex justify-between items-baseline gap-3 py-0.5">
+                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Amount</span>
+                  <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">${row.amount}</span>
+                </div>
+                <div class="flex justify-between items-baseline gap-3 py-0.5">
+                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Category</span>
+                  <span class="text-sm text-right" style="color: var(--color-text);">{row.category}</span>
+                </div>
+                <div class="flex justify-between items-baseline gap-3 py-0.5">
+                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Payment</span>
+                  <span class="text-sm text-right" style="color: var(--color-text);">{row.payment}</span>
+                </div>
+                {#if row.receipt}
+                  <div class="flex justify-between items-baseline gap-3 py-0.5">
+                    <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Receipt</span>
+                    <span class="text-sm text-right truncate max-w-[60%]" style="color: var(--color-text);">{row.receipt}</span>
+                  </div>
+                {/if}
+                {#if row.notes}
+                  <div class="flex justify-between items-baseline gap-3 py-0.5">
+                    <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Notes</span>
+                    <span class="text-sm text-right" style="color: var(--color-text);">{row.notes}</span>
+                  </div>
+                {/if}
+              {:else}
+                <div class="flex justify-between items-baseline gap-3 py-0.5">
+                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Date</span>
+                  <span class="text-sm text-right" style="color: var(--color-text);">{row.date}</span>
+                </div>
+                <div class="flex justify-between items-baseline gap-3 py-0.5">
+                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">From</span>
+                  <span class="text-sm text-right" style="color: var(--color-text);">{row.from}</span>
+                </div>
+                <div class="flex justify-between items-baseline gap-3 py-0.5">
+                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">To</span>
+                  <span class="text-sm text-right" style="color: var(--color-text);">{row.to}</span>
+                </div>
+                <div class="flex justify-between items-baseline gap-3 py-0.5">
+                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Purpose</span>
+                  <span class="text-sm text-right" style="color: var(--color-text);">{row.purpose}</span>
+                </div>
+                <div class="flex justify-between items-baseline gap-3 py-0.5">
+                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Miles</span>
+                  <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">{row.miles} mi</span>
+                </div>
+                <div class="flex justify-between items-baseline gap-3 py-0.5">
+                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">IRS Rate</span>
+                  <span class="text-sm text-right" style="color: var(--color-text);">${row.rate}/mi</span>
+                </div>
+                <div class="flex justify-between items-baseline gap-3 py-0.5">
+                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Deduction</span>
+                  <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">${row.deduction}</span>
+                </div>
+              {/if}
+
+              <!-- Action row -->
+              <div class="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onclick={closeView}
+                  class="rounded-xl text-sm px-4 flex-shrink-0 transition-opacity hover:opacity-70"
+                  style="
+                    min-height: 44px;
+                    background-color: var(--color-surface-3);
+                    color: var(--color-text-muted);
+                  "
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onclick={startEdit}
+                  class="flex-1 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80 flex items-center justify-center gap-2"
+                  style="
+                    min-height: 44px;
+                    background-color: var(--color-primary);
+                    color: var(--color-primary-text);
+                  "
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                  Edit
+                </button>
+              </div>
+
+            </div>
+
+          <!-- ---------------------------------------------------------------
+               Edit form
                --------------------------------------------------------------- -->
           {:else}
             <div class="px-4 py-4 flex flex-col gap-3">
@@ -526,7 +652,6 @@
                   <span class="text-xs font-medium" style="color: var(--color-text-muted);">Receipt</span>
 
                   {#if editFields.receipt && !receiptCleared && !receiptFile}
-                    <!-- Existing receipt badge -->
                     <div class="flex items-center gap-2 rounded-xl border px-3 py-2" style="border-color: var(--color-border); background-color: var(--color-surface-3);">
                       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-text-muted);">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
@@ -542,7 +667,6 @@
                       </button>
                     </div>
                   {:else if receiptCleared && !receiptFile}
-                    <!-- Cleared state -->
                     <div class="flex items-center gap-2 rounded-xl border px-3 py-2" style="border-color: var(--color-border); background-color: var(--color-surface-3);">
                       <span class="text-xs flex-1" style="color: var(--color-text-muted);">Receipt will be removed</span>
                       <button
@@ -559,7 +683,6 @@
                   {#if !editFields.receipt || receiptCleared}
                     <ReceiptPicker id="edit-receipt-{row.rowNum}" bind:file={receiptFile} />
                   {:else if editFields.receipt && !receiptCleared}
-                    <!-- Allow replacing: show picker only when user clicks replace -->
                     <button
                       type="button"
                       onclick={() => { receiptCleared = true; }}

@@ -26,6 +26,9 @@
   let isSettingsRoot = $derived($page.url.pathname === '/settings');
   let isSettingsSub = $derived(isSettings && !isSettingsRoot);
   let isHistory = $derived($page.url.pathname.startsWith('/history'));
+  let isExpense = $derived($page.url.pathname === '/expense');
+  let isMileage = $derived($page.url.pathname === '/mileage');
+  let isEntryForm = $derived(isExpense || isMileage);
   let backHref = $derived(isSettingsSub ? '/settings' : '/');
 
   // Public routes bypass the auth guard entirely — needed for OAuth consent screen URLs
@@ -290,8 +293,8 @@
         padding-top: env(safe-area-inset-top);
       "
     >
-      <!-- Back button (settings sub-pages only) -->
-      {#if isSettingsSub}
+      <!-- Back button (settings sub-pages + entry form pages) -->
+      {#if isSettingsSub || isEntryForm}
         <a
           href={backHref}
           class="rounded-lg hover:opacity-70 transition-opacity"
@@ -324,8 +327,8 @@
         BizTrack
       </span>
 
-      <!-- Gear / close icon -->
-      {#if !isSettingsSub}
+      <!-- Gear / close icon (hidden on entry form pages) -->
+      {#if !isSettingsSub && !isEntryForm}
         <a
           href={isSettings || isHistory ? '/' : '/settings'}
           class="rounded-lg hover:opacity-70 transition-opacity"
