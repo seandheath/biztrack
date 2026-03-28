@@ -12,8 +12,10 @@
     onTokenUpdate,
     onAuthRequired,
   } from '$lib/auth.js';
+  import { get } from 'svelte/store';
   import { authToken, userEmail, isAuthenticated, businesses } from '$lib/store.js';
   import { ensureBizTrackFolder, loadProfile, saveProfile } from '$lib/profile.js';
+  import { loadConfig } from '$lib/business.js';
   import * as storage from '$lib/storage.js';
 
   /** @type {{ children: import('svelte').Snippet }} */
@@ -77,17 +79,30 @@
       // Only load from Drive once per tab session (sessionStorage-scoped flag).
       // Subsequent page navigations within the same tab skip the Drive fetch.
       if (!sessionStorage.getItem('bt_profile_loaded')) {
-        sessionStorage.setItem('bt_profile_loaded', '1');
+        // Fetch Drive profile first — only mark session synced if this succeeds.
         const driveBusinesses = await loadProfile(folderId);
+        sessionStorage.setItem('bt_profile_loaded', '1');
+
         if (driveBusinesses?.length) {
           businesses.update((local) => {
             const localNames = new Set(local.map((b) => b.name));
             const newOnes = driveBusinesses.filter((b) => !localNames.has(b.name));
+            // Only update localStorage if Drive has businesses not present locally.
             return newOnes.length ? [...local, ...newOnes] : local;
           });
         }
+
+        // Backfill IDs for legacy businesses that predate the id field.
+        // loadConfig() generates the UUID, persists it to Drive, and updates the store.
+        const current = get(businesses);
+        for (const biz of current) {
+          if (!biz.id && biz.configFileId) {
+            try { await loadConfig(biz); } catch { /* non-fatal */ }
+          }
+        }
       }
     } catch (err) {
+      // Drive unreachable — do NOT set the session flag so sync retries on next token refresh.
       console.warn('[profile] sync failed:', err);
     }
   }
