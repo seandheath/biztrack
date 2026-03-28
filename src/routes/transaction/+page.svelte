@@ -2,9 +2,9 @@
   /**
    * Transaction read-only view.
    *
-   * Loaded via /transaction?biz=X&year=Y&txn=Z — displays a single expense row
-   * from the sheet in read-only form. Provides Share, Edit (→ /expense?...), and
-   * Delete actions. Used when navigating from the main log or history page.
+   * Loaded via /transaction?biz=X&year=Y&txn=Z[&type=mileage] — displays a single
+   * expense or mileage row from the sheet in read-only form. Provides Share, Edit,
+   * and Delete actions. Used when navigating from the main log or history page.
    */
 
   import { onMount } from 'svelte';
@@ -30,9 +30,11 @@
   let bizId = $state('');
   let year  = $state(0);
   let txnId = $state('');
+  /** 'expense' or 'mileage' */
+  let type  = $state('expense');
 
   /** 1-based row number in the sheet (for delete). */
-  let rowNum      = $state(/** @type {number|null} */(null));
+  let rowNum        = $state(/** @type {number|null} */(null));
   let spreadsheetId = $state('');
 
   // ---------------------------------------------------------------------------
@@ -44,9 +46,9 @@
   let toastVisible = $state(false);
   let toastTimer   = null;
 
-  function showToast(message, type = 'success') {
+  function showToast(message, t = 'success') {
     toastMessage = message;
-    toastType    = type;
+    toastType    = t;
     toastVisible = true;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { toastVisible = false; }, 3000);
@@ -57,7 +59,8 @@
   // ---------------------------------------------------------------------------
 
   function buildEditUrl() {
-    const u = new URL('/expense', window.location.origin);
+    const route = type === 'mileage' ? '/mileage' : '/expense';
+    const u = new URL(route, window.location.origin);
     u.searchParams.set('biz',  bizId);
     u.searchParams.set('year', String(year));
     u.searchParams.set('txn',  txnId);
@@ -69,14 +72,16 @@
     u.searchParams.set('biz',  bizId);
     u.searchParams.set('year', String(year));
     u.searchParams.set('txn',  txnId);
+    if (type === 'mileage') u.searchParams.set('type', 'mileage');
     return u.toString();
   }
 
   async function doShare() {
     const url = buildShareUrl();
+    const title = type === 'mileage' ? 'Mileage entry' : 'Complete this expense';
     try {
       if (navigator.share) {
-        await navigator.share({ title: 'Complete this expense', url });
+        await navigator.share({ title, url });
       } else {
         await navigator.clipboard.writeText(url);
         showToast('Link copied!', 'success');
@@ -95,7 +100,8 @@
     deleting = true;
     deleteError = '';
     try {
-      await deleteRow(spreadsheetId, 'Expenses', rowNum);
+      const sheetName = type === 'mileage' ? 'Mileage' : 'Expenses';
+      await deleteRow(spreadsheetId, sheetName, rowNum);
       goto('/');
     } catch (err) {
       console.error('[transaction] delete:', err);
@@ -115,6 +121,7 @@
     bizId = sp.get('biz') ?? '';
     year  = parseInt(sp.get('year') ?? '0', 10);
     txnId = sp.get('txn') ?? '';
+    type  = sp.get('type') ?? 'expense';
 
     if (!bizId || !year || !txnId) {
       loadError = 'Invalid link.';
@@ -128,25 +135,40 @@
       selectedBusiness.set(biz);
 
       const sheetId = biz.sheetIds?.[year];
-      if (!sheetId) throw new Error(`No expense sheet found for ${year}.`);
+      if (!sheetId) throw new Error(`No sheet found for ${year}.`);
       spreadsheetId = sheetId;
 
-      const rn = await findRowByTxnId(sheetId, txnId);
-      if (rn === null) throw new Error('Transaction not found.');
-      rowNum = rn;
-
-      const raw = await readRow(sheetId, 'Expenses', rowNum);
-      fields = {
-        date:        raw[0] ?? '',
-        vendor:      raw[1] ?? '',
-        desc:        raw[2] ?? '',
-        amount:      raw[3] ?? '',
-        category:    raw[4] ?? '',
-        payment:     raw[5] ?? '',
-        receipt:     raw[6] ?? '',
-        notes:       raw[7] ?? '',
-        submittedBy: raw[8] ?? '',
-      };
+      if (type === 'mileage') {
+        const rn = await findRowByTxnId(sheetId, txnId, 'Mileage', 'H');
+        if (rn === null) throw new Error('Mileage entry not found.');
+        rowNum = rn;
+        const raw = await readRow(sheetId, 'Mileage', rowNum);
+        fields = {
+          date:      raw[0] ?? '',
+          from:      raw[1] ?? '',
+          to:        raw[2] ?? '',
+          purpose:   raw[3] ?? '',
+          miles:     raw[4] ?? '',
+          rate:      raw[5] ?? '',
+          deduction: raw[6] ?? '',
+        };
+      } else {
+        const rn = await findRowByTxnId(sheetId, txnId);
+        if (rn === null) throw new Error('Transaction not found.');
+        rowNum = rn;
+        const raw = await readRow(sheetId, 'Expenses', rowNum);
+        fields = {
+          date:        raw[0] ?? '',
+          vendor:      raw[1] ?? '',
+          desc:        raw[2] ?? '',
+          amount:      raw[3] ?? '',
+          category:    raw[4] ?? '',
+          payment:     raw[5] ?? '',
+          receipt:     raw[6] ?? '',
+          notes:       raw[7] ?? '',
+          submittedBy: raw[8] ?? '',
+        };
+      }
     } catch (err) {
       console.error('[transaction] load:', err);
       loadError = err.message;
@@ -182,60 +204,98 @@
     </a>
 
   {:else}
-    <!-- Transaction detail -->
+    <!-- Detail card -->
     <div
       class="rounded-xl border overflow-hidden"
       style="border-color: var(--color-border); background-color: var(--color-surface-2);"
     >
       <div class="px-4 py-4 flex flex-col gap-1.5">
 
-        <div class="flex justify-between items-baseline gap-3 py-0.5">
-          <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Date</span>
-          <span class="text-sm text-right" style="color: var(--color-text);">{fields.date}</span>
-        </div>
-        <div class="flex justify-between items-baseline gap-3 py-0.5">
-          <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Vendor</span>
-          <span class="text-sm text-right" style="color: var(--color-text);">{fields.vendor}</span>
-        </div>
-        {#if fields.desc}
+        {#if type === 'mileage'}
+          <!-- Mileage fields -->
           <div class="flex justify-between items-baseline gap-3 py-0.5">
-            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Description</span>
-            <span class="text-sm text-right" style="color: var(--color-text);">{fields.desc}</span>
+            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Date</span>
+            <span class="text-sm text-right" style="color: var(--color-text);">{fields.date}</span>
           </div>
-        {/if}
-        <div class="flex justify-between items-baseline gap-3 py-0.5">
-          <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Amount</span>
-          <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">${fields.amount}</span>
-        </div>
-        {#if fields.category}
           <div class="flex justify-between items-baseline gap-3 py-0.5">
-            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Category</span>
-            <span class="text-sm text-right" style="color: var(--color-text);">{fields.category}</span>
+            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">From</span>
+            <span class="text-sm text-right" style="color: var(--color-text);">{fields.from}</span>
           </div>
-        {/if}
-        {#if fields.payment}
           <div class="flex justify-between items-baseline gap-3 py-0.5">
-            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Payment</span>
-            <span class="text-sm text-right" style="color: var(--color-text);">{fields.payment}</span>
+            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">To</span>
+            <span class="text-sm text-right" style="color: var(--color-text);">{fields.to}</span>
           </div>
-        {/if}
-        {#if fields.receipt}
+          {#if fields.purpose}
+            <div class="flex justify-between items-baseline gap-3 py-0.5">
+              <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Purpose</span>
+              <span class="text-sm text-right" style="color: var(--color-text);">{fields.purpose}</span>
+            </div>
+          {/if}
           <div class="flex justify-between items-baseline gap-3 py-0.5">
-            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Receipt</span>
-            <span class="text-sm text-right truncate max-w-[60%]" style="color: var(--color-text);">{fields.receipt}</span>
+            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Miles</span>
+            <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">{fields.miles} mi</span>
           </div>
-        {/if}
-        {#if fields.notes}
+          {#if fields.rate}
+            <div class="flex justify-between items-baseline gap-3 py-0.5">
+              <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">IRS Rate</span>
+              <span class="text-sm text-right" style="color: var(--color-text);">${fields.rate}/mi</span>
+            </div>
+          {/if}
           <div class="flex justify-between items-baseline gap-3 py-0.5">
-            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Notes</span>
-            <span class="text-sm text-right" style="color: var(--color-text);">{fields.notes}</span>
+            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Deduction</span>
+            <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">${fields.deduction}</span>
           </div>
-        {/if}
-        {#if fields.submittedBy}
+
+        {:else}
+          <!-- Expense fields -->
           <div class="flex justify-between items-baseline gap-3 py-0.5">
-            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Submitted by</span>
-            <span class="text-sm text-right truncate max-w-[60%]" style="color: var(--color-text-muted);">{fields.submittedBy}</span>
+            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Date</span>
+            <span class="text-sm text-right" style="color: var(--color-text);">{fields.date}</span>
           </div>
+          <div class="flex justify-between items-baseline gap-3 py-0.5">
+            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Vendor</span>
+            <span class="text-sm text-right" style="color: var(--color-text);">{fields.vendor}</span>
+          </div>
+          {#if fields.desc}
+            <div class="flex justify-between items-baseline gap-3 py-0.5">
+              <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Description</span>
+              <span class="text-sm text-right" style="color: var(--color-text);">{fields.desc}</span>
+            </div>
+          {/if}
+          <div class="flex justify-between items-baseline gap-3 py-0.5">
+            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Amount</span>
+            <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">${fields.amount}</span>
+          </div>
+          {#if fields.category}
+            <div class="flex justify-between items-baseline gap-3 py-0.5">
+              <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Category</span>
+              <span class="text-sm text-right" style="color: var(--color-text);">{fields.category}</span>
+            </div>
+          {/if}
+          {#if fields.payment}
+            <div class="flex justify-between items-baseline gap-3 py-0.5">
+              <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Payment</span>
+              <span class="text-sm text-right" style="color: var(--color-text);">{fields.payment}</span>
+            </div>
+          {/if}
+          {#if fields.receipt}
+            <div class="flex justify-between items-baseline gap-3 py-0.5">
+              <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Receipt</span>
+              <span class="text-sm text-right truncate max-w-[60%]" style="color: var(--color-text);">{fields.receipt}</span>
+            </div>
+          {/if}
+          {#if fields.notes}
+            <div class="flex justify-between items-baseline gap-3 py-0.5">
+              <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Notes</span>
+              <span class="text-sm text-right" style="color: var(--color-text);">{fields.notes}</span>
+            </div>
+          {/if}
+          {#if fields.submittedBy}
+            <div class="flex justify-between items-baseline gap-3 py-0.5">
+              <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Submitted by</span>
+              <span class="text-sm text-right truncate max-w-[60%]" style="color: var(--color-text-muted);">{fields.submittedBy}</span>
+            </div>
+          {/if}
         {/if}
 
       </div>

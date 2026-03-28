@@ -8,13 +8,14 @@
    */
 
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import {
     businesses,
     selectedBusiness,
     businessConfig,
   } from '$lib/store.js';
   import { downloadJson, findFile } from '$lib/drive.js';
-  import { appendRow } from '$lib/sheets.js';
+  import { appendRow, updateRow, readRow, findRowByTxnId } from '$lib/sheets.js';
   import { ensureYearFolder, saveMileageFavorite } from '$lib/business.js';
   import { IRS_RATES } from '$lib/constants.js';
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
@@ -38,6 +39,17 @@
   let milMiles     = $state('');
   let milErrors    = $state(/** @type {Record<string,string>} */({}));
   let milSubmitting = $state(false);
+
+  // ---------------------------------------------------------------------------
+  // Edit mode — pre-populated from ?biz=X&year=Y&txn=Z URL params
+  // ---------------------------------------------------------------------------
+
+  let editMode      = $state(false);
+  let editLoading   = $state(false);
+  let editLoadError = $state('');
+  let editRowNum    = $state(/** @type {number|null} */(null));
+  let editSheetId   = $state('');
+  let editTxnId     = $state('');
 
   /** True when the "save as favorite" name input is visible */
   let saveFavOpen    = $state(false);
@@ -187,7 +199,7 @@
       const rate      = milRate();
       const deduction = milDeduction();
 
-      await appendRow(biz.sheetIds[year], 'Mileage', [
+      const values = [
         milDate,
         milFrom.trim(),
         milTo.trim(),
@@ -195,7 +207,16 @@
         parseFloat(milMiles),
         rate,
         parseFloat(deduction),
-      ]);
+      ];
+
+      if (editMode) {
+        await updateRow(editSheetId, 'Mileage', editRowNum, [...values, editTxnId]);
+        showToast('Mileage updated!', 'success');
+        goto('/');
+        return;
+      }
+
+      await appendRow(biz.sheetIds[year], 'Mileage', [...values, crypto.randomUUID()]);
 
       // Clear fields — preserve date
       milFrom     = '';
@@ -272,14 +293,75 @@
   // Lifecycle
   // ---------------------------------------------------------------------------
 
-  onMount(() => {
-    if ($selectedBusiness) {
+  onMount(async () => {
+    const sp = new URLSearchParams(window.location.search);
+    const bizId  = sp.get('biz');
+    const yearStr = sp.get('year');
+    const txnId  = sp.get('txn');
+
+    if (bizId && yearStr && txnId) {
+      editLoading = true;
+      try {
+        const biz = $businesses.find((b) => b.id === bizId);
+        if (!biz) throw new Error("Business not found. Make sure you're signed in to the correct account.");
+        selectedBusiness.set(biz);
+        await loadBusinessData(biz);
+
+        const yr = parseInt(yearStr, 10);
+        const sheetId = biz.sheetIds?.[yr] ?? $selectedBusiness?.sheetIds?.[yr];
+        if (!sheetId) throw new Error(`No mileage sheet found for ${yr}.`);
+        editSheetId = sheetId;
+
+        const rowNum = await findRowByTxnId(sheetId, txnId, 'Mileage', 'H');
+        if (rowNum === null) throw new Error('Mileage entry not found.');
+        editRowNum = rowNum;
+
+        const raw = await readRow(sheetId, 'Mileage', rowNum);
+        milDate    = raw[0] || todayISO();
+        milFrom    = raw[1] || '';
+        milTo      = raw[2] || '';
+        milPurpose = raw[3] || '';
+        milMiles   = raw[4] || '';
+        editTxnId  = raw[7] || txnId;
+        editMode   = true;
+      } catch (err) {
+        console.error('[mileage] edit load:', err);
+        editLoadError = err.message;
+      } finally {
+        editLoading = false;
+      }
+    } else if ($selectedBusiness) {
       loadBusinessData($selectedBusiness);
     }
   });
 </script>
 
 <div class="px-4 pt-4 pb-8 flex flex-col gap-4 max-w-lg mx-auto">
+
+  {#if editLoading}
+    <div class="flex items-center justify-center py-16 gap-3">
+      <svg class="w-5 h-5 animate-spin" style="color: var(--color-text-muted);" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
+      </svg>
+      <span class="text-sm" style="color: var(--color-text-muted);">Loading…</span>
+    </div>
+  {:else if editLoadError}
+    <p class="text-sm rounded-xl px-4 py-3 mt-4" style="color: var(--color-error); background-color: var(--color-surface-2);">
+      {editLoadError}
+    </p>
+    <a href="/" class="self-start rounded-xl text-sm font-medium px-5" style="min-height: 44px; display:inline-flex; align-items:center; background-color: var(--color-surface-2); color: var(--color-text);">← Go home</a>
+  {:else}
+
+  {#if editMode}
+    <!-- Edit mode banner -->
+    <div class="rounded-xl px-4 py-3 flex items-center gap-3" style="background-color: var(--color-surface-2); border: 1px solid var(--color-border);">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-text-muted);">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+      </svg>
+      <span class="text-sm" style="color: var(--color-text-muted);">Editing mileage entry</span>
+    </div>
+  {/if}
 
   <!-- Business selector + loading indicator -->
   <div class="flex items-center gap-2">
@@ -466,11 +548,13 @@
           </svg>
           Saving…
         {:else}
-          Save Mileage
+          {editMode ? 'Save Changes' : 'Save Mileage'}
         {/if}
       </button>
 
     </form>
+  {/if}
+
   {/if}
 
 </div>

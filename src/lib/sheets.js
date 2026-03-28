@@ -35,6 +35,7 @@ const MILEAGE_HEADERS = [
   'Miles',
   'IRS Standard Rate',
   'Deduction Amount',
+  'ID',
 ];
 
 /**
@@ -350,8 +351,8 @@ export async function readRow(spreadsheetId, sheetName, rowNum) {
  * @param {string} txnId - UUID to search for
  * @returns {Promise<number|null>}
  */
-export async function findRowByTxnId(spreadsheetId, txnId) {
-  const ids = await readColumn(spreadsheetId, 'Expenses', 'J');
+export async function findRowByTxnId(spreadsheetId, txnId, sheetName = 'Expenses', column = 'J') {
+  const ids = await readColumn(spreadsheetId, sheetName, column);
   const idx = ids.findIndex((v) => v === txnId);
   if (idx === -1) return null;
   return idx + 2; // row 1 is header; data index 0 → sheet row 2
