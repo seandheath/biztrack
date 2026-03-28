@@ -103,3 +103,26 @@ export function liveConflictCount() {
     db.transactions.where('syncStatus').equals('conflict').count(),
   );
 }
+
+/**
+ * Returns the most recent category used for a given vendor within a business.
+ * Searches current year first, then walks back up to 5 years.
+ * Returns undefined if no prior expense transaction exists for this vendor.
+ */
+export async function getLastCategoryByVendor(
+  businessId: string,
+  vendor: string,
+): Promise<string | undefined> {
+  const currentYear = new Date().getFullYear();
+  for (let year = currentYear; year >= currentYear - 5; year--) {
+    const rows = await db.transactions
+      .where('[businessId+year]')
+      .equals([businessId, year])
+      .toArray();
+    const match = rows
+      .filter((r) => r.type === 'expense' && r.vendor === vendor && r.category)
+      .sort((a, b) => b.date.localeCompare(a.date))[0];
+    if (match?.category) return match.category;
+  }
+  return undefined;
+}

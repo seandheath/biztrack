@@ -21,6 +21,7 @@
   import { downloadJson, findFile, listFileNames, uploadFile } from '$lib/drive.js';
   import { appendRow, readColumn, updateRow, readRow, findRowByTxnId } from '$lib/sheets.js';
   import { enqueueCreate, enqueueUpdate } from '$lib/services/sync.js';
+  import { getLastCategoryByVendor } from '$lib/db/queries.js';
   import { ensureYearFolder } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
   import { QUICKBOOKS_CATEGORIES } from '$lib/constants.js';
@@ -168,6 +169,14 @@
   // ---------------------------------------------------------------------------
   // Expense form handlers
   // ---------------------------------------------------------------------------
+
+  async function handleVendorPick(vendor) {
+    if (expCategory) return;
+    const biz = $selectedBusiness;
+    if (!biz?.id) return;
+    const lastCategory = await getLastCategoryByVendor(biz.id, vendor);
+    if (lastCategory) expCategory = lastCategory;
+  }
 
   function validateExpense() {
     const errs = {};
@@ -463,7 +472,7 @@
       <!-- Vendor -->
       <div class="flex flex-col gap-1">
         <label for="exp-vendor" class="text-sm font-medium" style="color: var(--color-text-muted);">Vendor / Payee</label>
-        <VendorAutocomplete id="exp-vendor" bind:value={expVendor} bind:inputEl={vendorInputEl} />
+        <VendorAutocomplete id="exp-vendor" bind:value={expVendor} bind:inputEl={vendorInputEl} onpick={handleVendorPick} />
         {#if expErrors.vendor}
           <span class="text-xs" style="color: var(--color-error);">{expErrors.vendor}</span>
         {/if}

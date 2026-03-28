@@ -14,6 +14,7 @@
     inputEl = $bindable(null),
     placeholder = 'Vendor/Payee',
     id = undefined,
+    onpick = undefined,
   } = $props();
 
   let open = $state(false);
@@ -33,6 +34,7 @@
 
   function pick(vendor) {
     value = vendor;
+    onpick?.(vendor);
     open = false;
     activeIdx = -1;
   }
