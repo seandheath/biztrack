@@ -3,7 +3,7 @@
   import { businesses, selectedBusiness, businessConfig } from '$lib/store.js';
   import { setupBusiness, ensureYearFolder, discoverYearFolders } from '$lib/business.js';
   import { createFolder } from '$lib/drive.js';
-  import { openFolderPicker } from '$lib/picker.js';
+  import FolderBrowser from '../../components/FolderBrowser.svelte';
 
   /** @type {string} */
   let name = $state('');
@@ -21,7 +21,7 @@
   /** @type {'pick'|'create'} */
   let folderMode = $state('pick');
 
-  /** 'pick' mode: the folder selected via Picker */
+  /** 'pick' mode: the folder selected via browser */
   let folder = $state(/** @type {{id:string,name:string}|null} */(null));
 
   /** 'create' mode: name of the folder to create (falls back to business name) */
@@ -47,44 +47,34 @@
   let importMode = $state(false);
 
   // ---------------------------------------------------------------------------
-  // Folder picker helpers
+  // Folder browser state
   // ---------------------------------------------------------------------------
 
-  async function selectFolder() {
-    error = null;
-    try {
-      const picked = await openFolderPicker();
-      if (picked) folder = picked;
-    } catch (err) {
-      error = 'Could not open folder picker. Please try again.';
-      console.error('[business] Picker error:', err);
-    }
+  let browserOpen   = $state(false);
+  /** Which slot the browser selection will fill: 'main' | 'parent' */
+  let browserTarget = $state(/** @type {'main'|'parent'} */('main'));
+
+  function openBrowser(target) {
+    browserTarget = target;
+    browserOpen   = true;
+    error         = null;
   }
 
-  async function selectParentFolder() {
-    error = null;
-    try {
-      const picked = await openFolderPicker();
-      if (picked) parentFolder = picked;
-    } catch (err) {
-      error = 'Could not open folder picker. Please try again.';
-      console.error('[business] Picker error:', err);
-    }
-  }
-
-  async function importBusiness() {
-    error = null;
-    try {
-      const picked = await openFolderPicker();
-      if (!picked) return;
+  function handleFolderSelected(picked) {
+    browserOpen = false;
+    if (browserTarget === 'main') {
       folder = picked;
-      if (!name.trim()) name = picked.name;
-      folderMode = 'pick';
-      importMode = true;
-    } catch (err) {
-      error = 'Could not open folder picker. Please try again.';
-      console.error('[business] Picker error:', err);
+      if (importMode && !name.trim()) name = picked.name;
+    } else {
+      parentFolder = picked;
     }
+  }
+
+  function importBusiness() {
+    error      = null;
+    importMode = true;
+    folderMode = 'pick';
+    openBrowser('main');
   }
 
   // ---------------------------------------------------------------------------
@@ -140,8 +130,13 @@
     (folderMode === 'pick' && !folder)
   );
 
-  let submitLabel = $derived(importMode ? 'Import Business' : 'Add Business');
+  let submitLabel  = $derived(importMode ? 'Import Business' : 'Add Business');
   let spinnerLabel = $derived(importMode ? 'Importing…' : 'Setting up…');
+  let browserTitle = $derived(
+    browserTarget === 'parent' ? 'Select Parent Folder' :
+    importMode ? 'Select Business Folder' :
+    'Select Folder'
+  );
 </script>
 
 <div class="px-4 py-6 flex flex-col gap-5 max-w-lg mx-auto">
@@ -211,9 +206,9 @@
     </div>
 
     {#if folderMode === 'pick'}
-      <!-- Existing folder picker -->
+      <!-- Existing folder browser trigger -->
       <button
-        onclick={selectFolder}
+        onclick={() => openBrowser('main')}
         disabled={loading}
         class="rounded-xl border px-4 text-base text-left flex items-center gap-3 hover:opacity-70 transition-opacity disabled:opacity-50"
         style="
@@ -267,7 +262,7 @@
       <div class="flex flex-col gap-1">
         <label class="text-xs" style="color: var(--color-text-muted);">Store Inside (optional)</label>
         <button
-          onclick={selectParentFolder}
+          onclick={() => openBrowser('parent')}
           disabled={loading}
           class="rounded-xl border px-4 text-base text-left flex items-center gap-3 hover:opacity-70 transition-opacity disabled:opacity-50"
           style="
@@ -348,3 +343,11 @@
   </button>
 
 </div>
+
+<!-- Folder browser modal — rendered outside the form flow -->
+<FolderBrowser
+  open={browserOpen}
+  title={browserTitle}
+  onselect={handleFolderSelected}
+  oncancel={() => { browserOpen = false; }}
+/>
