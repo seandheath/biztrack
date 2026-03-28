@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-03-27 — sessionStorage token persistence (revision of memory-only decision)
+
+**Decision:** Persist the OAuth access token and its expiry to `sessionStorage` (keys `bt_at`, `bt_exp`, `bt_email`). Token is NOT written to `localStorage`.
+
+**Rationale:** With `prerender = true`, SvelteKit generates per-route HTML files (`history.html`, `settings.html`, etc.). GitHub Pages serves each as a full document; the service worker's `NavigationRoute` also returns full HTML for navigate requests. Every navigation reinitializes JS module state, losing the in-memory token and forcing re-authentication. `sessionStorage` is scoped to one tab and cleared on tab close — appropriate for the 1-hour GIS token lifetime. XSS exposure is limited: the app renders no user-provided HTML.
+
+**Alternatives considered:** `localStorage` (persists across sessions — too long-lived for an OAuth access token). Fixing navigation to pure client-side (SvelteKit intercepts link clicks but direct URL access and page refresh would still lose the token; not worth the UX friction given the static adapter).
+
+---
+
 ## 2026-03-27 — SvelteKit + adapter-static + GitHub Pages
 
 **Decision:** Use SvelteKit 2 with `adapter-static` (pure SPA output) deployed to GitHub Pages via GitHub Actions. Custom domain: `biztrack.lol`.

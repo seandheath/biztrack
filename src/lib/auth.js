@@ -1,9 +1,9 @@
 /**
  * Google Identity Services (GIS) token model authentication.
  *
- * All token state lives in module-level variables — never persisted to
- * localStorage or sessionStorage (spec §4.2). On page refresh the user
- * must sign in again.
+ * Token state is persisted to sessionStorage so navigations within the same
+ * tab survive page reloads without re-authentication. sessionStorage is
+ * cleared when the tab closes — appropriate for a 1-hour GIS access token.
  *
  * This module is intentionally framework-agnostic. It knows nothing about
  * Svelte stores. The layout component registers callbacks via onTokenUpdate()
@@ -26,6 +26,11 @@
 
 import { GOOGLE_CLIENT_ID, DRIVE_SCOPE } from './constants.js';
 
+// sessionStorage keys — short names to reduce XSS exposure window
+const _SS_TOKEN  = 'bt_at';
+const _SS_EXPIRY = 'bt_exp';
+const _SS_EMAIL  = 'bt_email';
+
 // Re-export for callers that imported these from auth.js before Phase 6.
 export { DRIVE_SCOPE } from './constants.js';
 export { GOOGLE_API_KEY, GOOGLE_APP_ID } from './constants.js';
@@ -42,6 +47,28 @@ let _tokenExpiry = null;
 
 /** @type {string|null} Signed-in user's email address */
 let _userEmail = null;
+
+// Restore a still-valid token from the current tab's sessionStorage.
+// sessionStorage is cleared when the tab closes; tokens expire after ~1 hour.
+// try/catch guards against browsers with sessionStorage disabled (e.g. private mode).
+try {
+  const storedToken  = sessionStorage.getItem(_SS_TOKEN);
+  const storedExpiry = sessionStorage.getItem(_SS_EXPIRY);
+  const storedEmail  = sessionStorage.getItem(_SS_EMAIL);
+  if (storedToken && storedExpiry) {
+    const expiry = new Date(storedExpiry);
+    if (expiry > new Date()) {
+      _token       = storedToken;
+      _tokenExpiry = expiry;
+      _userEmail   = storedEmail ?? null;
+    } else {
+      // Expired — remove stale entries
+      sessionStorage.removeItem(_SS_TOKEN);
+      sessionStorage.removeItem(_SS_EXPIRY);
+      sessionStorage.removeItem(_SS_EMAIL);
+    }
+  }
+} catch { /* sessionStorage unavailable */ }
 
 /** @type {Object|null} GIS TokenClient instance */
 let _tokenClient = null;
@@ -174,6 +201,11 @@ function _handleTokenResponse(tokenResponse) {
   // expires_in is in seconds; subtract 30s buffer for clock skew
   _tokenExpiry = new Date(Date.now() + (tokenResponse.expires_in - 30) * 1000);
 
+  try {
+    sessionStorage.setItem(_SS_TOKEN,  _token);
+    sessionStorage.setItem(_SS_EXPIRY, _tokenExpiry.toISOString());
+  } catch { /* sessionStorage unavailable */ }
+
   // Notify stores immediately — isAuthenticated flips to true
   _onTokenUpdate?.({ token: _token, expiry: _tokenExpiry, email: null });
 
@@ -211,6 +243,7 @@ async function _fetchUserEmail() {
     if (resp.ok) {
       const data = await resp.json();
       _userEmail = data.email ?? null;
+      try { sessionStorage.setItem(_SS_EMAIL, _userEmail); } catch {}
       _onTokenUpdate?.({ token: _token, expiry: _tokenExpiry, email: _userEmail });
     }
   } catch {
@@ -272,6 +305,11 @@ export function revokeToken() {
   _token = null;
   _tokenExpiry = null;
   _userEmail = null;
+  try {
+    sessionStorage.removeItem(_SS_TOKEN);
+    sessionStorage.removeItem(_SS_EXPIRY);
+    sessionStorage.removeItem(_SS_EMAIL);
+  } catch {}
   _onTokenUpdate?.({ token: null, expiry: null, email: null });
 }
 
@@ -287,6 +325,12 @@ export function revokeToken() {
  */
 export function onTokenUpdate(callback) {
   _onTokenUpdate = callback;
+  // If a token was restored from sessionStorage before this callback was
+  // registered, notify immediately so the authToken store transitions to
+  // authenticated without waiting for a new sign-in.
+  if (_token && _tokenExpiry) {
+    callback({ token: _token, expiry: _tokenExpiry, email: _userEmail });
+  }
 }
 
 /**
@@ -340,6 +384,10 @@ export async function apiFetch(url, options = {}) {
     // Token rejected server-side (revoked externally, clock skew, etc.)
     _token = null;
     _tokenExpiry = null;
+    try {
+      sessionStorage.removeItem(_SS_TOKEN);
+      sessionStorage.removeItem(_SS_EXPIRY);
+    } catch {}
     _onAuthRequired?.();
     throw new Error('Session expired');
   }
