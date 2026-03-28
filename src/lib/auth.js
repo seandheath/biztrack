@@ -29,7 +29,10 @@ import { GOOGLE_CLIENT_ID, DRIVE_SCOPE } from './constants.js';
 // sessionStorage keys — short names to reduce XSS exposure window
 const _SS_TOKEN  = 'bt_at';
 const _SS_EXPIRY = 'bt_exp';
-const _SS_EMAIL  = 'bt_email';
+
+// Email hint in localStorage (non-sensitive) — persists across tab closes so
+// silent re-auth can be attempted on next app open without showing a popup.
+const _LS_EMAIL_HINT = 'bt_email_hint';
 
 // Re-export for callers that imported these from auth.js before Phase 6.
 export { DRIVE_SCOPE } from './constants.js';
@@ -54,18 +57,17 @@ let _userEmail = null;
 try {
   const storedToken  = sessionStorage.getItem(_SS_TOKEN);
   const storedExpiry = sessionStorage.getItem(_SS_EXPIRY);
-  const storedEmail  = sessionStorage.getItem(_SS_EMAIL);
   if (storedToken && storedExpiry) {
     const expiry = new Date(storedExpiry);
     if (expiry > new Date()) {
       _token       = storedToken;
       _tokenExpiry = expiry;
-      _userEmail   = storedEmail ?? null;
+      // Email hint is now in localStorage — read it there
+      _userEmail   = localStorage.getItem(_LS_EMAIL_HINT) ?? null;
     } else {
-      // Expired — remove stale entries
+      // Expired — remove stale session entries (email hint stays in localStorage)
       sessionStorage.removeItem(_SS_TOKEN);
       sessionStorage.removeItem(_SS_EXPIRY);
-      sessionStorage.removeItem(_SS_EMAIL);
     }
   }
 } catch { /* sessionStorage unavailable */ }
@@ -173,6 +175,25 @@ export function refreshToken(loginHint) {
   });
 }
 
+/**
+ * Attempts silent re-authentication on app open.
+ * If Google's session cookie is alive, this resolves with no UI shown.
+ * If the Google session has also expired, it rejects — caller should then
+ * show the normal sign-in screen.
+ *
+ * Requires initTokenClient() to have been called first.
+ *
+ * @param {string} loginHint - Email stored in localStorage from a prior session
+ * @returns {Promise<void>}
+ */
+export function attemptSilentAuth(loginHint) {
+  return new Promise((resolve, reject) => {
+    _pendingResolve = resolve;
+    _pendingReject = reject;
+    _tokenClient.requestAccessToken({ prompt: '', login_hint: loginHint });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Private GIS callbacks
 // ---------------------------------------------------------------------------
@@ -205,6 +226,7 @@ function _handleTokenResponse(tokenResponse) {
     sessionStorage.setItem(_SS_TOKEN,  _token);
     sessionStorage.setItem(_SS_EXPIRY, _tokenExpiry.toISOString());
   } catch { /* sessionStorage unavailable */ }
+  // Email hint written to localStorage so silent re-auth works across tab opens
 
   // Notify stores immediately — isAuthenticated flips to true
   _onTokenUpdate?.({ token: _token, expiry: _tokenExpiry, email: null });
@@ -246,7 +268,7 @@ async function _fetchUserEmail() {
     if (resp.ok) {
       const data = await resp.json();
       _userEmail = data.user?.emailAddress ?? null;
-      try { sessionStorage.setItem(_SS_EMAIL, _userEmail); } catch {}
+      try { localStorage.setItem(_LS_EMAIL_HINT, _userEmail ?? ''); } catch {}
       _onTokenUpdate?.({ token: _token, expiry: _tokenExpiry, email: _userEmail });
     }
   } catch {
@@ -300,7 +322,7 @@ export function getTokenSecondsRemaining() {
  * Revokes the current token and clears all auth state.
  * Notifies registered callbacks so Svelte stores reset to unauthenticated.
  */
-export function revokeToken() {
+export async function revokeToken() {
   if (_token) {
     // Fire-and-forget revocation — no need to await
     window.google.accounts.oauth2.revoke(_token, () => {});
@@ -311,8 +333,20 @@ export function revokeToken() {
   try {
     sessionStorage.removeItem(_SS_TOKEN);
     sessionStorage.removeItem(_SS_EXPIRY);
-    sessionStorage.removeItem(_SS_EMAIL);
+    localStorage.removeItem(_LS_EMAIL_HINT);
   } catch {}
+
+  // Clear all local transaction data from IndexedDB on sign-out.
+  // Imported here (not at module top) to avoid a circular dependency since
+  // dexie.ts has no auth imports.
+  try {
+    const { db } = await import('./db/dexie.js');
+    await db.delete();
+    await db.open();
+  } catch (err) {
+    console.warn('[auth] DB clear on sign-out failed:', err);
+  }
+
   _onTokenUpdate?.({ token: null, expiry: null, email: null });
 }
 

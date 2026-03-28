@@ -16,6 +16,19 @@
     <link rel="apple-touch-icon" sizes="120x120" href="%sveltekit.assets%/icon-120.png" />
     <link rel="apple-touch-icon" href="%sveltekit.assets%/icon-192.png" />
 
+    <!-- Content Security Policy
+         unsafe-inline is required for Svelte's inline event handlers and
+         Vite dev injection; nonce-based CSP is not feasible with adapter-static. -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' https://accounts.google.com;
+      connect-src 'self' https://accounts.google.com https://www.googleapis.com https://sheets.googleapis.com https://upload.googleapis.com;
+      frame-src https://accounts.google.com;
+      img-src 'self' data: https:;
+      style-src 'self' 'unsafe-inline';
+      object-src 'none';
+    " />
+
     <!-- SvelteKit injects head content here -->
     %sveltekit.head%
   </head>

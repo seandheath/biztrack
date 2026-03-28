@@ -1,9 +1,16 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { SvelteKitPWA } from '@vite-pwa/sveltekit';
+import { readFileSync } from 'fs';
+
+const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
 /** @type {import('vite').UserConfig} */
 export default {
+  define: {
+    // Expose package version at build time — accessed in components as __APP_VERSION__
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   plugins: [
     // Order matters: tailwind must come before sveltekit
     tailwindcss(),

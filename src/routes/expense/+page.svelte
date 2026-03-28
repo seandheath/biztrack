@@ -20,6 +20,7 @@
   } from '$lib/store.js';
   import { downloadJson, findFile, listFileNames, uploadFile } from '$lib/drive.js';
   import { appendRow, readColumn, updateRow, readRow, findRowByTxnId } from '$lib/sheets.js';
+  import { enqueueCreate, enqueueUpdate } from '$lib/services/sync.js';
   import { ensureYearFolder } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
   import { QUICKBOOKS_CATEGORIES } from '$lib/constants.js';
@@ -181,10 +182,6 @@
 
   async function submitExpense() {
     if (!validateExpense()) return;
-    if (!navigator.onLine) {
-      showToast('No connection. Please try again when online.', 'error');
-      return;
-    }
 
     expSubmitting = true;
     try {
@@ -198,50 +195,50 @@
         selectedBusiness.set(biz);
       }
 
-      const spreadsheetId   = biz.sheetIds[year];
-      const receiptFolderId = biz.receiptFolderIds[year];
-      const amount          = parseFloat(expAmount).toFixed(2);
+      const receiptFolderId = biz.receiptFolderIds?.[year];
+      const amount = parseFloat(expAmount);
 
-      // Upload receipt if one is attached
-      let receiptFilename = '';
+      // Upload receipt to Drive if one is attached (requires network)
+      let receiptDriveId = '';
       if (expReceipt && receiptFolderId) {
-        const { blob, ext }   = await processReceipt(expReceipt);
-        const existingNames   = await listFileNames(receiptFolderId);
-        receiptFilename       = generateFilename(expVendor.trim(), expDate, ext, existingNames);
-        await uploadFile(receiptFilename, blob, blob.type || 'application/octet-stream', receiptFolderId);
+        const { blob, ext }  = await processReceipt(expReceipt);
+        const existingNames  = await listFileNames(receiptFolderId);
+        const filename       = generateFilename(expVendor.trim(), expDate, ext, existingNames);
+        const uploaded       = await uploadFile(filename, blob, blob.type || 'application/octet-stream', receiptFolderId);
+        receiptDriveId       = uploaded.id;
       }
 
       if (shareMode) {
-        // Editing a shared expense — update the existing row in place
-        await updateRow(shareSheetId, 'Expenses', shareRowNum, [
-          expDate,
-          expVendor.trim(),
-          expDesc.trim(),
+        // Editing a shared expense — update via sync engine
+        await enqueueUpdate(shareTxnId, {
+          date:          expDate,
+          vendor:        expVendor.trim(),
+          description:   expDesc.trim(),
           amount,
-          expCategory,
-          expPayment,
-          receiptFilename,
-          expNotes.trim(),
-          shareSubmittedBy,
-          shareTxnId,
-        ]);
+          category:      expCategory,
+          paymentMethod: expPayment,
+          receiptDriveId: receiptDriveId || undefined,
+          notes:         expNotes.trim(),
+          submittedBy:   shareSubmittedBy,
+        });
         showToast('Details saved!', 'success');
         shareMode = false;
       } else {
-        // New expense — append row with fresh transaction ID
-        const txnId = crypto.randomUUID();
-        await appendRow(spreadsheetId, 'Expenses', [
-          expDate,
-          expVendor.trim(),
-          expDesc.trim(),
+        // New expense — write to Dexie, sync engine pushes to Sheets
+        const txnId = await enqueueCreate({
+          businessId:    biz.id,
+          type:          'expense',
+          year,
+          date:          expDate,
+          vendor:        expVendor.trim(),
+          description:   expDesc.trim(),
           amount,
-          expCategory,
-          expPayment,
-          receiptFilename,
-          expNotes.trim(),
-          $userEmail ?? '',
-          txnId,
-        ]);
+          category:      expCategory,
+          paymentMethod: expPayment,
+          receiptDriveId: receiptDriveId || undefined,
+          notes:         expNotes.trim(),
+          submittedBy:   $userEmail ?? '',
+        });
 
         // Update vendor autocomplete cache
         const vendor = expVendor.trim();
