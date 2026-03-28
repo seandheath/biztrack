@@ -34,6 +34,7 @@ import { businessConfig } from './store.js';
  */
 export async function setupBusiness(name, folderId) {
   const defaultConfig = {
+    name,
     payment_accounts: [...DEFAULT_PAYMENT_METHODS],
     mileage_favorites: [],
   };
@@ -46,6 +47,7 @@ export async function setupBusiness(name, folderId) {
     config = await downloadJson(configId);
     configFileId = configId;
     // Guard against malformed config missing required keys
+    if (typeof config.name !== 'string' || !config.name) config.name = name;
     if (!Array.isArray(config.payment_accounts)) config.payment_accounts = [...DEFAULT_PAYMENT_METHODS];
     if (!Array.isArray(config.mileage_favorites)) config.mileage_favorites = [];
   } else {
@@ -80,6 +82,8 @@ export async function setupBusiness(name, folderId) {
 export async function loadConfig(business) {
   if (!business?.configFileId) return null;
   const cfg = await downloadJson(business.configFileId);
+  // Backfill name for configs written before this field was added
+  if (typeof cfg.name !== 'string' || !cfg.name) cfg.name = business.name ?? '';
   if (!Array.isArray(cfg.payment_accounts))  cfg.payment_accounts  = [...DEFAULT_PAYMENT_METHODS];
   if (!Array.isArray(cfg.mileage_favorites)) cfg.mileage_favorites = [];
   businessConfig.set(cfg);
