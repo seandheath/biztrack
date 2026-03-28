@@ -6,8 +6,8 @@
  *   <Business Folder>/
  *     config.json
  *     2026/
- *       2026_expenses     (Google Sheet)
- *       2026_Receipts/
+ *       2026_<name>_expenses   (Google Sheet — Expenses + Mileage tabs)
+ *       2026_<name>_Receipts/
  *
  * No token parameter — apiFetch() in auth.js reads the token from module state.
  */
@@ -16,6 +16,11 @@ import { findFile, downloadJson, uploadJson, updateJson, createFolder, moveFile,
 import { createExpenseSheet } from './sheets.js';
 import { DEFAULT_PAYMENT_METHODS } from './constants.js';
 import { businessConfig, businesses, selectedBusiness } from './store.js';
+
+/** Strip characters that are invalid in Drive/Sheets file names: / \ : * ? " < > | */
+function driveFileName(name) {
+  return name.replace(/[/\\:*?"<>|]/g, '');
+}
 
 /**
  * Initializes a business against a user-selected Drive folder.
@@ -215,11 +220,12 @@ export async function discoverYearFolders(business) {
     const year = parseInt(folder.name, 10);
     yearFolders[year] = folder.id;
 
-    const sheetId = await findFile(`${year}_expenses`, folder.id);
+    const safeName = driveFileName(business.name);
+    const sheetId = await findFile(`${year}_${safeName}_expenses`, folder.id);
     if (sheetId) sheetIds[year] = sheetId;
 
     const inner = await listFolders(folder.id);
-    const rf = inner.find((f) => f.name === `${year}_Receipts`);
+    const rf = inner.find((f) => f.name === `${year}_${safeName}_Receipts`);
     if (rf) receiptFolderIds[year] = rf.id;
   }
 
@@ -250,13 +256,14 @@ export async function ensureYearFolder(business, year) {
   const { id: yearFolderId } = await createFolder(String(year), business.folderId);
 
   // Create the expense sheet — lands in Drive root, must be moved immediately
-  const { spreadsheetId } = await createExpenseSheet(`${year}_expenses`);
+  const safeName = driveFileName(business.name);
+  const { spreadsheetId } = await createExpenseSheet(`${year}_${safeName}_expenses`);
 
   // Move sheet from Drive root into the year folder
   await moveFile(spreadsheetId, yearFolderId, 'root');
 
   // Create the receipts folder inside the year folder
-  const { id: receiptFolderId } = await createFolder(`${year}_Receipts`, yearFolderId);
+  const { id: receiptFolderId } = await createFolder(`${year}_${safeName}_Receipts`, yearFolderId);
 
   return {
     ...business,
