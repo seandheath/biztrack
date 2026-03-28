@@ -3,7 +3,7 @@
   import { businesses, selectedBusiness, businessConfig } from '$lib/store.js';
   import { setupBusiness, ensureYearFolder, discoverYearFolders } from '$lib/business.js';
   import { createFolder } from '$lib/drive.js';
-  import FolderBrowser from '../../components/FolderBrowser.svelte';
+  import FolderBrowser from '../../../components/FolderBrowser.svelte';
 
   /** @type {string} */
   let name = $state('');
