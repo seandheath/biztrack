@@ -309,9 +309,8 @@
         class="flex-1 rounded-xl font-semibold text-base flex items-center justify-center transition-opacity hover:opacity-80"
         style="
           min-height: 52px;
-          background-color: var(--color-surface-2);
-          color: var(--color-text);
-          border: 1px solid var(--color-border);
+          background-color: var(--color-primary);
+          color: var(--color-primary-text);
         "
       >
         + Mileage
