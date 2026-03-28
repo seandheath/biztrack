@@ -21,7 +21,7 @@
   import { downloadJson, findFile, listFileNames, uploadFile } from '$lib/drive.js';
   import { appendRow, readColumn, updateRow, readRow, findRowByTxnId } from '$lib/sheets.js';
   import { enqueueCreate, enqueueUpdate } from '$lib/services/sync.js';
-  import { getLastCategoryByVendor } from '$lib/db/queries.js';
+  import { getLastVendorDefaults } from '$lib/db/queries.js';
   import { ensureYearFolder } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
   import { QUICKBOOKS_CATEGORIES } from '$lib/constants.js';
@@ -171,11 +171,12 @@
   // ---------------------------------------------------------------------------
 
   async function handleVendorPick(vendor) {
-    if (expCategory) return;
     const biz = $selectedBusiness;
     if (!biz?.id) return;
-    const lastCategory = await getLastCategoryByVendor(biz.id, vendor);
-    if (lastCategory) expCategory = lastCategory;
+    const defaults = await getLastVendorDefaults(biz.id, vendor);
+    if (!defaults) return;
+    if (!expCategory && defaults.category) expCategory = defaults.category;
+    if (!expPayment && defaults.paymentMethod) expPayment = defaults.paymentMethod;
   }
 
   function validateExpense() {

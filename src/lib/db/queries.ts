@@ -105,14 +105,14 @@ export function liveConflictCount() {
 }
 
 /**
- * Returns the most recent category used for a given vendor within a business.
+ * Returns the most recent category and payment method used for a vendor.
  * Searches current year first, then walks back up to 5 years.
  * Returns undefined if no prior expense transaction exists for this vendor.
  */
-export async function getLastCategoryByVendor(
+export async function getLastVendorDefaults(
   businessId: string,
   vendor: string,
-): Promise<string | undefined> {
+): Promise<{ category?: string; paymentMethod?: string } | undefined> {
   const currentYear = new Date().getFullYear();
   for (let year = currentYear; year >= currentYear - 5; year--) {
     const rows = await db.transactions
@@ -120,9 +120,9 @@ export async function getLastCategoryByVendor(
       .equals([businessId, year])
       .toArray();
     const match = rows
-      .filter((r) => r.type === 'expense' && r.vendor === vendor && r.category)
+      .filter((r) => r.type === 'expense' && r.vendor === vendor)
       .sort((a, b) => b.date.localeCompare(a.date))[0];
-    if (match?.category) return match.category;
+    if (match) return { category: match.category, paymentMethod: match.paymentMethod };
   }
   return undefined;
 }
