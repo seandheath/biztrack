@@ -14,7 +14,6 @@
   import { businesses, selectedBusiness, pendingReceipt } from '$lib/store.js';
   import { readRows } from '$lib/sheets.js';
   import BusinessDropdown from '../components/BusinessDropdown.svelte';
-  import Toast from '../components/Toast.svelte';
 
   // ---------------------------------------------------------------------------
   // State
@@ -22,10 +21,8 @@
 
   let loading = $state(false);
   let loadError = $state('');
-  /** @type {Array<{rowNum:number,date:string,vendor:string,desc:string,amount:string,category:string,payment:string,receipt:string,notes:string}>} */
+  /** @type {Array<{rowNum:number,date:string,vendor:string,desc:string,amount:string,category:string,payment:string,receipt:string,notes:string,txnId:string}>} */
   let rows = $state([]);
-  /** Row number currently expanded for read-only detail, or null. */
-  let viewRowNum = $state(/** @type {number|null} */(null));
 
   // ---------------------------------------------------------------------------
   // Derived
@@ -64,29 +61,13 @@
     };
   }
 
-  function buildShareUrl(bizId, year, txnId) {
-    const u = new URL('/expense', window.location.origin);
-    u.searchParams.set('biz',  bizId);
-    u.searchParams.set('year', String(year));
-    u.searchParams.set('txn',  txnId);
-    return u.toString();
-  }
-
-  async function shareRow(row) {
+  function transactionUrl(row) {
     const year = new Date(row.date + 'T00:00:00').getFullYear();
-    const url = buildShareUrl($selectedBusiness.id, year, row.txnId);
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: 'Complete this expense', url });
-      } else {
-        await navigator.clipboard.writeText(url);
-        toastMessage = 'Link copied!';
-        toastType    = 'success';
-        toastVisible = true;
-      }
-    } catch {
-      // User cancelled share
-    }
+    const u = new URL('/transaction', window.location.origin);
+    u.searchParams.set('biz',  $selectedBusiness.id);
+    u.searchParams.set('year', String(year));
+    u.searchParams.set('txn',  row.txnId);
+    return u.toString();
   }
 
   // ---------------------------------------------------------------------------
@@ -97,7 +78,6 @@
     if (!spreadsheetId) { rows = []; return; }
     loading = true;
     loadError = '';
-    viewRowNum = null;
     try {
       const { rows: raw, rowNums } = await readRows(spreadsheetId, 'Expenses');
       rows = raw.map((r, i) => parseExpenseRow(r, rowNums[i])).toReversed();
@@ -108,14 +88,6 @@
       loading = false;
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Toast (for future use / error display)
-  // ---------------------------------------------------------------------------
-
-  let toastMessage = $state('');
-  let toastType    = $state(/** @type {'success'|'error'} */('success'));
-  let toastVisible = $state(false);
 
   // ---------------------------------------------------------------------------
   // Lifecycle
@@ -203,119 +175,20 @@
           style="border-color: var(--color-border); background-color: var(--color-surface-2);"
         >
           {#each rows as row (row.rowNum)}
-
-            {#if viewRowNum !== row.rowNum}
-              <!-- ---------------------------------------------------------
-                   Collapsed row
-                   --------------------------------------------------------- -->
-              <button
-                type="button"
-                onclick={() => { viewRowNum = row.rowNum; }}
-                class="w-full flex items-center px-4 text-left hover:opacity-80 transition-opacity"
-                style="min-height: 64px;"
-                aria-label="View entry: {row.vendor}, {row.date}"
-              >
-                <div class="flex flex-col gap-0.5 flex-1 min-w-0 pr-3">
-                  <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.vendor}</span>
-                  <span class="text-xs" style="color: var(--color-text-muted);">{row.date}{row.category ? ' · ' + row.category : ''}</span>
-                </div>
-                <span class="text-sm font-semibold flex-shrink-0" style="color: var(--color-primary);">
-                  ${row.amount}
-                </span>
-              </button>
-
-            {:else}
-              <!-- ---------------------------------------------------------
-                   Expanded read-only detail
-                   --------------------------------------------------------- -->
-              <div class="px-4 py-4 flex flex-col gap-1.5">
-
-                <!-- Field rows -->
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Date</span>
-                  <span class="text-sm text-right" style="color: var(--color-text);">{row.date}</span>
-                </div>
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Vendor</span>
-                  <span class="text-sm text-right" style="color: var(--color-text);">{row.vendor}</span>
-                </div>
-                {#if row.desc}
-                  <div class="flex justify-between items-baseline gap-3 py-0.5">
-                    <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Description</span>
-                    <span class="text-sm text-right" style="color: var(--color-text);">{row.desc}</span>
-                  </div>
-                {/if}
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Amount</span>
-                  <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">${row.amount}</span>
-                </div>
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Category</span>
-                  <span class="text-sm text-right" style="color: var(--color-text);">{row.category}</span>
-                </div>
-                <div class="flex justify-between items-baseline gap-3 py-0.5">
-                  <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Payment</span>
-                  <span class="text-sm text-right" style="color: var(--color-text);">{row.payment}</span>
-                </div>
-                {#if row.receipt}
-                  <div class="flex justify-between items-baseline gap-3 py-0.5">
-                    <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Receipt</span>
-                    <span class="text-sm text-right truncate max-w-[60%]" style="color: var(--color-text);">{row.receipt}</span>
-                  </div>
-                {/if}
-                {#if row.notes}
-                  <div class="flex justify-between items-baseline gap-3 py-0.5">
-                    <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Notes</span>
-                    <span class="text-sm text-right" style="color: var(--color-text);">{row.notes}</span>
-                  </div>
-                {/if}
-
-                <!-- Action row -->
-                <div class="flex gap-2 pt-2">
-                  <button
-                    type="button"
-                    onclick={() => { viewRowNum = null; }}
-                    class="rounded-xl text-sm px-4 transition-opacity hover:opacity-70"
-                    style="
-                      min-height: 40px;
-                      background-color: var(--color-surface-3);
-                      color: var(--color-text-muted);
-                    "
-                  >
-                    Close
-                  </button>
-                  <button
-                    type="button"
-                    onclick={() => shareRow(row)}
-                    class="rounded-xl text-sm px-4 font-medium transition-opacity hover:opacity-80"
-                    style="
-                      min-height: 40px;
-                      background-color: var(--color-surface-2);
-                      color: var(--color-text);
-                      border: 1px solid var(--color-border);
-                    "
-                  >
-                    Share
-                  </button>
-                  <a
-                    href={buildShareUrl($selectedBusiness.id, new Date(row.date + 'T00:00:00').getFullYear(), row.txnId)}
-                    class="flex-1 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-opacity hover:opacity-80"
-                    style="
-                      min-height: 40px;
-                      background-color: var(--color-primary);
-                      color: var(--color-primary-text);
-                    "
-                  >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                    </svg>
-                    Edit
-                  </a>
-                </div>
-
+            <a
+              href={transactionUrl(row)}
+              class="w-full flex items-center px-4 text-left hover:opacity-80 transition-opacity"
+              style="min-height: 64px; display: flex;"
+              aria-label="View entry: {row.vendor}, {row.date}"
+            >
+              <div class="flex flex-col gap-0.5 flex-1 min-w-0 pr-3">
+                <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.vendor}</span>
+                <span class="text-xs" style="color: var(--color-text-muted);">{row.date}{row.category ? ' · ' + row.category : ''}</span>
               </div>
-            {/if}
-
+              <span class="text-sm font-semibold flex-shrink-0" style="color: var(--color-primary);">
+                ${row.amount}
+              </span>
+            </a>
           {/each}
         </div>
       {/if}
@@ -359,5 +232,3 @@
   </div>
 {/if}
 
-<!-- Toast -->
-<Toast message={toastMessage} type={toastType} visible={toastVisible} />
