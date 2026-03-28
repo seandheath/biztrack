@@ -284,37 +284,33 @@
                   >
                     Close
                   </button>
-                  {#if row.txnId && $selectedBusiness?.id}
-                    <button
-                      type="button"
-                      onclick={() => shareRow(row)}
-                      class="rounded-xl text-sm px-4 font-medium transition-opacity hover:opacity-80"
-                      style="
-                        min-height: 40px;
-                        background-color: var(--color-surface-2);
-                        color: var(--color-text);
-                        border: 1px solid var(--color-border);
-                      "
-                    >
-                      Share
-                    </button>
-                  {/if}
-                  {#if row.txnId && $selectedBusiness?.id}
-                    <a
-                      href={buildShareUrl($selectedBusiness.id, new Date(row.date + 'T00:00:00').getFullYear(), row.txnId)}
-                      class="flex-1 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-opacity hover:opacity-80"
-                      style="
-                        min-height: 40px;
-                        background-color: var(--color-primary);
-                        color: var(--color-primary-text);
-                      "
-                    >
-                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                      </svg>
-                      Edit
-                    </a>
-                  {/if}
+                  <button
+                    type="button"
+                    onclick={() => shareRow(row)}
+                    class="rounded-xl text-sm px-4 font-medium transition-opacity hover:opacity-80"
+                    style="
+                      min-height: 40px;
+                      background-color: var(--color-surface-2);
+                      color: var(--color-text);
+                      border: 1px solid var(--color-border);
+                    "
+                  >
+                    Share
+                  </button>
+                  <a
+                    href={buildShareUrl($selectedBusiness.id, new Date(row.date + 'T00:00:00').getFullYear(), row.txnId)}
+                    class="flex-1 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-opacity hover:opacity-80"
+                    style="
+                      min-height: 40px;
+                      background-color: var(--color-primary);
+                      color: var(--color-primary-text);
+                    "
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                    Edit
+                  </a>
                 </div>
 
               </div>
