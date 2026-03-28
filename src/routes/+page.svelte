@@ -114,14 +114,14 @@
     <div class="text-4xl" aria-hidden="true">🗂️</div>
     <h2 class="text-xl font-semibold" style="color: var(--color-text);">No businesses yet</h2>
     <p class="text-base" style="color: var(--color-text-muted);">
-      Add a business in Settings to start tracking.
+      Add a business to start tracking.
     </p>
     <a
-      href="/settings"
+      href="/settings/business"
       class="mt-2 rounded-xl text-sm font-medium px-6"
       style="background-color: var(--color-primary); color: var(--color-primary-text); min-height: 44px; display:inline-flex; align-items:center;"
     >
-      Open Settings
+      Add Business
     </a>
   </div>
 
