@@ -15,6 +15,18 @@ import { cleanupOutdatedCaches, precacheAndRoute, createHandlerBoundToURL } from
 import { NavigationRoute, registerRoute } from 'workbox-routing';
 import { CacheFirst, NetworkFirst, NetworkOnly } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
+import { clientsClaim } from 'workbox-core';
+
+// Take immediate control of all open clients when a new SW activates.
+// Without this, existing tabs keep using the old SW until they're reloaded.
+clientsClaim();
+
+// The Vite PWA plugin (registerType: 'autoUpdate') sends a SKIP_WAITING
+// message when a new SW finishes installing. Without this handler the new
+// SW stays in 'waiting' state indefinitely — users never see updates.
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
 
 // Remove precache entries from previous SW installs
 cleanupOutdatedCaches();
