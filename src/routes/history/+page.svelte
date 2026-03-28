@@ -154,7 +154,31 @@
       payment:  raw[5] ?? '',
       receipt:  raw[6] ?? '',
       notes:    raw[7] ?? '',
+      // raw[8] = submittedBy (not displayed in history)
+      txnId:    raw[9] ?? '',
     };
+  }
+
+  function buildShareUrl(year, txnId) {
+    const u = new URL('/expense', window.location.origin);
+    u.searchParams.set('biz',  $selectedBusiness.id);
+    u.searchParams.set('year', String(year));
+    u.searchParams.set('txn',  txnId);
+    return u.toString();
+  }
+
+  async function shareExpenseRow(fields) {
+    const url = buildShareUrl(selectedYear, fields.txnId);
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'Complete this expense', url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        showToast('Link copied!', 'success');
+      }
+    } catch {
+      // User cancelled share
+    }
   }
 
   /** Parse a flat string array from Sheets into a typed mileage object. */
@@ -574,6 +598,21 @@
                 >
                   Close
                 </button>
+                {#if activeTab === 'expense' && editFields.txnId && $selectedBusiness?.id}
+                  <button
+                    type="button"
+                    onclick={() => shareExpenseRow(editFields)}
+                    class="rounded-xl text-sm px-4 font-medium flex-shrink-0 transition-opacity hover:opacity-80"
+                    style="
+                      min-height: 44px;
+                      background-color: var(--color-surface-2);
+                      color: var(--color-text);
+                      border: 1px solid var(--color-border);
+                    "
+                  >
+                    Share
+                  </button>
+                {/if}
                 <button
                   type="button"
                   onclick={startEdit}
@@ -775,6 +814,22 @@
                 >
                   Cancel
                 </button>
+                {#if activeTab === 'expense' && editFields.txnId && $selectedBusiness?.id}
+                  <button
+                    type="button"
+                    onclick={() => shareExpenseRow(editFields)}
+                    disabled={saving || deleting}
+                    class="rounded-xl text-sm px-4 flex-shrink-0 disabled:opacity-50 transition-opacity hover:opacity-80"
+                    style="
+                      min-height: 44px;
+                      background-color: var(--color-surface-2);
+                      color: var(--color-text);
+                      border: 1px solid var(--color-border);
+                    "
+                  >
+                    Share
+                  </button>
+                {/if}
 
                 <button
                   type="button"

@@ -15,7 +15,7 @@
 import { findFile, downloadJson, uploadJson, updateJson, createFolder, moveFile, listFolders } from './drive.js';
 import { createExpenseSheet } from './sheets.js';
 import { DEFAULT_PAYMENT_METHODS } from './constants.js';
-import { businessConfig } from './store.js';
+import { businessConfig, businesses, selectedBusiness } from './store.js';
 
 /**
  * Initializes a business against a user-selected Drive folder.
@@ -56,7 +56,14 @@ export async function setupBusiness(name, folderId) {
     config = defaultConfig;
   }
 
+  // Ensure config has a stable business ID — generate and persist if missing
+  if (!config.id) {
+    config.id = crypto.randomUUID();
+    await updateJson(configFileId, config);
+  }
+
   const business = {
+    id: config.id,
     name,
     folderId,
     configFileId,
@@ -86,6 +93,16 @@ export async function loadConfig(business) {
   if (typeof cfg.name !== 'string' || !cfg.name) cfg.name = business.name ?? '';
   if (!Array.isArray(cfg.payment_accounts))  cfg.payment_accounts  = [...DEFAULT_PAYMENT_METHODS];
   if (!Array.isArray(cfg.mileage_favorites)) cfg.mileage_favorites = [];
+  // Backfill business ID — generate and persist if missing, then update store
+  if (!cfg.id) {
+    cfg.id = crypto.randomUUID();
+    await updateJson(business.configFileId, cfg);
+  }
+  if (!business.id || business.id !== cfg.id) {
+    const updated = { ...business, id: cfg.id };
+    businesses.update((list) => list.map((b) => b.name === business.name ? updated : b));
+    selectedBusiness.update((b) => b?.name === business.name ? updated : b);
+  }
   businessConfig.set(cfg);
   return cfg;
 }
