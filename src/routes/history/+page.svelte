@@ -13,6 +13,7 @@
    */
 
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { selectedBusiness, businessConfig } from '$lib/store.js';
   import { readRows, updateRow, deleteRow } from '$lib/sheets.js';
   import { uploadFile, listFileNames } from '$lib/drive.js';
@@ -639,11 +640,19 @@
 
                 <div class="flex flex-col gap-1">
                   <label for="edit-payment-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Payment Method</label>
-                  <select id="edit-payment-{row.rowNum}" bind:value={editFields.payment}>
+                  <select
+                    id="edit-payment-{row.rowNum}"
+                    value={editFields.payment}
+                    onchange={(e) => {
+                      if (e.target.value === '__add_payment__') { goto('/settings/payments'); return; }
+                      editFields.payment = e.target.value;
+                    }}
+                  >
                     <option value="" disabled>Select method…</option>
                     {#each ($businessConfig?.payment_accounts ?? ['Cash']) as method (method)}
                       <option value={method}>{method}</option>
                     {/each}
+                    <option value="__add_payment__" style="color: var(--color-primary);">+ Add Payment Method…</option>
                   </select>
                 </div>
 
