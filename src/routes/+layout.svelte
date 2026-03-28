@@ -194,6 +194,11 @@
       }, 2000);
     });
 
+    // Reload when a new SW takes control so the app picks up fresh cached assets.
+    // controllerchange fires after the new SW calls skipWaiting + clientsClaim.
+    const onControllerChange = () => window.location.reload();
+    navigator.serviceWorker?.addEventListener('controllerchange', onControllerChange);
+
     // onMount cleanup
     return () => {
       clearInterval(interval);
@@ -201,6 +206,7 @@
       unsubBiz();
       window.removeEventListener('online',  setOnline);
       window.removeEventListener('offline', setOffline);
+      navigator.serviceWorker?.removeEventListener('controllerchange', onControllerChange);
     };
   });
 
