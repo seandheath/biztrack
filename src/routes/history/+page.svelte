@@ -1,23 +1,14 @@
 <script>
   /**
-   * History screen — review, edit, and delete past expense and mileage entries.
+   * History screen — review past expense and mileage entries.
    *
-   * Loads rows from the selected business's Google Sheet for a user-chosen year.
-   * Each row can be expanded inline for editing. Edits write back via updateRow();
-   * deletes use deleteRow() with a two-tap confirm pattern.
-   *
-   * Receipt handling:
-   *   - Replace: upload new file, update Receipt cell with new filename
-   *   - Remove:  clear Receipt cell (old file left in Drive)
-   *   - Unchanged: Receipt cell value carried forward as-is
+   * Pure list view: tapping any row navigates to /transaction for
+   * the full read-only detail, edit, share, and delete actions.
    */
 
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
   import { selectedBusiness } from '$lib/store.js';
-  import { readRows, updateRow, deleteRow } from '$lib/sheets.js';
-  import { IRS_RATES } from '$lib/constants.js';
-  import Toast from '../../components/Toast.svelte';
+  import { readRows } from '$lib/sheets.js';
 
   // ---------------------------------------------------------------------------
   // Tab / year state
@@ -43,84 +34,10 @@
   // Row state
   // ---------------------------------------------------------------------------
 
-  /**
-   * @typedef {Object} ExpenseRow
-   * @property {number} rowNum
-   * @property {string} date
-   * @property {string} vendor
-   * @property {string} desc
-   * @property {string} amount
-   * @property {string} category
-   * @property {string} payment
-   * @property {string} receipt
-   * @property {string} notes
-   */
-
-  /**
-   * @typedef {Object} MileageRow
-   * @property {number} rowNum
-   * @property {string} date
-   * @property {string} from
-   * @property {string} to
-   * @property {string} purpose
-   * @property {string} miles
-   * @property {string} rate
-   * @property {string} deduction
-   */
-
-  /** @type {Array<ExpenseRow|MileageRow>} */
+  /** @type {Array<Object>} */
   let rows = $state([]);
   let loading = $state(false);
   let loadError = $state('');
-
-  // ---------------------------------------------------------------------------
-  // Edit state
-  // ---------------------------------------------------------------------------
-
-  /** Row number currently expanded in read-only detail view, or null. */
-  let viewRowNum = $state(/** @type {number|null} */(null));
-  /** Row number currently in edit mode, or null. Must equal viewRowNum when set. */
-  let editRowNum = $state(/** @type {number|null} */(null));
-
-  /** Live copy of the fields being edited. */
-  let editFields = $state(/** @type {Record<string,string>} */({}));
-
-  let saving = $state(false);
-  let deleting = $state(false);
-  let editError = $state('');
-  let confirmDelete = $state(false);
-
-  // IRS rate derived from editFields.date (for mileage edit)
-  let editMilRate = $derived.by(() => {
-    if (activeTab !== 'mileage' || !editFields.date) return 0.70;
-    const year = new Date(editFields.date + 'T00:00:00').getFullYear();
-    if (IRS_RATES[year]) return IRS_RATES[year];
-    const years = Object.keys(IRS_RATES).map(Number).sort((a, b) => b - a);
-    return IRS_RATES[years[0]] ?? 0.70;
-  });
-
-  let editMilDeduction = $derived.by(() => {
-    if (activeTab !== 'mileage') return '';
-    const m = parseFloat(editFields.miles);
-    return isNaN(m) ? '' : (m * editMilRate).toFixed(2);
-  });
-
-  // ---------------------------------------------------------------------------
-  // Toast
-  // ---------------------------------------------------------------------------
-
-  let toastMessage = $state('');
-  let toastType = $state(/** @type {'success'|'error'} */('success'));
-  let toastVisible = $state(false);
-  let toastTimer = null;
-
-  function showToast(message, type = 'success') {
-    toastMessage = message;
-    toastType = type;
-    toastVisible = true;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { toastVisible = false; }, 3000);
-  }
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -150,14 +67,6 @@
     };
   }
 
-  function transactionUrl(row) {
-    const u = new URL('/transaction', window.location.origin);
-    u.searchParams.set('biz',  $selectedBusiness.id);
-    u.searchParams.set('year', String(selectedYear));
-    u.searchParams.set('txn',  row.txnId);
-    return u.toString();
-  }
-
   /** Parse a flat string array from Sheets into a typed mileage object. */
   function parseMileageRow(raw, rowNum) {
     return {
@@ -169,7 +78,17 @@
       miles:     raw[4] ?? '',
       rate:      raw[5] ?? '',
       deduction: raw[6] ?? '',
+      txnId:     raw[7] ?? '',
     };
+  }
+
+  function transactionUrl(row, type = 'expense') {
+    const u = new URL('/transaction', window.location.origin);
+    u.searchParams.set('biz',  $selectedBusiness.id);
+    u.searchParams.set('year', String(selectedYear));
+    u.searchParams.set('txn',  row.txnId);
+    if (type === 'mileage') u.searchParams.set('type', 'mileage');
+    return u.toString();
   }
 
   // ---------------------------------------------------------------------------
@@ -180,8 +99,6 @@
     if (!spreadsheetId) { rows = []; return; }
     loading = true;
     loadError = '';
-    viewRowNum = null;
-    editRowNum = null;
     try {
       const sheetName = activeTab === 'expense' ? 'Expenses' : 'Mileage';
       const { rows: raw, rowNums } = await readRows(spreadsheetId, sheetName);
@@ -190,7 +107,7 @@
           ? parseExpenseRow(r, rowNums[i])
           : parseMileageRow(r, rowNums[i])
       );
-      // Most recent first — reverse so newest dates appear at top
+      // Most recent first
       rows = parsed.toReversed();
     } catch (err) {
       console.error('[history] loadRows:', err);
@@ -201,108 +118,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Edit open / close
-  // ---------------------------------------------------------------------------
-
-  /** Open read-only detail view for a row. */
-  function openView(row) {
-    viewRowNum = row.rowNum;
-    editRowNum = null;
-    editFields = { ...row };
-    confirmDelete = false;
-    editError = '';
-  }
-
-  /** Enter edit mode from the read-only view (mileage only). */
-  function startEdit() {
-    editRowNum = viewRowNum;
-  }
-
-  /** Cancel edit — return to read-only view. */
-  function closeEdit() {
-    editRowNum = null;
-    confirmDelete = false;
-    editError = '';
-  }
-
-  /** Close the detail view entirely. */
-  function closeView() {
-    viewRowNum = null;
-    editRowNum = null;
-    confirmDelete = false;
-    editError = '';
-  }
-
-  // ---------------------------------------------------------------------------
-  // Save
-  // ---------------------------------------------------------------------------
-
-  async function saveEdit() {
-    if (!spreadsheetId) return;
-    saving = true;
-    editError = '';
-    try {
-      const rate = editMilRate;
-      const miles = parseFloat(editFields.miles || '0');
-      const deduction = isNaN(miles) ? 0 : parseFloat((miles * rate).toFixed(2));
-      const values = [
-        editFields.date,
-        editFields.from,
-        editFields.to,
-        editFields.purpose,
-        isNaN(miles) ? editFields.miles : miles,
-        rate,
-        deduction,
-      ];
-
-      await updateRow(spreadsheetId, 'Mileage', viewRowNum, values);
-
-      // Patch local rows without reloading
-      rows = rows.map((r) =>
-        r.rowNum === viewRowNum
-          ? { ...r, ...editFields, rate: String(editMilRate), deduction: editMilDeduction }
-          : r
-      );
-
-      closeView();
-      showToast('Saved!', 'success');
-    } catch (err) {
-      console.error('[history] saveEdit:', err);
-      editError = friendlyError(err);
-    } finally {
-      saving = false;
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Delete (two-tap confirm)
-  // ---------------------------------------------------------------------------
-
-  async function handleDelete() {
-    if (!confirmDelete) {
-      confirmDelete = true;
-      return;
-    }
-    if (!spreadsheetId) return;
-    deleting = true;
-    editError = '';
-    try {
-      const sheetName = activeTab === 'expense' ? 'Expenses' : 'Mileage';
-      await deleteRow(spreadsheetId, sheetName, viewRowNum);
-      rows = rows.filter((r) => r.rowNum !== viewRowNum);
-      closeView();
-      showToast('Deleted', 'success');
-    } catch (err) {
-      console.error('[history] deleteRow:', err);
-      editError = friendlyError(err);
-      confirmDelete = false;
-    } finally {
-      deleting = false;
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Lifecycle — initialize selectedYear once business is known
+  // Lifecycle
   // ---------------------------------------------------------------------------
 
   onMount(() => {
@@ -415,220 +231,32 @@
         style="border-color: var(--color-border); background-color: var(--color-surface-2);"
       >
         {#each rows as row (row.rowNum)}
-          <!-- ---------------------------------------------------------------
-               Collapsed row summary
-               --------------------------------------------------------------- -->
-          {#if viewRowNum !== row.rowNum}
-            {#if activeTab === 'expense'}
-              <a
-                href={transactionUrl(row)}
-                class="w-full flex items-center justify-between px-4 hover:opacity-80 transition-opacity"
-                style="min-height: 52px; display: flex;"
-                aria-label="View entry from {row.date}"
-              >
-                <div class="flex flex-col gap-0.5 min-w-0 flex-1 pr-3">
-                  <span class="text-xs" style="color: var(--color-text-muted);">{row.date}</span>
-                  <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.vendor}</span>
-                </div>
-                <span class="text-sm font-semibold flex-shrink-0" style="color: var(--color-primary);">${row.amount}</span>
-              </a>
-            {:else}
-              <button
-                type="button"
-                onclick={() => openView(row)}
-                class="w-full flex items-center justify-between px-4 text-left hover:opacity-80 transition-opacity"
-                style="min-height: 52px;"
-                aria-label="View entry from {row.date}"
-              >
-                <div class="flex flex-col gap-0.5 min-w-0 flex-1 pr-3">
-                  <span class="text-xs" style="color: var(--color-text-muted);">{row.date}</span>
-                  <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.from} → {row.to}</span>
-                </div>
-                <span class="text-sm font-semibold flex-shrink-0" style="color: var(--color-primary);">{row.miles} mi</span>
-              </button>
-            {/if}
-
-          <!-- ---------------------------------------------------------------
-               Read-only detail view
-               --------------------------------------------------------------- -->
-          {:else if editRowNum !== row.rowNum}
-            <div class="px-4 py-4 flex flex-col gap-1.5">
-
-              <div class="flex justify-between items-baseline gap-3 py-0.5">
-                <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Date</span>
-                <span class="text-sm text-right" style="color: var(--color-text);">{row.date}</span>
+          {#if activeTab === 'expense'}
+            <a
+              href={transactionUrl(row, 'expense')}
+              class="w-full flex items-center justify-between px-4 hover:opacity-80 transition-opacity"
+              style="min-height: 52px; display: flex;"
+              aria-label="View entry from {row.date}"
+            >
+              <div class="flex flex-col gap-0.5 min-w-0 flex-1 pr-3">
+                <span class="text-xs" style="color: var(--color-text-muted);">{row.date}</span>
+                <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.vendor}</span>
               </div>
-              <div class="flex justify-between items-baseline gap-3 py-0.5">
-                <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">From</span>
-                <span class="text-sm text-right" style="color: var(--color-text);">{row.from}</span>
-              </div>
-              <div class="flex justify-between items-baseline gap-3 py-0.5">
-                <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">To</span>
-                <span class="text-sm text-right" style="color: var(--color-text);">{row.to}</span>
-              </div>
-              <div class="flex justify-between items-baseline gap-3 py-0.5">
-                <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Purpose</span>
-                <span class="text-sm text-right" style="color: var(--color-text);">{row.purpose}</span>
-              </div>
-              <div class="flex justify-between items-baseline gap-3 py-0.5">
-                <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Miles</span>
-                <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">{row.miles} mi</span>
-              </div>
-              <div class="flex justify-between items-baseline gap-3 py-0.5">
-                <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">IRS Rate</span>
-                <span class="text-sm text-right" style="color: var(--color-text);">${row.rate}/mi</span>
-              </div>
-              <div class="flex justify-between items-baseline gap-3 py-0.5">
-                <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Deduction</span>
-                <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">${row.deduction}</span>
-              </div>
-              <!-- Action row (mileage only — expenses navigate to /transaction) -->
-              <div class="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onclick={closeView}
-                  class="rounded-xl text-sm px-4 flex-shrink-0 transition-opacity hover:opacity-70"
-                  style="min-height: 44px; background-color: var(--color-surface-3); color: var(--color-text-muted);"
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  onclick={startEdit}
-                  class="flex-1 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80 flex items-center justify-center gap-2"
-                  style="min-height: 44px; background-color: var(--color-primary); color: var(--color-primary-text);"
-                >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                  Edit
-                </button>
-              </div>
-
-            </div>
-
-          <!-- ---------------------------------------------------------------
-               Edit form
-               --------------------------------------------------------------- -->
+              <span class="text-sm font-semibold flex-shrink-0" style="color: var(--color-primary);">${row.amount}</span>
+            </a>
           {:else}
-            <div class="px-4 py-4 flex flex-col gap-3">
-
-              {#if editError}
-                <p class="text-sm rounded-xl px-3 py-2" style="color: var(--color-error); background-color: var(--color-surface-3);">
-                  {editError}
-                </p>
-              {/if}
-
-              <!-- ---- Mileage edit fields ---- -->
-
-              <div class="flex flex-col gap-1">
-                <label for="edit-mil-date-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Date</label>
-                <input id="edit-mil-date-{row.rowNum}" type="date" bind:value={editFields.date} />
+            <a
+              href={transactionUrl(row, 'mileage')}
+              class="w-full flex items-center justify-between px-4 hover:opacity-80 transition-opacity"
+              style="min-height: 52px; display: flex;"
+              aria-label="View entry from {row.date}"
+            >
+              <div class="flex flex-col gap-0.5 min-w-0 flex-1 pr-3">
+                <span class="text-xs" style="color: var(--color-text-muted);">{row.date}</span>
+                <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.from} → {row.to}</span>
               </div>
-
-              <div class="flex flex-col gap-1">
-                <label for="edit-from-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">From</label>
-                <input id="edit-from-{row.rowNum}" type="text" bind:value={editFields.from} placeholder="Starting address or city" />
-              </div>
-
-              <div class="flex flex-col gap-1">
-                <label for="edit-to-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">To</label>
-                <input id="edit-to-{row.rowNum}" type="text" bind:value={editFields.to} placeholder="Destination" />
-              </div>
-
-              <div class="flex flex-col gap-1">
-                <label for="edit-purpose-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Purpose</label>
-                <input id="edit-purpose-{row.rowNum}" type="text" bind:value={editFields.purpose} placeholder="Client meeting, site visit…" />
-              </div>
-
-              <div class="grid gap-3" style="grid-template-columns: 1fr 1fr;">
-                <div class="flex flex-col gap-1">
-                  <label for="edit-miles-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">Miles</label>
-                  <input id="edit-miles-{row.rowNum}" type="text" inputmode="decimal" bind:value={editFields.miles} placeholder="0.0" />
-                </div>
-                <div class="flex flex-col gap-1">
-                  <label for="edit-irs-rate-{row.rowNum}" class="text-xs font-medium" style="color: var(--color-text-muted);">IRS Rate</label>
-                  <input
-                    id="edit-irs-rate-{row.rowNum}"
-                    type="text"
-                    value="${editMilRate}/mi"
-                    readonly
-                    tabindex="-1"
-                    style="color: var(--color-text-muted); cursor: default;"
-                  />
-                </div>
-              </div>
-
-              {#if editMilDeduction !== ''}
-                <div
-                  class="rounded-xl px-4 py-3 flex items-center justify-between"
-                  style="background-color: var(--color-surface-3); border: 1px solid var(--color-border);"
-                >
-                  <span class="text-xs font-medium" style="color: var(--color-text-muted);">Estimated Deduction</span>
-                  <span class="text-lg font-semibold" style="color: var(--color-primary);">${editMilDeduction}</span>
-                </div>
-              {/if}
-
-              <!-- Action buttons -->
-              <div class="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onclick={closeEdit}
-                  disabled={saving || deleting}
-                  class="rounded-xl text-sm px-4 flex-shrink-0 disabled:opacity-50 transition-opacity hover:opacity-70"
-                  style="
-                    min-height: 44px;
-                    background-color: var(--color-surface-3);
-                    color: var(--color-text-muted);
-                  "
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="button"
-                  onclick={handleDelete}
-                  disabled={saving || deleting}
-                  class="rounded-xl text-sm px-4 flex-shrink-0 disabled:opacity-50 transition-all"
-                  style="
-                    min-height: 44px;
-                    background-color: {confirmDelete ? 'var(--color-error)' : 'var(--color-surface-3)'};
-                    color: {confirmDelete ? '#ffffff' : 'var(--color-error)'};
-                  "
-                >
-                  {#if deleting}
-                    Deleting…
-                  {:else if confirmDelete}
-                    Confirm delete?
-                  {:else}
-                    Delete
-                  {/if}
-                </button>
-
-                <button
-                  type="button"
-                  onclick={saveEdit}
-                  disabled={saving || deleting}
-                  class="flex-1 rounded-xl text-sm font-semibold disabled:opacity-50 transition-opacity flex items-center justify-center gap-2"
-                  style="
-                    min-height: 44px;
-                    background-color: var(--color-primary);
-                    color: var(--color-primary-text);
-                  "
-                >
-                  {#if saving}
-                    <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
-                    </svg>
-                    Saving…
-                  {:else}
-                    Save
-                  {/if}
-                </button>
-              </div>
-
-            </div>
+              <span class="text-sm font-semibold flex-shrink-0" style="color: var(--color-primary);">{row.miles} mi</span>
+            </a>
           {/if}
         {/each}
       </div>
@@ -636,6 +264,3 @@
 
   </div>
 {/if}
-
-<!-- Toast -->
-<Toast message={toastMessage} type={toastType} visible={toastVisible} />
