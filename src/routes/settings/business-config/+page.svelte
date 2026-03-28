@@ -27,6 +27,20 @@
   /** @type {boolean} */
   let configLoading = $state(false);
 
+  /** @type {boolean} */
+  let showConfirmDelete = $state(false);
+
+  function handleDelete() {
+    const biz = get(selectedBusiness);
+    if (!biz) return;
+    businesses.update((list) => list.filter((b) => b.name !== biz.name));
+    const remaining = get(businesses);
+    if (get(selectedBusiness)?.name === biz.name) {
+      selectedBusiness.set(remaining[0] ?? null);
+    }
+    goto('/settings');
+  }
+
   onMount(async () => {
     if (!get(businessConfig) && initialBiz) {
       configLoading = true;
@@ -168,6 +182,42 @@
           </svg>
         </a>
       </div>
+    </section>
+
+    <!-- Remove business -->
+    <section>
+      {#if showConfirmDelete}
+        <div class="rounded-xl border p-4 flex flex-col gap-3"
+             style="border-color: var(--color-error); background-color: var(--color-surface-2);">
+          <p class="text-sm" style="color: var(--color-text);">
+            Remove <strong>{initialBiz.name}</strong>? Your Drive data is untouched — this only removes the business from BizTrack.
+          </p>
+          <div class="flex gap-2">
+            <button
+              onclick={() => showConfirmDelete = false}
+              class="flex-1 rounded-xl px-4 text-sm font-semibold transition-opacity hover:opacity-80"
+              style="min-height: 44px; background-color: var(--color-surface-3, var(--color-border)); color: var(--color-text);"
+            >
+              Cancel
+            </button>
+            <button
+              onclick={handleDelete}
+              class="flex-1 rounded-xl px-4 text-sm font-semibold transition-opacity hover:opacity-80"
+              style="min-height: 44px; background-color: var(--color-error); color: #fff;"
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      {:else}
+        <button
+          onclick={() => showConfirmDelete = true}
+          class="w-full rounded-xl px-4 text-sm font-semibold transition-opacity hover:opacity-80"
+          style="min-height: 44px; background-color: var(--color-surface-2); color: var(--color-error); border: 1px solid var(--color-error);"
+        >
+          Remove Business
+        </button>
+      {/if}
     </section>
 
   {/if}

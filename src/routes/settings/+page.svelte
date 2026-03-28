@@ -2,20 +2,9 @@
   import { goto } from '$app/navigation';
   import { userEmail, businesses, selectedBusiness } from '$lib/store.js';
   import { revokeToken } from '$lib/auth.js';
-  import { get } from 'svelte/store';
 
   function signOut() {
     revokeToken();
-  }
-
-  function deleteBusiness(e, business) {
-    e.preventDefault();
-    e.stopPropagation();
-    businesses.update((list) => list.filter((b) => b.name !== business.name));
-    if (get(selectedBusiness)?.name === business.name) {
-      const remaining = get(businesses);
-      selectedBusiness.set(remaining[0] ?? null);
-    }
   }
 
   function openBusiness(business) {
@@ -38,34 +27,18 @@
           tabindex="0"
           onclick={() => openBusiness(business)}
           onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') openBusiness(business); }}
-          class="flex items-center justify-between px-4 hover:opacity-70 transition-opacity cursor-pointer"
+          class="flex items-center px-4 hover:opacity-70 transition-opacity cursor-pointer"
           style="min-height: 48px;"
         >
-          <span class="text-base truncate flex-1" style="color: var(--color-text);">{business.name}</span>
-          <svg class="w-4 h-4 flex-shrink-0 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-text-muted);">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
-          <button
-            onclick={(e) => deleteBusiness(e, business)}
-            class="flex-shrink-0 rounded p-1 hover:opacity-70 transition-opacity"
-            aria-label="Remove {business.name}"
-            style="color: var(--color-text-muted);"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <span class="text-base truncate" style="color: var(--color-text);">{business.name}</span>
         </div>
       {/each}
       <a
         href="/settings/business"
-        class="flex items-center justify-between px-4 hover:opacity-70 transition-opacity"
+        class="flex items-center px-4 hover:opacity-70 transition-opacity"
         style="color: var(--color-primary); min-height: 48px;"
       >
         <span class="text-base">Add Business</span>
-        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-        </svg>
       </a>
     </div>
   </section>
