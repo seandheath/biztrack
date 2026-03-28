@@ -479,14 +479,6 @@
         {/if}
       </div>
 
-      <!-- Description -->
-      <div class="flex flex-col gap-1">
-        <label for="exp-desc" class="text-sm font-medium" style="color: var(--color-text-muted);">
-          Description <span style="color: var(--color-text-muted); font-weight: 400;">(optional)</span>
-        </label>
-        <input id="exp-desc" type="text" bind:value={expDesc} placeholder="What was this for?" />
-      </div>
-
       <!-- Amount -->
       <div class="flex flex-col gap-1">
         <label for="exp-amount" class="text-sm font-medium" style="color: var(--color-text-muted);">Amount ($)</label>
@@ -553,6 +545,14 @@
           Receipt <span style="color: var(--color-text-muted); font-weight: 400;">(optional)</span>
         </label>
         <ReceiptPicker id="exp-receipt" bind:file={expReceipt} />
+      </div>
+
+      <!-- Description -->
+      <div class="flex flex-col gap-1">
+        <label for="exp-desc" class="text-sm font-medium" style="color: var(--color-text-muted);">
+          Description <span style="color: var(--color-text-muted); font-weight: 400;">(optional)</span>
+        </label>
+        <input id="exp-desc" type="text" bind:value={expDesc} placeholder="What was this for?" />
       </div>
 
       <!-- Notes -->
