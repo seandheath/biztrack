@@ -17,6 +17,10 @@ const BIZTRACK_FOLDER_NAME = 'BizTrack';
 const PROFILE_FILENAME     = 'profile.json';
 const SS_FOLDER_KEY        = 'bt_biz_folder';
 
+// Deduplicates concurrent calls — prevents two callers from both running
+// findFile() before either has stored the result, causing both to create the folder.
+let _ensureFolderInFlight = null;
+
 /**
  * Finds or creates the root BizTrack folder in the user's Drive root.
  * Result is cached in sessionStorage for the lifetime of the tab.
@@ -33,14 +37,24 @@ export async function ensureBizTrackFolder() {
     if (cached) return cached;
   } catch { /* sessionStorage unavailable */ }
 
-  let folderId = await findFile(BIZTRACK_FOLDER_NAME, 'root');
-  if (!folderId) {
-    const { id } = await createFolder(BIZTRACK_FOLDER_NAME, 'root');
-    folderId = id;
-  }
+  if (_ensureFolderInFlight) return _ensureFolderInFlight;
 
-  try { sessionStorage.setItem(SS_FOLDER_KEY, folderId); } catch {}
-  return folderId;
+  _ensureFolderInFlight = (async () => {
+    try {
+      let folderId = await findFile(BIZTRACK_FOLDER_NAME, 'root');
+      if (!folderId) {
+        const { id } = await createFolder(BIZTRACK_FOLDER_NAME, 'root');
+        folderId = id;
+      }
+      try { sessionStorage.setItem(SS_FOLDER_KEY, folderId); } catch {}
+      return folderId;
+    } finally {
+      // Clear on success OR error so subsequent calls can retry if needed
+      _ensureFolderInFlight = null;
+    }
+  })();
+
+  return _ensureFolderInFlight;
 }
 
 /**
