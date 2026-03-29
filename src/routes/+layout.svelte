@@ -201,6 +201,30 @@
     const onControllerChange = () => window.location.reload();
     navigator.serviceWorker?.addEventListener('controllerchange', onControllerChange);
 
+    // Explicit SW update check — registerSW.js only registers, does not handle SKIP_WAITING.
+    // On every page load: force a network check for a new SW, and if one is already
+    // waiting (installed but not active), send SKIP_WAITING immediately.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        if (!reg) return;
+        const skipWaiting = (sw) => sw.postMessage({ type: 'SKIP_WAITING' });
+        // Already waiting (e.g., user refreshed after a deploy)
+        if (reg.waiting) { skipWaiting(reg.waiting); }
+        // Newly found during this page load
+        reg.addEventListener('updatefound', () => {
+          const sw = reg.installing;
+          if (!sw) return;
+          sw.addEventListener('statechange', () => {
+            if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+              skipWaiting(sw);
+            }
+          });
+        });
+        // Force network check for a new SW version
+        reg.update().catch(() => {});
+      });
+    }
+
     // onMount cleanup
     return () => {
       clearInterval(interval);
