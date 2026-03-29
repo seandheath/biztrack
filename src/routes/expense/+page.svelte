@@ -20,7 +20,7 @@
   } from '$lib/store.js';
   import { downloadJson, findFile, listFileNames, uploadFile } from '$lib/drive.js';
   import { appendRow, readColumn, updateRow, readRow, findRowByTxnId } from '$lib/sheets.js';
-  import { pushTransactions, updateByUUID, batchSetCategory, pullTransactions } from '$lib/services/sheets.js';
+  import { pushTransactions, updateByUUID, deleteByUUID, batchSetCategory, pullTransactions } from '$lib/services/sheets.js';
   import { enqueue } from '$lib/services/offline-queue.js';
   import { ensureYearFolder } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
@@ -54,6 +54,29 @@
   let expSubmitting = $state(false);
   /** Only active in review mode — apply chosen category to all uncategorized rows for this vendor. */
   let applyToAll    = $state(false);
+
+  // Delete state — review mode only
+  let confirmDelete = $state(false);
+  let deleting      = $state(false);
+  let deleteError   = $state('');
+
+  async function handleDelete() {
+    if (!confirmDelete) { confirmDelete = true; return; }
+    deleting = true;
+    deleteError = '';
+    try {
+      const year = new Date(expDate + 'T00:00:00').getFullYear();
+      const spreadsheetId = $selectedBusiness?.sheetIds?.[year] ?? shareSheetId;
+      await deleteByUUID(spreadsheetId, 'Expenses', shareTxnId);
+      goto(returnTo || '/');
+    } catch (err) {
+      console.error('[expense] delete:', err);
+      deleteError = 'Delete failed. Try again.';
+      confirmDelete = false;
+    } finally {
+      deleting = false;
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Split mode state
@@ -861,7 +884,7 @@
         {/if}
       </button>
 
-      <!-- Skip for now — only in review mode -->
+      <!-- Skip / Delete — only in review mode -->
       {#if returnTo}
         <button
           type="button"
@@ -870,6 +893,22 @@
           style="color: var(--color-text-muted);"
         >
           Skip for now
+        </button>
+
+        {#if deleteError}
+          <p class="text-xs text-center" style="color: var(--color-error);">{deleteError}</p>
+        {/if}
+        <button
+          type="button"
+          onclick={handleDelete}
+          disabled={deleting}
+          class="text-sm hover:opacity-70 transition-all disabled:opacity-50 px-2 py-2 self-center rounded-lg"
+          style="
+            color: {confirmDelete ? '#ffffff' : 'var(--color-error)'};
+            background-color: {confirmDelete ? 'var(--color-error)' : 'transparent'};
+          "
+        >
+          {#if deleting}Deleting…{:else if confirmDelete}Confirm delete?{:else}Delete{/if}
         </button>
       {/if}
 
