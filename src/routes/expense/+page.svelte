@@ -21,7 +21,7 @@
   import { downloadJson, findFile, listFileNames, uploadFile } from '$lib/drive.js';
   import { appendRow, readColumn, updateRow, readRow, findRowByTxnId } from '$lib/sheets.js';
   import { enqueueCreate, enqueueUpdate } from '$lib/services/sync.js';
-  import { getLastVendorDefaults } from '$lib/db/queries.js';
+  import { getLastVendorDefaults, getTransaction } from '$lib/db/queries.js';
   import { ensureYearFolder } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
   import { QUICKBOOKS_CATEGORIES } from '$lib/constants.js';
@@ -75,6 +75,8 @@
 
   /** True when the page loaded from a share URL and is editing an existing row. */
   let shareMode        = $state(false);
+  /** Route to navigate to after a successful edit-mode save (e.g. '/review'). */
+  let returnTo         = $state('');
   let shareLoading     = $state(false);
   let shareLoadError   = $state('');
   let shareRowNum      = $state(/** @type {number|null} */(null));
@@ -248,6 +250,10 @@
           submittedBy:   shareSubmittedBy,
         });
         showToast('Details saved!', 'success');
+        if (returnTo) {
+          goto(returnTo);
+          return;
+        }
         shareMode = false;
       } else {
         // New expense — write to Dexie, sync engine pushes to Sheets
@@ -451,6 +457,7 @@
     if (bizId && yearStr && txnId) {
       shareMode = true;
       shareLoading = true;
+      returnTo = sp.get('returnTo') ?? '';
       try {
         const biz = $businesses.find((b) => b.id === bizId);
         if (!biz) throw new Error("Business not found. Make sure you're signed in to the correct account.");
@@ -458,24 +465,40 @@
         await loadBusinessData(biz);
 
         const yr = parseInt(yearStr, 10);
-        const sheetId = biz.sheetIds?.[yr] ?? $selectedBusiness?.sheetIds?.[yr];
-        if (!sheetId) throw new Error(`No expense sheet found for ${yr}.`);
-        shareSheetId = sheetId;
 
-        const rowNum = await findRowByTxnId(sheetId, txnId);
-        if (rowNum === null) throw new Error('Transaction not found.');
-        shareRowNum = rowNum;
+        // Try Dexie first — works offline and for pending transactions not yet in Sheets
+        const local = await getTransaction(txnId);
+        if (local) {
+          expDate     = local.date              || todayISO();
+          expVendor   = local.vendor            || '';
+          expDesc     = local.description       || '';
+          expAmount   = local.amount != null    ? String(local.amount) : '';
+          expCategory = local.category          || '';
+          expPayment  = local.paymentMethod     || '';
+          expNotes    = local.notes             || '';
+          shareTxnId  = local.id;
+          // shareRowNum stays null — enqueueUpdate handles the update by txnId
+        } else {
+          // Fall back to Sheets API (for transactions only in Drive, not cached locally)
+          const sheetId = biz.sheetIds?.[yr] ?? $selectedBusiness?.sheetIds?.[yr];
+          if (!sheetId) throw new Error(`No expense sheet found for ${yr}.`);
+          shareSheetId = sheetId;
 
-        const raw = await readRow(sheetId, 'Expenses', rowNum);
-        expDate     = raw[0] || todayISO();
-        expVendor   = raw[1] || '';
-        expDesc     = raw[2] || '';
-        expAmount   = raw[3] || '';
-        expCategory = raw[4] || '';
-        expPayment  = raw[5] || '';
-        expNotes    = raw[7] || '';
-        shareSubmittedBy = raw[8] || '';
-        shareTxnId  = raw[9] || txnId;
+          const rowNum = await findRowByTxnId(sheetId, txnId);
+          if (rowNum === null) throw new Error('Transaction not found.');
+          shareRowNum = rowNum;
+
+          const raw = await readRow(sheetId, 'Expenses', rowNum);
+          expDate          = raw[0] || todayISO();
+          expVendor        = raw[1] || '';
+          expDesc          = raw[2] || '';
+          expAmount        = raw[3] || '';
+          expCategory      = raw[4] || '';
+          expPayment       = raw[5] || '';
+          expNotes         = raw[7] || '';
+          shareSubmittedBy = raw[8] || '';
+          shareTxnId       = raw[9] || txnId;
+        }
       } catch (err) {
         console.error('[expense] share load:', err);
         shareLoadError = err.message;
