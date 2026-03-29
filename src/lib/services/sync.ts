@@ -35,6 +35,7 @@ import { get } from 'svelte/store';
 import { db, type Transaction, type SyncQueueEntry } from '../db/dexie.js';
 import { businesses, selectedBusiness } from '../store.js';
 import { ensureYearFolder } from '../business.js';
+import { apiFetch } from '../auth.js';
 import {
   pushTransactions,
   updateByUUID,
@@ -91,6 +92,26 @@ function _nextSyncDelayMs(): number {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Checks whether a Drive file has been trashed.
+ * The Sheets API ignores trashed status and still serves data for trashed
+ * spreadsheets, so we must check via Drive before pulling.
+ * Returns false on any error so the pull path is never blocked by a transient failure.
+ */
+async function _isTrashed(fileId: string): Promise<boolean> {
+  try {
+    _trackApiCall();
+    const resp = await apiFetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=trashed`
+    );
+    if (!resp.ok) return false;
+    const data = await resp.json();
+    return data.trashed === true;
+  } catch {
+    return false;
+  }
+}
 
 /** Exponential backoff in ms: min(2^n * 1000 + jitter, 64000) */
 function _backoffMs(retryCount: number): number {
@@ -542,6 +563,12 @@ export async function pullTransactions(businessId: string, year: number): Promis
 
   const spreadsheetId = biz.sheetIds?.[year];
   if (!spreadsheetId) return;
+
+  // The Sheets API still serves data for trashed spreadsheets — verify via Drive.
+  if (await _isTrashed(spreadsheetId)) {
+    await _handle404(businessId, year);
+    return;
+  }
 
   const now = Date.now();
 
