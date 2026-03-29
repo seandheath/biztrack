@@ -19,8 +19,9 @@
   /** Category selected for the current transaction */
   let category = $state('');
 
-  let saving  = $state(false);
-  let loaded  = $state(false);
+  let saving        = $state(false);
+  let loaded        = $state(false);
+  let applyToVendor = $state(false);
 
   // ---------------------------------------------------------------------------
   // Derived
@@ -51,19 +52,35 @@
   /** Advance index and reset category selector to the next transaction's value */
   function advance() {
     index++;
+    applyToVendor = false;
     category = transactions[index]?.category || 'Uncategorized';
   }
 
-  /** Save the selected category to the current transaction, then advance */
+  /** Save the selected category to the current transaction (or all matching vendor+year), then advance */
   async function saveAndNext() {
     if (!current || saving) return;
     saving = true;
     try {
-      await enqueueUpdate(current.id, { category });
+      if (applyToVendor) {
+        const toUpdate = transactions.filter(
+          (t) => t.vendor === current.vendor && t.year === current.year
+        );
+        for (const t of toUpdate) {
+          await enqueueUpdate(t.id, { category });
+        }
+        const updatedIds = new Set(toUpdate.map((t) => t.id));
+        const removedBefore = transactions.slice(0, index).filter((t) => updatedIds.has(t.id)).length;
+        transactions = transactions.filter((t) => !updatedIds.has(t.id));
+        index = Math.max(0, index - removedBefore);
+        applyToVendor = false;
+        category = transactions[index]?.category || 'Uncategorized';
+      } else {
+        await enqueueUpdate(current.id, { category });
+        advance();
+      }
     } finally {
       saving = false;
     }
-    advance();
   }
 
   /** Skip this transaction without saving */
@@ -203,6 +220,19 @@
         </select>
       </div>
 
+      <!-- Apply to vendor checkbox -->
+      <label class="flex items-center gap-3 text-sm cursor-pointer select-none">
+        <input
+          type="checkbox"
+          bind:checked={applyToVendor}
+          class="w-4 h-4 rounded"
+          style="accent-color: var(--color-primary);"
+        />
+        <span style="color: var(--color-text-muted);">
+          Apply to all <strong style="color: var(--color-text);">{current.vendor}</strong> transactions this year
+        </span>
+      </label>
+
       <!-- Actions -->
       <div class="flex flex-col gap-3">
         <button
@@ -212,7 +242,8 @@
           style="min-height: 52px; background-color: var(--color-primary); color: var(--color-primary-text);"
           aria-busy={saving}
         >
-          {saving ? 'Saving…' : category === 'Uncategorized' ? 'Select a category first' : 'Save & Next'}
+          {saving ? 'Saving…' : category === 'Uncategorized' ? 'Select a category first'
+            : applyToVendor ? `Apply to all ${current.vendor}` : 'Save & Next'}
         </button>
 
         <div class="flex items-center justify-between">

@@ -1,7 +1,7 @@
 <script>
   import { selectedBusiness, businessConfig, userEmail, businesses } from '$lib/store.js';
   import { enqueueCreate } from '$lib/services/sync.js';
-  import { queryTransactions } from '$lib/db/queries.js';
+  import { queryTransactions, getConsistentVendorCategory } from '$lib/db/queries.js';
   import { ensureYearFolder } from '$lib/business.js';
 
   // ---------------------------------------------------------------------------
@@ -10,49 +10,14 @@
   // "Check Number","Reference Number","Description","Transaction Category",
   // "Type","Balance","Memo","Extended Description"
   // ---------------------------------------------------------------------------
-  const COL_POSTING_DATE   = 1;
-  const COL_TYPE           = 3;  // 'Debit' | 'Credit'
-  const COL_AMOUNT         = 4;  // negative number string e.g. "-45.35000"
-  const COL_DESCRIPTION    = 7;  // merchant name
-  const COL_CATEGORY       = 8;  // bank's category string
-  const COL_EXTENDED_DESC  = 12; // long memo string
+  const COL_POSTING_DATE  = 1;
+  const COL_TYPE          = 3;  // 'Debit' | 'Credit'
+  const COL_AMOUNT        = 4;  // negative number string e.g. "-45.35000"
+  const COL_DESCRIPTION   = 7;  // merchant name
+  const COL_EXTENDED_DESC = 12; // long memo string
 
-  // Map common bank category strings → QuickBooks categories.
-  // Fallback is 'Uncategorized' for anything not in this table.
-  const CATEGORY_MAP = {
-    'shopping':                    'Supplies',
-    'food & dining':               'Meals',
-    'food and dining':             'Meals',
-    'restaurants':                 'Meals',
-    'travel':                      'Travel',
-    'auto & transport':            'Car & Truck Expenses',
-    'gas & fuel':                  'Car & Truck Expenses',
-    'utilities':                   'Utilities',
-    'bills & utilities':           'Utilities',
-    'insurance':                   'Insurance',
-    'advertising':                 'Advertising',
-    'office supplies':             'Office Expenses',
-    'office':                      'Office Expenses',
-    'taxes':                       'Taxes & Licenses',
-    'taxes & licenses':            'Taxes & Licenses',
-    'legal & professional':        'Legal & Professional Services',
-    'professional services':       'Legal & Professional Services',
-    'wages':                       'Wages',
-    'payroll':                     'Wages',
-    'rent':                        'Rent or Lease (Other Business Property)',
-    'supplies':                    'Supplies',
-    'repairs':                     'Repairs & Maintenance',
-    'repairs & maintenance':       'Repairs & Maintenance',
-  };
-
-  /**
-   * Maps a bank CSV category string to a QuickBooks category.
-   * @param {string} csv
-   * @returns {string}
-   */
-  function mapCategory(csv) {
-    return CATEGORY_MAP[csv.toLowerCase().trim()] ?? 'Uncategorized';
-  }
+  // Bank category column (index 8) is intentionally ignored — all rows
+  // start as 'Uncategorized' and are upgraded by vendor history below.
 
   /**
    * Parses a single CSV line respecting RFC 4180 quoting.
@@ -139,7 +104,7 @@
         date:        parseDate(fields[COL_POSTING_DATE]?.trim() ?? ''),
         vendor:      fields[COL_DESCRIPTION]?.trim() ?? '',
         amount:      Math.abs(rawAmount),
-        category:    mapCategory(fields[COL_CATEGORY]?.trim() ?? ''),
+        category:    'Uncategorized',
         description: fields[COL_EXTENDED_DESC]?.trim() ?? '',
       });
     }
@@ -150,6 +115,22 @@
     }
 
     parsedRows = rows;
+
+    // Upgrade 'Uncategorized' rows using vendor category history.
+    // If a vendor always uses the same category (this year or last), apply it.
+    if ($selectedBusiness?.id) {
+      const vendors = [...new Set(rows.map((r) => r.vendor))];
+      const vendorCats = new Map();
+      for (const vendor of vendors) {
+        const cat = await getConsistentVendorCategory($selectedBusiness.id, vendor);
+        if (cat) vendorCats.set(vendor, cat);
+      }
+      if (vendorCats.size > 0) {
+        parsedRows = rows.map((r) =>
+          vendorCats.has(r.vendor) ? { ...r, category: vendorCats.get(r.vendor) } : r
+        );
+      }
+    }
   }
 
   /**
