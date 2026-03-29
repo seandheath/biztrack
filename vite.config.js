@@ -31,7 +31,7 @@ export default {
         description: 'Track business expenses and mileage across multiple LLCs',
         start_url: '/',
         display: 'standalone',
-        background_color: '#ffffff',
+        background_color: '#0f172a',
         theme_color: '#0f172a',
         icons: [
           {

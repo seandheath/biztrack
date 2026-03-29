@@ -8,43 +8,26 @@
    ============================================================ */
 
 :root {
+  color-scheme: dark;
+
   /* Surfaces */
-  --color-surface: #ffffff;
-  --color-surface-2: #f8fafc;
-  --color-surface-3: #f1f5f9;
-  --color-border: #e2e8f0;
+  --color-surface: #0f172a;
+  --color-surface-2: #1e293b;
+  --color-surface-3: #334155;
+  --color-border: #334155;
 
   /* Text */
-  --color-text: #0f172a;
-  --color-text-muted: #64748b;
+  --color-text: #f8fafc;
+  --color-text-muted: #94a3b8;
 
   /* Primary action (blue) */
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
-  --color-primary-text: #ffffff;
+  --color-primary: #60a5fa;
+  --color-primary-hover: #93c5fd;
+  --color-primary-text: #0f172a;
 
   /* Success / error */
-  --color-success: #16a34a;
-  --color-error: #dc2626;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-surface: #0f172a;
-    --color-surface-2: #1e293b;
-    --color-surface-3: #334155;
-    --color-border: #334155;
-
-    --color-text: #f8fafc;
-    --color-text-muted: #94a3b8;
-
-    --color-primary: #60a5fa;
-    --color-primary-hover: #93c5fd;
-    --color-primary-text: #0f172a;
-
-    --color-success: #4ade80;
-    --color-error: #f87171;
-  }
+  --color-success: #4ade80;
+  --color-error: #f87171;
 }
 
 /* ============================================================
