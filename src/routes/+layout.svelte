@@ -18,7 +18,7 @@
   import { ensureBizTrackFolder, loadProfile, saveProfile } from '$lib/profile.js';
   import { loadConfig } from '$lib/business.js';
   import * as storage from '$lib/storage.js';
-  import { startSyncEngine, stopSyncEngine } from '$lib/services/sync.js';
+  import { drainQueue } from '$lib/services/offline-queue.js';
 
   /** @type {{ children: import('svelte').Snippet }} */
   let { children } = $props();
@@ -127,7 +127,9 @@
     isOnline = navigator.onLine;
     const setOnline  = () => { isOnline = true; };
     const setOffline = () => { isOnline = false; };
+    const drainOnOnline = () => { drainQueue().catch(console.warn); };
     window.addEventListener('online',  setOnline);
+    window.addEventListener('online',  drainOnOnline);
     window.addEventListener('offline', setOffline);
 
     // iOS install prompt: show when running in Safari (not standalone) on iOS
@@ -146,15 +148,12 @@
       authToken.set(token);
       if (email) userEmail.set(email);
       if (token) {
-        // syncProfile first so the business list is up-to-date before the
-        // engine's first pull runs (startSyncEngine pulls immediately on start).
-        syncProfile().then(() => startSyncEngine());
+        syncProfile().then(() => drainQueue().catch(console.warn));
       }
     });
     onAuthRequired(() => {
       authToken.set(null);
       userEmail.set(null);
-      stopSyncEngine();
     });
 
     // Check token expiry every 30 seconds (spec §4.2).
@@ -196,6 +195,7 @@
       clearTimeout(saveTimer);
       unsubBiz();
       window.removeEventListener('online',  setOnline);
+      window.removeEventListener('online',  drainOnOnline);
       window.removeEventListener('offline', setOffline);
       navigator.serviceWorker?.removeEventListener('controllerchange', onControllerChange);
     };
@@ -245,7 +245,6 @@
 
   /** Called by Settings → Account sign-out button */
   export function handleSignOut() {
-    stopSyncEngine();
     revokeToken();
     // _onTokenUpdate fires → authToken.set(null) → sign-in screen shows
   }

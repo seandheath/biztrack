@@ -11,56 +11,37 @@
 
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { liveQuery } from 'dexie';
   import { businesses, selectedBusiness, pendingReceipt } from '$lib/store.js';
-  import { db } from '$lib/db/dexie.js';
-  import { queryUncategorized } from '$lib/db/queries.js';
+  import { pullTransactions } from '$lib/services/sheets.js';
   import BusinessDropdown from '../components/BusinessDropdown.svelte';
 
   // ---------------------------------------------------------------------------
-  // Live state — driven by Dexie liveQuery
+  // Live state — pulled from Sheets
   // ---------------------------------------------------------------------------
 
-  /** @type {import('$lib/db/dexie.js').Transaction[]} */
+  /** @type {import('$lib/services/sheets.js').TransactionRow[]} */
   let rows = $state([]);
 
   /** Count of uncategorized expense transactions — drives the review banner */
   let uncategorizedCount = $state(0);
 
-  // Re-subscribe whenever the selected business changes.
-  // $effect tracks $selectedBusiness reactively — when it changes, the old
-  // subscription is cleaned up and a new one starts.
+  let loading = $state(false);
+
   $effect(() => {
-    const bizId = $selectedBusiness?.id;
-    if (!bizId) { rows = []; return; }
-    const year = new Date().getFullYear();
+    const biz = $selectedBusiness;
+    if (!biz?.id) { rows = []; uncategorizedCount = 0; return; }
+    const spreadsheetId = biz.sheetIds?.[new Date().getFullYear()];
+    if (!spreadsheetId) { rows = []; return; }
 
-    const sub = liveQuery(() =>
-      db.transactions
-        .where('[businessId+type+year]')
-        .equals([bizId, 'expense', year])
-        .toArray()
-        .then((arr) => arr.sort((a, b) => b.date.localeCompare(a.date)))
-    ).subscribe({
-      next: (r) => { rows = r; },
-      error: (err) => { console.error('[home] liveQuery:', err); },
-    });
-
-    return () => sub.unsubscribe();
-  });
-
-  // Live-reactive uncategorized count — updates whenever Dexie changes
-  // (epoch purge, sync pull, manual categorization, etc.)
-  $effect(() => {
-    const bizId = $selectedBusiness?.id;
-    if (!bizId) { uncategorizedCount = 0; return; }
-
-    const sub = liveQuery(() => queryUncategorized(bizId)).subscribe({
-      next: (r) => { uncategorizedCount = r.length; },
-      error: (err) => { console.error('[home] uncategorized liveQuery:', err); },
-    });
-
-    return () => sub.unsubscribe();
+    loading = true;
+    pullTransactions(spreadsheetId, 'Expenses')
+      .then((pulled) => {
+        const sorted = pulled.sort((a, b) => b.date.localeCompare(a.date));
+        rows = sorted;
+        uncategorizedCount = sorted.filter((r) => !r.category || r.category === 'Uncategorized').length;
+      })
+      .catch((err) => { console.error('[home] pull:', err); rows = []; })
+      .finally(() => { loading = false; });
   });
 
   // ---------------------------------------------------------------------------
@@ -151,7 +132,7 @@
         </div>
 
       {:else}
-        <!-- Row list — keyed by UUID, reactive via liveQuery -->
+        <!-- Row list — keyed by UUID -->
         <div
           class="rounded-xl border overflow-hidden divide-y"
           style="border-color: var(--color-border); background-color: var(--color-surface-2);"
@@ -168,13 +149,6 @@
                 <span class="text-xs" style="color: var(--color-text-muted);">{row.date}{row.category ? ' · ' + row.category : ''}</span>
               </div>
               <div class="flex items-center gap-1.5 flex-shrink-0">
-                {#if row.syncStatus !== 'synced'}
-                  <span
-                    class="w-2 h-2 rounded-full"
-                    title={row.syncStatus === 'error' ? 'Sync failed' : 'Saving…'}
-                    style="background-color: {row.syncStatus === 'error' ? 'var(--color-error)' : 'var(--color-text-muted)'};"
-                  ></span>
-                {/if}
                 <span class="text-sm font-semibold" style="color: var(--color-primary);">${Number(row.amount).toFixed(2)}</span>
               </div>
             </a>

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { selectedBusiness } from '$lib/store.js';
-  import { queryUncategorized } from '$lib/db/queries.js';
+  import { pullTransactions } from '$lib/services/sheets.js';
 
   // ---------------------------------------------------------------------------
   // State
@@ -31,7 +31,18 @@
 
   onMount(async () => {
     if (!$selectedBusiness) { goto('/'); return; }
-    transactions = await queryUncategorized($selectedBusiness.id);
+    const biz = $selectedBusiness;
+    const currentYear = new Date().getFullYear();
+    const allRows = [];
+    for (let y = currentYear; y >= currentYear - 2; y--) {
+      const sid = biz.sheetIds?.[y];
+      if (!sid) continue;
+      try { allRows.push(...await pullTransactions(sid, 'Expenses')); }
+      catch (err) { console.warn(`[review] pull ${y}:`, err); }
+    }
+    transactions = allRows
+      .filter((r) => !r.category || r.category === 'Uncategorized')
+      .sort((a, b) => b.date.localeCompare(a.date));
     loaded = true;
   });
 
@@ -46,9 +57,10 @@
 
   /** Build the URL to open the full expense form for a transaction */
   function buildEditUrl(txn) {
+    const year = new Date(txn.date + 'T00:00:00').getFullYear();
     const u = new URL('/expense', window.location.origin);
     u.searchParams.set('biz',      $selectedBusiness.id);
-    u.searchParams.set('year',     String(txn.year));
+    u.searchParams.set('year',     String(year));
     u.searchParams.set('txn',      txn.id);
     u.searchParams.set('returnTo', '/review');
     return u.toString();

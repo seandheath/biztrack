@@ -1,9 +1,8 @@
 /**
  * Google Sheets API v4 — high-level service layer for BizTrack.
  *
- * This module exposes only the operations needed by the sync engine
- * (services/sync.ts). Components must never import from here — they read
- * from Dexie via liveQuery and write via the sync engine's enqueue* API.
+ * This module exposes the operations used by components (reads) and by
+ * the offline queue (writes). Components import from here directly.
  *
  * Sheet structure: unchanged — per-business-per-year spreadsheets.
  *
@@ -78,6 +77,48 @@ function _colLetter(n: number): string {
  * Avoids re-fetching spreadsheet metadata on every delete.
  */
 const _sheetTabIdCache = new Map<string, number>();
+
+// ---------------------------------------------------------------------------
+// Trashed-spreadsheet detection
+// ---------------------------------------------------------------------------
+
+const _trashedCache = new Map<string, { trashed: boolean; checkedAt: number }>();
+const _TRASHED_TTL = 30_000; // 30 seconds
+
+/**
+ * Verifies a spreadsheet has not been trashed in Drive.
+ *
+ * The Sheets API ignores trashed status and still serves data for trashed
+ * spreadsheets, so we must check via Drive before reading or writing.
+ * Results are cached for 30s to avoid doubling API call count.
+ *
+ * Throws if the spreadsheet is trashed (message includes "404" so callers'
+ * existing 404 handling picks it up).
+ */
+export async function ensureNotTrashed(spreadsheetId: string): Promise<void> {
+  const cached = _trashedCache.get(spreadsheetId);
+  if (cached && Date.now() - cached.checkedAt < _TRASHED_TTL) {
+    if (cached.trashed) throw new Error('Spreadsheet has been deleted (404)');
+    return;
+  }
+  try {
+    const resp = await apiFetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(spreadsheetId)}?fields=trashed`
+    );
+    if (!resp.ok) return; // Can't determine — let the Sheets call proceed
+    const data = await resp.json();
+    _trashedCache.set(spreadsheetId, { trashed: data.trashed === true, checkedAt: Date.now() });
+    if (data.trashed) throw new Error('Spreadsheet has been deleted (404)');
+  } catch (err) {
+    // Re-throw our own "deleted" error; swallow network/auth errors
+    if ((err as Error).message.includes('deleted')) throw err;
+  }
+}
+
+/** Clears the trashed-check cache. Call on sign-out or business change. */
+export function clearTrashedCache(): void {
+  _trashedCache.clear();
+}
 
 async function _getSheetTabId(spreadsheetId: string, sheetName: string): Promise<number> {
   const cacheKey = `${spreadsheetId}::${sheetName}`;
@@ -276,6 +317,7 @@ export async function pushTransactions(
   rows: TransactionRow[],
 ): Promise<void> {
   if (rows.length === 0) return;
+  await ensureNotTrashed(spreadsheetId);
   const range = encodeURIComponent(`${sheetName}!A1`);
   const url =
     `${SHEETS_BASE}/${spreadsheetId}/values/${range}:append` +
@@ -301,6 +343,7 @@ export async function updateByUUID(
   sheetName: SheetName,
   row: TransactionRow,
 ): Promise<void> {
+  await ensureNotTrashed(spreadsheetId);
   const ids = await _readIdColumn(spreadsheetId, sheetName);
   const idx = ids.findIndex((v) => v === row.id);
   if (idx === -1) throw new Error(`Row with UUID ${row.id} not found in ${sheetName}`);
@@ -332,6 +375,7 @@ export async function deleteByUUID(
   sheetName: SheetName,
   uuid: string,
 ): Promise<void> {
+  await ensureNotTrashed(spreadsheetId);
   // Re-scan to get current row number — atomic within this function call
   const ids = await _readIdColumn(spreadsheetId, sheetName);
   const idx = ids.findIndex((v) => v === uuid);
@@ -371,6 +415,7 @@ export async function pullTransactions(
   spreadsheetId: string,
   sheetName: SheetName,
 ): Promise<TransactionRow[]> {
+  await ensureNotTrashed(spreadsheetId);
   const range    = encodeURIComponent(`${sheetName}!A:Z`);
   const url      = `${SHEETS_BASE}/${spreadsheetId}/values/${range}`;
   const response = await apiFetch(url);

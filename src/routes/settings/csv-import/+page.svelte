@@ -1,7 +1,6 @@
 <script>
   import { selectedBusiness, businessConfig, userEmail, businesses } from '$lib/store.js';
-  import { enqueueCreate, pullTransactions } from '$lib/services/sync.js';
-  import { queryTransactions, getConsistentVendorCategory } from '$lib/db/queries.js';
+  import { pushTransactions, pullTransactions } from '$lib/services/sheets.js';
   import { ensureYearFolder } from '$lib/business.js';
 
   // ---------------------------------------------------------------------------
@@ -116,15 +115,31 @@
 
     parsedRows = rows;
 
-    // Upgrade 'Uncategorized' rows using vendor category history.
-    // If a vendor always uses the same category (this year or last), apply it.
+    // Upgrade 'Uncategorized' rows using vendor category history from Sheets.
+    // Pull last 2 years' expenses; build vendor→category map (only when all rows for
+    // a vendor share one category).
     if ($selectedBusiness?.id) {
-      const vendors = [...new Set(rows.map((r) => r.vendor))];
-      const vendorCats = new Map();
-      for (const vendor of vendors) {
-        const cat = await getConsistentVendorCategory($selectedBusiness.id, vendor);
-        if (cat) vendorCats.set(vendor, cat);
+      const biz = $selectedBusiness;
+      const currentYear = new Date().getFullYear();
+      const historyRows = [];
+      for (let y = currentYear; y >= currentYear - 1; y--) {
+        const sid = biz.sheetIds?.[y];
+        if (!sid) continue;
+        try { historyRows.push(...await pullTransactions(sid, 'Expenses')); }
+        catch { /* ignore */ }
       }
+
+      const vendorCats = new Map();
+      const vendorMap = {};
+      for (const r of historyRows) {
+        if (!r.vendor || !r.category || r.category === 'Uncategorized') continue;
+        if (!vendorMap[r.vendor]) vendorMap[r.vendor] = new Set();
+        vendorMap[r.vendor].add(r.category);
+      }
+      for (const [vendor, cats] of Object.entries(vendorMap)) {
+        if (cats.size === 1) vendorCats.set(vendor, [...cats][0]);
+      }
+
       if (vendorCats.size > 0) {
         parsedRows = rows.map((r) =>
           vendorCats.has(r.vendor) ? { ...r, category: vendorCats.get(r.vendor) } : r
@@ -161,44 +176,50 @@
         }
       }
 
-      // Pull Drive state into Dexie before dedup so rows that are already in
-      // the sheet (but were cleared from local cache) are correctly skipped.
-      for (const year of years) {
-        await pullTransactions($selectedBusiness.id, year).catch(console.warn);
-      }
-
+      // Pull each year's existing rows from Sheets to build the dedup set.
       const dedupKeys = new Set();
       for (const year of years) {
-        const existing = await queryTransactions($selectedBusiness.id, year, 'expense');
-        for (const t of existing) {
-          dedupKeys.add(`${t.date}|${t.vendor}|${(+(t.amount ?? 0)).toFixed(2)}`);
-        }
+        const sid = biz.sheetIds?.[year];
+        if (!sid) continue;
+        try {
+          const existing = await pullTransactions(sid, 'Expenses');
+          for (const t of existing) {
+            dedupKeys.add(`${t.date}|${t.vendor}|${parseFloat(t.amount ?? '0').toFixed(2)}`);
+          }
+        } catch (err) { console.warn(`[csv-import] pull ${year}:`, err); }
       }
 
+      // Group non-duplicate rows by year, then batch-push per year.
+      /** @type {Map<number, import('$lib/services/sheets.js').TransactionRow[]>} */
+      const rowsByYear = new Map();
       for (const row of parsedRows) {
         const key = `${row.date}|${row.vendor}|${row.amount.toFixed(2)}`;
         if (dedupKeys.has(key)) { skipped++; continue; }
+        const year = parseInt(row.date.slice(0, 4), 10);
+        if (!rowsByYear.has(year)) rowsByYear.set(year, []);
+        rowsByYear.get(year).push({
+          id:            crypto.randomUUID(),
+          date:          row.date,
+          vendor:        row.vendor,
+          description:   row.description,
+          amount:        String(row.amount),
+          category:      row.category,
+          paymentMethod,
+          receiptDriveId: '',
+          notes:         '',
+          submittedBy:   $userEmail ?? '',
+        });
+        dedupKeys.add(key);
+      }
 
+      for (const [year, sheetRows] of rowsByYear) {
+        const sid = biz.sheetIds?.[year];
+        if (!sid) { errors += sheetRows.length; continue; }
         try {
-          const year = parseInt(row.date.slice(0, 4), 10);
-          await enqueueCreate({
-            businessId:    $selectedBusiness.id,
-            type:          'expense',
-            year,
-            date:          row.date,
-            vendor:        row.vendor,
-            description:   row.description,
-            amount:        row.amount,
-            category:      row.category,
-            paymentMethod,
-            notes:         '',
-            submittedBy:   $userEmail ?? '',
-          });
-          // Add to dedup set so a single-file re-run won't double-import
-          dedupKeys.add(key);
-          imported++;
+          await pushTransactions(sid, 'Expenses', sheetRows);
+          imported += sheetRows.length;
         } catch {
-          errors++;
+          errors += sheetRows.length;
         }
       }
     } catch (err) {

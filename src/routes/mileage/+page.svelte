@@ -15,8 +15,9 @@
     businessConfig,
   } from '$lib/store.js';
   import { downloadJson, findFile } from '$lib/drive.js';
-  import { appendRow, updateRow, readRow, findRowByTxnId } from '$lib/sheets.js';
-  import { enqueueCreate, enqueueUpdate } from '$lib/services/sync.js';
+  import { readRow, findRowByTxnId } from '$lib/sheets.js';
+  import { pushTransactions, updateByUUID } from '$lib/services/sheets.js';
+  import { enqueue } from '$lib/services/offline-queue.js';
   import { ensureYearFolder, saveMileageFavorite } from '$lib/business.js';
   import { IRS_RATES } from '$lib/constants.js';
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
@@ -195,35 +196,59 @@
 
       const rate      = milRate();
       const deduction = milDeduction();
-      const miles     = parseFloat(milMiles);
+
+      const spreadsheetId = biz.sheetIds?.[year];
+      if (!spreadsheetId) throw new Error(`No sheet found for ${year}.`);
 
       if (editMode) {
-        await enqueueUpdate(editTxnId, {
+        const updatedRow = {
+          id:        editTxnId,
           date:      milDate,
           from:      milFrom.trim(),
           to:        milTo.trim(),
           purpose:   milPurpose.trim(),
-          miles,
-          irsRate:   rate,
-          deduction: parseFloat(deduction),
-        });
+          miles:     milMiles,
+          irsRate:   String(rate),
+          deduction: String(deduction),
+        };
+        try {
+          await updateByUUID(spreadsheetId, 'Mileage', updatedRow);
+        } catch (err) {
+          if (!navigator.onLine) {
+            enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'update', row: updatedRow });
+            showToast('Saved offline — will sync when back online', 'success');
+            goto('/');
+            return;
+          }
+          throw err;
+        }
         showToast('Mileage updated!', 'success');
         goto('/');
         return;
       }
 
-      await enqueueCreate({
-        businessId: biz.id,
-        type:       'mileage',
-        year,
-        date:       milDate,
-        from:       milFrom.trim(),
-        to:         milTo.trim(),
-        purpose:    milPurpose.trim(),
-        miles,
-        irsRate:    rate,
-        deduction:  parseFloat(deduction),
-      });
+      const newRow = {
+        id:        crypto.randomUUID(),
+        date:      milDate,
+        from:      milFrom.trim(),
+        to:        milTo.trim(),
+        purpose:   milPurpose.trim(),
+        miles:     milMiles,
+        irsRate:   String(rate),
+        deduction: String(deduction),
+      };
+      try {
+        await pushTransactions(spreadsheetId, 'Mileage', [newRow]);
+      } catch (err) {
+        if (!navigator.onLine) {
+          enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'create', row: newRow });
+          showToast('Saved offline — will sync when back online', 'success');
+          milFrom = ''; milTo = ''; milPurpose = ''; milMiles = ''; milErrors = {};
+          saveFavOpen = false; saveFavName = '';
+          return;
+        }
+        throw err;
+      }
 
       // Clear fields — preserve date
       milFrom     = '';

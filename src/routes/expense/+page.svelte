@@ -20,8 +20,8 @@
   } from '$lib/store.js';
   import { downloadJson, findFile, listFileNames, uploadFile } from '$lib/drive.js';
   import { appendRow, readColumn, updateRow, readRow, findRowByTxnId } from '$lib/sheets.js';
-  import { enqueueCreate, enqueueUpdate } from '$lib/services/sync.js';
-  import { getLastVendorDefaults, getTransaction } from '$lib/db/queries.js';
+  import { pushTransactions, updateByUUID } from '$lib/services/sheets.js';
+  import { enqueue } from '$lib/services/offline-queue.js';
   import { ensureYearFolder } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
   import { QUICKBOOKS_CATEGORIES } from '$lib/constants.js';
@@ -167,12 +167,14 @@
         business = updated;
       }
 
-      // Sync vendor autocomplete cache from column B of this year's sheet
+      // Sync vendor autocomplete cache from this year's sheet
       const sheetId = business.sheetIds?.[year];
       if (sheetId) {
-        const vendors = await readColumn(sheetId, 'Expenses', 'B');
-        const unique = [...new Set(vendors.filter(Boolean))];
+        const { pullTransactions: pull } = await import('$lib/services/sheets.js');
+        const expenseRows = await pull(sheetId, 'Expenses');
+        const unique = [...new Set(expenseRows.map((r) => r.vendor).filter(Boolean))];
         vendorCache.set(unique);
+        _cacheVendorDefaults(expenseRows);
       }
     } catch (err) {
       console.error('[expense] loadBusinessData:', err);
@@ -185,13 +187,25 @@
   // Expense form handlers
   // ---------------------------------------------------------------------------
 
-  async function handleVendorPick(vendor) {
-    const biz = $selectedBusiness;
-    if (!biz?.id) return;
-    const defaults = await getLastVendorDefaults(biz.id, vendor);
-    if (!defaults) return;
-    if (!expCategory && defaults.category) expCategory = defaults.category;
-    if (!expPayment && defaults.paymentMethod) expPayment = defaults.paymentMethod;
+  function handleVendorPick(vendor) {
+    try {
+      const cached = JSON.parse(localStorage.getItem('biztrack_vendor_defaults') || '{}');
+      const defaults = cached[vendor];
+      if (!defaults) return;
+      if (!expCategory && defaults.category) expCategory = defaults.category;
+      if (!expPayment && defaults.paymentMethod) expPayment = defaults.paymentMethod;
+    } catch {}
+  }
+
+  function _cacheVendorDefaults(rows) {
+    try {
+      const defaults = {};
+      for (const row of rows.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))) {
+        if (row.vendor && !defaults[row.vendor])
+          defaults[row.vendor] = { category: row.category || undefined, paymentMethod: row.paymentMethod || undefined };
+      }
+      localStorage.setItem('biztrack_vendor_defaults', JSON.stringify(defaults));
+    } catch {}
   }
 
   function validateExpense() {
@@ -238,19 +252,35 @@
         receiptDriveId       = uploaded.id;
       }
 
+      const spreadsheetId = biz.sheetIds?.[year];
+      if (!spreadsheetId) throw new Error(`No sheet found for ${year}.`);
+
       if (shareMode) {
-        // Editing a shared expense — update via sync engine
-        await enqueueUpdate(shareTxnId, {
-          date:          expDate,
-          vendor:        expVendor.trim(),
-          description:   expDesc.trim(),
-          amount,
-          category:      expCategory,
-          paymentMethod: expPayment,
-          receiptDriveId: receiptDriveId || undefined,
-          notes:         expNotes.trim(),
-          submittedBy:   shareSubmittedBy,
-        });
+        // Editing a shared expense — update directly in Sheets
+        const updatedRow = {
+          id:             shareTxnId,
+          date:           expDate,
+          vendor:         expVendor.trim(),
+          description:    expDesc.trim(),
+          amount:         String(amount),
+          category:       expCategory,
+          paymentMethod:  expPayment,
+          receiptDriveId: receiptDriveId || '',
+          notes:          expNotes.trim(),
+          submittedBy:    shareSubmittedBy,
+        };
+        try {
+          await updateByUUID(spreadsheetId, 'Expenses', updatedRow);
+        } catch (err) {
+          if (!navigator.onLine) {
+            enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'update', row: updatedRow });
+            showToast('Saved offline — will sync when back online', 'success');
+            if (returnTo) { goto(returnTo); return; }
+            shareMode = false;
+            return;
+          }
+          throw err;
+        }
         showToast('Details saved!', 'success');
         if (returnTo) {
           goto(returnTo);
@@ -258,38 +288,52 @@
         }
         shareMode = false;
       } else {
-        // New expense — write to Dexie, sync engine pushes to Sheets
+        // New expense — push directly to Sheets
         const common = {
-          businessId:     biz.id,
-          type:           /** @type {'expense'} */ ('expense'),
-          year,
           date:           expDate,
           vendor:         expVendor.trim(),
           paymentMethod:  expPayment,
-          receiptDriveId: receiptDriveId || undefined,
+          receiptDriveId: receiptDriveId || '',
           notes:          expNotes.trim(),
           submittedBy:    $userEmail ?? '',
         };
 
         let txnId;
         if (splitMode) {
-          // Each non-blank split line becomes its own transaction row
           const validLines = splits.filter((s) => s.amount && s.category);
-          for (const split of validLines) {
-            txnId = await enqueueCreate({
-              ...common,
-              description: split.description.trim(),
-              amount:      parseFloat(split.amount),
-              category:    split.category,
-            });
+          const rows = validLines.map((split) => ({
+            ...common,
+            id:          crypto.randomUUID(),
+            description: split.description.trim(),
+            amount:      split.amount,
+            category:    split.category,
+          }));
+          try {
+            await pushTransactions(spreadsheetId, 'Expenses', rows);
+          } catch (err) {
+            if (!navigator.onLine) {
+              for (const row of rows)
+                enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'create', row });
+              showToast('Saved offline — will sync when back online', 'success');
+            } else { throw err; }
           }
         } else {
-          txnId = await enqueueCreate({
+          txnId = crypto.randomUUID();
+          const row = {
             ...common,
+            id:          txnId,
             description: expDesc.trim(),
-            amount,
+            amount:      String(amount),
             category:    expCategory,
-          });
+          };
+          try {
+            await pushTransactions(spreadsheetId, 'Expenses', [row]);
+          } catch (err) {
+            if (!navigator.onLine) {
+              enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'create', row });
+              showToast('Saved offline — will sync when back online', 'success');
+            } else { throw err; }
+          }
         }
 
         // Update vendor autocomplete cache
@@ -468,39 +512,24 @@
 
         const yr = parseInt(yearStr, 10);
 
-        // Try Dexie first — works offline and for pending transactions not yet in Sheets
-        const local = await getTransaction(txnId);
-        if (local) {
-          expDate     = local.date              || todayISO();
-          expVendor   = local.vendor            || '';
-          expDesc     = local.description       || '';
-          expAmount   = local.amount != null    ? String(local.amount) : '';
-          expCategory = local.category          || '';
-          expPayment  = local.paymentMethod     || '';
-          expNotes    = local.notes             || '';
-          shareTxnId  = local.id;
-          // shareRowNum stays null — enqueueUpdate handles the update by txnId
-        } else {
-          // Fall back to Sheets API (for transactions only in Drive, not cached locally)
-          const sheetId = biz.sheetIds?.[yr] ?? $selectedBusiness?.sheetIds?.[yr];
-          if (!sheetId) throw new Error(`No expense sheet found for ${yr}.`);
-          shareSheetId = sheetId;
+        const sheetId = biz.sheetIds?.[yr];
+        if (!sheetId) throw new Error(`No expense sheet found for ${yr}.`);
+        shareSheetId = sheetId;
 
-          const rowNum = await findRowByTxnId(sheetId, txnId);
-          if (rowNum === null) throw new Error('Transaction not found.');
-          shareRowNum = rowNum;
+        const rowNum = await findRowByTxnId(sheetId, txnId);
+        if (rowNum === null) throw new Error('Transaction not found.');
+        shareRowNum = rowNum;
 
-          const raw = await readRow(sheetId, 'Expenses', rowNum);
-          expDate          = raw[0] || todayISO();
-          expVendor        = raw[1] || '';
-          expDesc          = raw[2] || '';
-          expAmount        = raw[3] || '';
-          expCategory      = raw[4] || '';
-          expPayment       = raw[5] || '';
-          expNotes         = raw[7] || '';
-          shareSubmittedBy = raw[8] || '';
-          shareTxnId       = raw[9] || txnId;
-        }
+        const raw = await readRow(sheetId, 'Expenses', rowNum);
+        expDate          = raw[0] || todayISO();
+        expVendor        = raw[1] || '';
+        expDesc          = raw[2] || '';
+        expAmount        = raw[3] || '';
+        expCategory      = raw[4] || '';
+        expPayment       = raw[5] || '';
+        expNotes         = raw[7] || '';
+        shareSubmittedBy = raw[8] || '';
+        shareTxnId       = raw[9] || txnId;
       } catch (err) {
         console.error('[expense] share load:', err);
         shareLoadError = err.message;

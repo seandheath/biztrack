@@ -336,16 +336,12 @@ export async function revokeToken() {
     localStorage.removeItem(_LS_EMAIL_HINT);
   } catch {}
 
-  // Clear all local transaction data from IndexedDB on sign-out.
-  // Imported here (not at module top) to avoid a circular dependency since
-  // dexie.ts has no auth imports.
   try {
-    const { db } = await import('./db/dexie.js');
-    await db.delete();
-    await db.open();
-  } catch (err) {
-    console.warn('[auth] DB clear on sign-out failed:', err);
-  }
+    const { clearQueue } = await import('./services/offline-queue.js');
+    const { clearTrashedCache } = await import('./services/sheets.js');
+    clearQueue();
+    clearTrashedCache();
+  } catch {}
 
   _onTokenUpdate?.({ token: null, expiry: null, email: null });
 }

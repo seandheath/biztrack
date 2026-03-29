@@ -6,11 +6,8 @@
    * the full read-only detail, edit, share, and delete actions.
    */
 
-  import { onMount } from 'svelte';
-  import { liveQuery } from 'dexie';
   import { selectedBusiness } from '$lib/store.js';
-  import { db } from '$lib/db/dexie.js';
-  import { getTransactionYears } from '$lib/db/queries.js';
+  import { pullTransactions } from '$lib/services/sheets.js';
 
   // ---------------------------------------------------------------------------
   // Tab / year state
@@ -19,60 +16,45 @@
   /** @type {'expense'|'mileage'} */
   let activeTab = $state('expense');
 
-  /** Years with data for the selected business — union of sheetIds and local Dexie records. */
+  /** Years with data for the selected business — derived from sheetIds. */
   let availableYears = $state([]);
 
   /** Currently selected year (number). */
   let selectedYear = $state(new Date().getFullYear());
 
-  // Rebuild year list whenever business changes.
-  // Unions sheetIds (years with Drive sheets) with Dexie years (pending/unsynced
-  // transactions), so newly imported records appear before they've synced.
   $effect(() => {
     const biz = $selectedBusiness;
     if (!biz) { availableYears = []; return; }
-
-    const sheetYears = Object.keys(biz.sheetIds ?? {}).map(Number);
-    getTransactionYears(biz.id).then((dexieYears) => {
-      const all = [...new Set([...sheetYears, ...dexieYears])].sort((a, b) => b - a);
-      availableYears = all.map(String);
-      // Snap selectedYear to the best available if it's not in the new list
-      if (availableYears.length && !availableYears.includes(String(selectedYear))) {
-        const currentYear = String(new Date().getFullYear());
-        selectedYear = Number(
-          availableYears.includes(currentYear) ? currentYear : availableYears[0]
-        );
-      }
-    });
+    const sheetYears = Object.keys(biz.sheetIds ?? {}).map(Number).sort((a, b) => b - a);
+    availableYears = sheetYears.map(String);
+    if (availableYears.length && !availableYears.includes(String(selectedYear))) {
+      const current = String(new Date().getFullYear());
+      selectedYear = Number(availableYears.includes(current) ? current : availableYears[0]);
+    }
   });
 
   // ---------------------------------------------------------------------------
-  // Live row state — driven by Dexie liveQuery
+  // Row state — pulled from Sheets
   // ---------------------------------------------------------------------------
 
-  /** @type {import('$lib/db/dexie.js').Transaction[]} */
+  /** @type {import('$lib/services/sheets.js').TransactionRow[]} */
   let rows = $state([]);
 
-  // Re-subscribe whenever business, year, or tab changes.
+  let loading = $state(false);
+
   $effect(() => {
-    const bizId = $selectedBusiness?.id;
-    const year  = Number(selectedYear);
-    const type  = activeTab; // tracked as reactive dependency
+    const biz = $selectedBusiness;
+    const year = Number(selectedYear);
+    if (!biz?.id || !year) { rows = []; return; }
+    const spreadsheetId = biz.sheetIds?.[year];
+    if (!spreadsheetId) { rows = []; return; }
+    const sheetName = activeTab === 'mileage' ? 'Mileage' : 'Expenses';
 
-    if (!bizId || !year) { rows = []; return; }
-
-    const sub = liveQuery(() =>
-      db.transactions
-        .where('[businessId+type+year]')
-        .equals([bizId, type, year])
-        .toArray()
-        .then((arr) => arr.sort((a, b) => b.date.localeCompare(a.date)))
-    ).subscribe({
-      next:  (r) => { rows = r; },
-      error: (err) => { console.error('[history] liveQuery:', err); },
-    });
-
-    return () => sub.unsubscribe();
+    loading = true;
+    pullTransactions(spreadsheetId, sheetName)
+      .then((pulled) => { rows = pulled.sort((a, b) => b.date.localeCompare(a.date)); })
+      .catch((err) => { console.error('[history] pull:', err); rows = []; })
+      .finally(() => { loading = false; });
   });
 
   // ---------------------------------------------------------------------------
@@ -88,13 +70,6 @@
     return u.toString();
   }
 
-  // ---------------------------------------------------------------------------
-  // Lifecycle
-  // ---------------------------------------------------------------------------
-
-  onMount(() => {
-    // Year selection is handled reactively by the $effect above.
-  });
 </script>
 
 <!-- =========================================================================
@@ -174,7 +149,7 @@
         </p>
       </div>
 
-    <!-- Row list — keyed by UUID, reactive via liveQuery -->
+    <!-- Row list — keyed by UUID -->
     {:else}
       <div
         class="rounded-xl border overflow-hidden divide-y"
@@ -193,13 +168,6 @@
                 <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.vendor}</span>
               </div>
               <div class="flex items-center gap-1.5 flex-shrink-0">
-                {#if row.syncStatus !== 'synced'}
-                  <span
-                    class="w-2 h-2 rounded-full"
-                    title={row.syncStatus === 'error' ? 'Sync failed' : 'Saving…'}
-                    style="background-color: {row.syncStatus === 'error' ? 'var(--color-error)' : 'var(--color-text-muted)'};"
-                  ></span>
-                {/if}
                 <span class="text-sm font-semibold" style="color: var(--color-primary);">${Number(row.amount).toFixed(2)}</span>
               </div>
             </a>
@@ -215,13 +183,6 @@
                 <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.from} → {row.to}</span>
               </div>
               <div class="flex items-center gap-1.5 flex-shrink-0">
-                {#if row.syncStatus !== 'synced'}
-                  <span
-                    class="w-2 h-2 rounded-full"
-                    title={row.syncStatus === 'error' ? 'Sync failed' : 'Saving…'}
-                    style="background-color: {row.syncStatus === 'error' ? 'var(--color-error)' : 'var(--color-text-muted)'};"
-                  ></span>
-                {/if}
                 <span class="text-sm font-semibold" style="color: var(--color-primary);">{row.miles} mi</span>
               </div>
             </a>

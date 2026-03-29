@@ -77,21 +77,6 @@ self.addEventListener('fetch', (event) => {
 });
 
 // ---------------------------------------------------------------------------
-// Background Sync — wake the sync engine in the main thread
-// ---------------------------------------------------------------------------
-// The actual queue flush runs in the main thread (sync.ts), not in the SW.
-// The SW just posts a message to all open clients when the sync tag fires.
-
-self.addEventListener('sync', (event) => {
-  if (event.tag !== 'sync-transactions') return;
-  event.waitUntil(
-    self.clients
-      .matchAll({ type: 'window', includeUncontrolled: false })
-      .then((clients) => clients.forEach((c) => c.postMessage({ type: 'BG_SYNC' })))
-  );
-});
-
-// ---------------------------------------------------------------------------
 // Static assets — cache-first, 30-day expiration
 // Cache JS/CSS/images/fonts that are already fingerprinted by Vite.
 // ---------------------------------------------------------------------------
@@ -112,8 +97,6 @@ registerRoute(
 
 // ---------------------------------------------------------------------------
 // Google Sheets / Drive API — network-first, short cache fallback
-// IndexedDB (via Dexie liveQuery) is the real offline fallback; this cache
-// only covers the brief window before Dexie is hydrated on first load.
 // ---------------------------------------------------------------------------
 
 registerRoute(
