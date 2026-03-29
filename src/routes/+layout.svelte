@@ -461,9 +461,13 @@
       {/if}
 
       <!-- App title -->
-      <span class="flex-1 text-center text-lg font-semibold tracking-tight px-2">
+      <a
+        href="/"
+        class="flex-1 text-center text-lg font-semibold tracking-tight px-2 hover:opacity-70 transition-opacity"
+        style="color: var(--color-text);"
+      >
         BizTrack
-      </span>
+      </a>
 
       <!-- Gear / close icon (hidden on entry form pages) -->
       {#if !isSettingsSub && !isEntryForm}
