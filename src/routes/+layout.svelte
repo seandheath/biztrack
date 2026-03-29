@@ -90,9 +90,24 @@
 
         if (driveBusinesses?.length) {
           businesses.update((local) => {
+            const driveByName = Object.fromEntries(driveBusinesses.map((b) => [b.name, b]));
+            const merged = local.map((b) => {
+              const d = driveByName[b.name];
+              if (!d) return b;
+              // Fill missing year-keyed IDs from Drive; local wins for years we already have
+              // so we never clobber data that was written more recently on this device.
+              return {
+                ...b,
+                folderId:         b.folderId         || d.folderId,
+                configFileId:     b.configFileId     || d.configFileId,
+                sheetIds:         { ...d.sheetIds,         ...b.sheetIds },
+                yearFolders:      { ...d.yearFolders,      ...b.yearFolders },
+                receiptFolderIds: { ...d.receiptFolderIds, ...b.receiptFolderIds },
+              };
+            });
             const localNames = new Set(local.map((b) => b.name));
             const newOnes = driveBusinesses.filter((b) => !localNames.has(b.name));
-            return newOnes.length ? [...local, ...newOnes] : local;
+            return newOnes.length ? [...merged, ...newOnes] : merged;
           });
         }
 
@@ -149,16 +164,23 @@
       if (email) userEmail.set(email);
       if (token) {
         syncProfile().then(() => {
-          // Post-sync auto-select: on fresh devices rehydrateSelected() runs before
-          // Drive businesses are available, leaving selectedBusiness null. Attempt
-          // a belated selection now that the store is populated.
-          if (!get(selectedBusiness)) {
-            const list = get(businesses);
+          // Post-sync refresh: Drive may have year data (sheetIds etc.) that the local
+          // store was missing. Always re-resolve selectedBusiness from the (now-merged)
+          // store so the home page sees the up-to-date object.
+          const cur = get(selectedBusiness);
+          const list = get(businesses);
+          if (!cur) {
+            // Fresh device: no business selected yet — auto-select from Drive data.
             if (list.length) {
               const savedName = localStorage.getItem('biztrack_selected_name');
               const toSelect = (savedName && list.find((b) => b.name === savedName)) ?? list[0];
               selectedBusiness.set(toSelect);
             }
+          } else {
+            // Business already selected — refresh it in case Drive merge added new
+            // year entries (e.g. sheetIds[2026] missing locally but present in Drive).
+            const refreshed = list.find((b) => b.name === cur.name);
+            if (refreshed && refreshed !== cur) selectedBusiness.set(refreshed);
           }
         }).then(() => drainQueue().catch(console.warn));
       }
