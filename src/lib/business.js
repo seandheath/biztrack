@@ -22,6 +22,10 @@ function driveFileName(name) {
   return name.replace(/[/\\:*?"<>|]/g, '');
 }
 
+// Deduplicates concurrent ensureYearFolder calls for the same business+year.
+// Key: `${folderId}_${year}` — folderId is stable across reloads.
+const _yearFolderInFlight = new Map();
+
 /**
  * Initializes a business against a user-selected Drive folder.
  *
@@ -252,7 +256,37 @@ export async function ensureYearFolder(business, year) {
   // Fast path: year already set up (cached from previous session)
   if (business.yearFolders[year]) return business;
 
-  // Create the YYYY/ subfolder inside the business root
+  // Deduplicate concurrent calls for the same business+year (e.g. prefetch on
+  // date change races with loadBusinessData on mount after a SW-triggered reload).
+  const key = `${business.folderId}_${year}`;
+  if (_yearFolderInFlight.has(key)) return _yearFolderInFlight.get(key);
+
+  const promise = _doEnsureYearFolder(business, year);
+  _yearFolderInFlight.set(key, promise);
+  promise.finally(() => _yearFolderInFlight.delete(key));
+  return promise;
+}
+
+async function _doEnsureYearFolder(business, year) {
+  // Check Drive for an existing year folder before creating one.
+  // Handles stale local cache after page reload (e.g. SW controllerchange reload).
+  const existingFolderId = await findFile(String(year), business.folderId);
+  if (existingFolderId) {
+    // Recover existing sheet and receipts folder IDs from Drive
+    const safeName = driveFileName(business.name);
+    const [existingSheetId, existingReceiptFolderId] = await Promise.all([
+      findFile(`${year}_${safeName}_expenses`, existingFolderId),
+      findFile(`${year}_${safeName}_Receipts`, existingFolderId),
+    ]);
+    return {
+      ...business,
+      yearFolders:      { ...business.yearFolders,      [year]: existingFolderId },
+      sheetIds:         { ...business.sheetIds,         [year]: existingSheetId         ?? business.sheetIds?.[year] },
+      receiptFolderIds: { ...business.receiptFolderIds, [year]: existingReceiptFolderId ?? business.receiptFolderIds?.[year] },
+    };
+  }
+
+  // No existing folder — create the full year structure
   const { id: yearFolderId } = await createFolder(String(year), business.folderId);
 
   // Create the expense sheet — lands in Drive root, must be moved immediately
