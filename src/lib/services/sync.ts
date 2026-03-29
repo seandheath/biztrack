@@ -400,27 +400,31 @@ export async function flushQueue(): Promise<void> {
 type BizEntry = { id: string; sheetIds?: Record<number, string>; yearFolders?: Record<number, string>; [k: string]: unknown };
 
 /**
- * Resolves a spreadsheetId for an entry, creating the year folder if needed.
- * Returns the updated biz entry and spreadsheetId, or null if it couldn't be resolved.
+ * Resolves a spreadsheetId for an entry, creating the year folder/sheet if needed.
+ * Throws if the spreadsheetId cannot be resolved — callers should pass the error
+ * to _handleFlushError so the entry gets backoff-retry rather than silent skip.
  */
 async function _resolveSpreadsheetId(
   entry: SyncQueueEntry,
   biz: BizEntry,
-): Promise<{ biz: BizEntry; spreadsheetId: string } | null> {
+): Promise<{ biz: BizEntry; spreadsheetId: string }> {
   let spreadsheetId = biz.sheetIds?.[entry.year];
   if (spreadsheetId) return { biz, spreadsheetId };
 
-  // sheetId missing — try to find or create the year folder
+  // sheetId missing — try to find or create the year folder/sheet
+  let updated: BizEntry;
   try {
-    const updated = await ensureYearFolder(biz as Parameters<typeof ensureYearFolder>[0], entry.year);
+    updated = await ensureYearFolder(biz as Parameters<typeof ensureYearFolder>[0], entry.year) as BizEntry;
     businesses.update((list) => list.map((b) => b.id === biz.id ? updated : b));
     selectedBusiness.update((b) => b?.id === biz.id ? updated : b);
-    spreadsheetId = updated.sheetIds?.[entry.year];
-    if (spreadsheetId) return { biz: updated as BizEntry, spreadsheetId };
   } catch (err) {
-    console.warn('[sync] ensureYearFolder failed during flush:', (err as Error).message);
+    throw new Error(`ensureYearFolder failed for ${entry.year}: ${(err as Error).message}`);
   }
-  return null;
+
+  spreadsheetId = updated.sheetIds?.[entry.year];
+  if (spreadsheetId) return { biz: updated, spreadsheetId };
+
+  throw new Error(`No spreadsheet found or created for year ${entry.year}`);
 }
 
 /** Batch-appends create entries to Sheets, grouped by spreadsheet+tab. */
@@ -431,8 +435,13 @@ async function _flushCreates(entries: SyncQueueEntry[], bizList: BizEntry[]): Pr
     let biz = bizList.find((b) => b.id === entry.businessId);
     if (!biz) continue;
 
-    const resolved = await _resolveSpreadsheetId(entry, biz);
-    if (!resolved) continue;
+    let resolved: { biz: BizEntry; spreadsheetId: string };
+    try {
+      resolved = await _resolveSpreadsheetId(entry, biz);
+    } catch (err) {
+      await _handleFlushError([entry], err as Error);
+      continue;
+    }
     biz = resolved.biz;
     // Update bizList ref so subsequent entries in this batch use the recovered ID
     const idx = bizList.findIndex((b) => b.id === biz!.id);
@@ -468,15 +477,14 @@ async function _flushUpdates(entries: SyncQueueEntry[], bizList: BizEntry[]): Pr
     let biz = bizList.find((b) => b.id === entry.businessId);
     if (!biz) continue;
 
-    const resolved = await _resolveSpreadsheetId(entry, biz);
-    if (!resolved) continue;
-    biz = resolved.biz;
-    const idx = bizList.findIndex((b) => b.id === biz!.id);
-    if (idx >= 0) bizList[idx] = biz;
-
-    const tx = entry.data as Transaction;
-    const sheetName: 'Expenses' | 'Mileage' = tx.type === 'mileage' ? 'Mileage' : 'Expenses';
     try {
+      const resolved = await _resolveSpreadsheetId(entry, biz);
+      biz = resolved.biz;
+      const idx = bizList.findIndex((b) => b.id === biz!.id);
+      if (idx >= 0) bizList[idx] = biz;
+
+      const tx = entry.data as Transaction;
+      const sheetName: 'Expenses' | 'Mileage' = tx.type === 'mileage' ? 'Mileage' : 'Expenses';
       _trackApiCall();
       await updateByUUID(resolved.spreadsheetId, sheetName, _txToRow(tx));
       await db.transaction('rw', [db.transactions, db.syncQueue], async () => {
@@ -495,15 +503,14 @@ async function _flushDeletes(entries: SyncQueueEntry[], bizList: BizEntry[]): Pr
     let biz = bizList.find((b) => b.id === entry.businessId);
     if (!biz) continue;
 
-    const resolved = await _resolveSpreadsheetId(entry, biz);
-    if (!resolved) continue;
-    biz = resolved.biz;
-    const idx = bizList.findIndex((b) => b.id === biz!.id);
-    if (idx >= 0) bizList[idx] = biz;
-
-    const tx = await db.transactions.get(entry.entityId);
-    const sheetName: 'Expenses' | 'Mileage' = tx?.type === 'mileage' ? 'Mileage' : 'Expenses';
     try {
+      const resolved = await _resolveSpreadsheetId(entry, biz);
+      biz = resolved.biz;
+      const idx = bizList.findIndex((b) => b.id === biz!.id);
+      if (idx >= 0) bizList[idx] = biz;
+
+      const tx = await db.transactions.get(entry.entityId);
+      const sheetName: 'Expenses' | 'Mileage' = tx?.type === 'mileage' ? 'Mileage' : 'Expenses';
       _trackApiCall();
       await deleteByUUID(resolved.spreadsheetId, sheetName, entry.entityId);
       await db.transaction('rw', [db.transactions, db.syncQueue], async () => {

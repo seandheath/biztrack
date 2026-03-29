@@ -276,10 +276,24 @@ async function _doEnsureYearFolder(business, year) {
   if (existingFolderId) {
     // Recover existing sheet and receipts folder IDs from Drive
     const safeName = driveFileName(business.name);
-    const [existingSheetId, existingReceiptFolderId] = await Promise.all([
+    let [existingSheetId, existingReceiptFolderId] = await Promise.all([
       findFile(`${year}_${safeName}_expenses`, existingFolderId),
       findFile(`${year}_${safeName}_Receipts`, existingFolderId),
     ]);
+
+    // Sheet missing (was deleted) and no cached ID — create a fresh one
+    if (!existingSheetId && !business.sheetIds?.[year]) {
+      const { spreadsheetId } = await createExpenseSheet(`${year}_${safeName}_expenses`);
+      await moveFile(spreadsheetId, existingFolderId, 'root');
+      existingSheetId = spreadsheetId;
+    }
+
+    // Receipts folder missing and no cached ID — create it
+    if (!existingReceiptFolderId && !business.receiptFolderIds?.[year]) {
+      const { id } = await createFolder(`${year}_${safeName}_Receipts`, existingFolderId);
+      existingReceiptFolderId = id;
+    }
+
     return {
       ...business,
       yearFolders:      { ...business.yearFolders,      [year]: existingFolderId },

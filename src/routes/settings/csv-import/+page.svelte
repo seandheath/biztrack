@@ -154,7 +154,7 @@
       // year has no sheetId.
       let biz = $selectedBusiness;
       for (const year of years) {
-        if (!biz.yearFolders?.[year]) {
+        if (!biz.yearFolders?.[year] || !biz.sheetIds?.[year]) {
           biz = await ensureYearFolder(biz, year);
           businesses.update((list) => list.map((b) => b.id === biz.id ? biz : b));
           selectedBusiness.set(biz);
