@@ -68,6 +68,7 @@ export const IRS_RATES = {
  * @type {string[]}
  */
 export const QUICKBOOKS_CATEGORIES = [
+  'Uncategorized',
   'Advertising',
   'Car & Truck Expenses',
   'Commissions & Fees',
