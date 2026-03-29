@@ -2,6 +2,7 @@
   import '../app.css';
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
+  import { afterNavigate } from '$app/navigation';
   import {
     loadGisScript,
     initTokenClient,
@@ -18,7 +19,11 @@
   import { ensureBizTrackFolder, loadProfile, saveProfile } from '$lib/profile.js';
   import { loadConfig } from '$lib/business.js';
   import * as storage from '$lib/storage.js';
-  import { startSyncEngine, stopSyncEngine } from '$lib/services/sync.js';
+  import { startSyncEngine, stopSyncEngine, checkDriveIntegrity } from '$lib/services/sync.js';
+
+  afterNavigate(() => {
+    if ($isAuthenticated) checkDriveIntegrity().catch(console.warn);
+  });
 
   /** @type {{ children: import('svelte').Snippet }} */
   let { children } = $props();

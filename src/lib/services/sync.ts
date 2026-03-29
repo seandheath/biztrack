@@ -33,6 +33,7 @@ import { get } from 'svelte/store';
 import { db, type Transaction, type SyncQueueEntry } from '../db/dexie.js';
 import { businesses, selectedBusiness } from '../store.js';
 import { ensureYearFolder } from '../business.js';
+import { findFile } from '../drive.js';
 import {
   pushTransactions,
   updateByUUID,
@@ -47,6 +48,8 @@ import {
 
 let _syncTimer: ReturnType<typeof setTimeout> | null = null;
 let _flushing = false;
+let _lastIntegrityCheck = 0;
+const _INTEGRITY_CHECK_COOLDOWN_MS = 30_000;
 let _onlineListener: (() => void) | null = null;
 let _visibilityListener: (() => void) | null = null;
 let _swMessageListener: ((e: MessageEvent) => void) | null = null;
@@ -692,6 +695,66 @@ export async function pullTransactions(businessId: string, year: number): Promis
 }
 
 // ---------------------------------------------------------------------------
+// Drive integrity check — on-demand, not every cycle
+// ---------------------------------------------------------------------------
+
+/**
+ * Verifies that each cached year folder and its expense sheet still exist in Drive
+ * (i.e. are not trashed or permanently deleted). Purges local Dexie data for any
+ * year whose folder or sheet is gone.
+ *
+ * Call on navigation and after mutations. Rate-limited to once per 30 s so rapid
+ * navigation doesn't generate excess Drive API calls.
+ */
+export async function checkDriveIntegrity(): Promise<void> {
+  const now = Date.now();
+  if (now - _lastIntegrityCheck < _INTEGRITY_CHECK_COOLDOWN_MS) return;
+  _lastIntegrityCheck = now;
+
+  const biz = get(selectedBusiness);
+  if (!biz?.id) return;
+
+  const yearFolders = (biz.yearFolders ?? {}) as Record<number, string>;
+
+  for (const yearStr of Object.keys(yearFolders)) {
+    const year = parseInt(yearStr, 10);
+
+    // Check 1: year folder exists and is not trashed
+    const yearFolderId = await findFile(yearStr, biz.folderId).catch(() => null);
+    if (yearFolderId === null) {
+      _setDriveEpoch(biz.id, year);
+      await db.transactions
+        .where('[businessId+year]')
+        .equals([biz.id, year])
+        .filter((t) => t.syncStatus === 'synced' || t.syncStatus === 'error')
+        .delete();
+      await _purgeStaleData(biz.id, year);
+      _clearCachedSheetIds(biz.id, year);
+      console.info(`[sync] purged ${biz.id}/${year} — year folder not found in Drive`);
+      continue;
+    }
+
+    // Check 2: expense sheet exists and is not trashed (only when sheetId is cached)
+    const sheetIds = (biz.sheetIds ?? {}) as Record<number, string>;
+    if (sheetIds[year]) {
+      const safeName = (biz.name as string).replace(/[/\\:*?"<>|]/g, '');
+      const sheetExists = await findFile(`${year}_${safeName}_expenses`, yearFolderId).catch(() => null);
+      if (sheetExists === null) {
+        _setDriveEpoch(biz.id, year);
+        await db.transactions
+          .where('[businessId+year]')
+          .equals([biz.id, year])
+          .filter((t) => t.syncStatus === 'synced' || t.syncStatus === 'error')
+          .delete();
+        await _purgeStaleData(biz.id, year);
+        _clearCachedSheetIds(biz.id, year);
+        console.info(`[sync] purged ${biz.id}/${year} — expense sheet not found in Drive`);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Lifecycle — adaptive sync cycle
 // ---------------------------------------------------------------------------
 
@@ -743,6 +806,7 @@ export function startSyncEngine(): () => void {
 
   // Run immediately on start (flush any queued entries, pull current state)
   flushQueue().catch(console.warn);
+  checkDriveIntegrity().catch(console.warn);
   const biz = get(selectedBusiness);
   if (biz?.id) {
     const currentYear = new Date().getFullYear();
