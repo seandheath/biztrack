@@ -49,13 +49,18 @@
     return () => sub.unsubscribe();
   });
 
-  // Update uncategorized count whenever the selected business changes.
-  // One-shot promise — not a liveQuery, since this banner doesn't need
-  // sub-second reactivity (it updates on navigation).
+  // Live-reactive uncategorized count — updates whenever Dexie changes
+  // (epoch purge, sync pull, manual categorization, etc.)
   $effect(() => {
-    const biz = $selectedBusiness;
-    if (!biz) { uncategorizedCount = 0; return; }
-    queryUncategorized(biz.id).then((r) => { uncategorizedCount = r.length; });
+    const bizId = $selectedBusiness?.id;
+    if (!bizId) { uncategorizedCount = 0; return; }
+
+    const sub = liveQuery(() => queryUncategorized(bizId)).subscribe({
+      next: (r) => { uncategorizedCount = r.length; },
+      error: (err) => { console.error('[home] uncategorized liveQuery:', err); },
+    });
+
+    return () => sub.unsubscribe();
   });
 
   // ---------------------------------------------------------------------------
