@@ -138,6 +138,34 @@ export async function queryUncategorized(businessId: string): Promise<Transactio
  * Searches current year first, then walks back up to 5 years.
  * Returns undefined if no prior expense transaction exists for this vendor.
  */
+/**
+ * Returns a vendor's category if ALL their expense transactions in the last
+ * 2 years share the same non-Uncategorized category. Returns undefined if
+ * they have mixed categories or no categorized history.
+ *
+ * Used by CSV import to pre-fill categories for known vendors.
+ */
+export async function getConsistentVendorCategory(
+  businessId: string,
+  vendor: string,
+): Promise<string | undefined> {
+  const currentYear = new Date().getFullYear();
+  const rows: Transaction[] = [];
+  for (let year = currentYear; year >= currentYear - 1; year--) {
+    const yr = await db.transactions
+      .where('[businessId+year]')
+      .equals([businessId, year])
+      .toArray();
+    rows.push(...yr.filter(
+      (r) => r.type === 'expense' && r.vendor === vendor &&
+             r.category && r.category !== 'Uncategorized',
+    ));
+  }
+  if (rows.length === 0) return undefined;
+  const cats = new Set(rows.map((r) => r.category));
+  return cats.size === 1 ? [...cats][0] : undefined;
+}
+
 export async function getLastVendorDefaults(
   businessId: string,
   vendor: string,
