@@ -148,7 +148,19 @@
       authToken.set(token);
       if (email) userEmail.set(email);
       if (token) {
-        syncProfile().then(() => drainQueue().catch(console.warn));
+        syncProfile().then(() => {
+          // Post-sync auto-select: on fresh devices rehydrateSelected() runs before
+          // Drive businesses are available, leaving selectedBusiness null. Attempt
+          // a belated selection now that the store is populated.
+          if (!get(selectedBusiness)) {
+            const list = get(businesses);
+            if (list.length) {
+              const savedName = localStorage.getItem('biztrack_selected_name');
+              const toSelect = (savedName && list.find((b) => b.name === savedName)) ?? list[0];
+              selectedBusiness.set(toSelect);
+            }
+          }
+        }).then(() => drainQueue().catch(console.warn));
       }
     });
     onAuthRequired(() => {
