@@ -31,7 +31,7 @@
   function buildEditUrl(txn) {
     const year = new Date(txn.date + 'T00:00:00').getFullYear();
     const u = new URL('/expense', window.location.origin);
-    u.searchParams.set('biz',      $selectedBusiness.id);
+    u.searchParams.set('biz',      $selectedBusiness.id ?? $selectedBusiness.folderId);
     u.searchParams.set('year',     String(year));
     u.searchParams.set('txn',      txn.id);
     u.searchParams.set('returnTo', '/review');

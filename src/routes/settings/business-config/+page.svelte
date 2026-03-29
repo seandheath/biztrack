@@ -9,6 +9,7 @@
   import { goto } from '$app/navigation';
   import { businesses, selectedBusiness, businessConfig } from '$lib/store.js';
   import { loadConfig, saveConfig } from '$lib/business.js';
+  import { saveProfile } from '$lib/profile.js';
   import { get } from 'svelte/store';
 
   // Snapshot the business at load time so name changes don't cause reactivity issues
@@ -30,13 +31,18 @@
   /** @type {boolean} */
   let showConfirmDelete = $state(false);
 
-  function handleDelete() {
+  async function handleDelete() {
     const biz = get(selectedBusiness);
     if (!biz) return;
     businesses.update((list) => list.filter((b) => b.name !== biz.name));
     const remaining = get(businesses);
     if (get(selectedBusiness)?.name === biz.name) {
       selectedBusiness.set(remaining[0] ?? null);
+    }
+    // Update profile.json so other devices stop discovering the removed business
+    const rootFolderId = sessionStorage.getItem('bt_biz_folder');
+    if (rootFolderId) {
+      await saveProfile(rootFolderId, remaining).catch((e) => console.warn('[business-config] profile save:', e));
     }
     goto('/settings');
   }

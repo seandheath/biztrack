@@ -1,3 +1,9 @@
+<script module>
+  // Vendor → {category, paymentMethod} defaults derived from the current sheet.
+  // Module-level so it survives SvelteKit client-side navigations within the session.
+  let vendorDefaults = {};
+</script>
+
 <script>
   /**
    * Expense entry form.
@@ -212,24 +218,19 @@
   // ---------------------------------------------------------------------------
 
   function handleVendorPick(vendor) {
-    try {
-      const cached = JSON.parse(localStorage.getItem('biztrack_vendor_defaults') || '{}');
-      const defaults = cached[vendor];
-      if (!defaults) return;
-      if (!expCategory && defaults.category) expCategory = defaults.category;
-      if (!expPayment && defaults.paymentMethod) expPayment = defaults.paymentMethod;
-    } catch {}
+    const d = vendorDefaults[vendor];
+    if (!d) return;
+    if (!expCategory && d.category) expCategory = d.category;
+    if (!expPayment && d.paymentMethod) expPayment = d.paymentMethod;
   }
 
   function _cacheVendorDefaults(rows) {
-    try {
-      const defaults = {};
-      for (const row of rows.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))) {
-        if (row.vendor && !defaults[row.vendor])
-          defaults[row.vendor] = { category: row.category || undefined, paymentMethod: row.paymentMethod || undefined };
-      }
-      localStorage.setItem('biztrack_vendor_defaults', JSON.stringify(defaults));
-    } catch {}
+    const defaults = {};
+    for (const row of rows.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))) {
+      if (row.vendor && !defaults[row.vendor])
+        defaults[row.vendor] = { category: row.category || undefined, paymentMethod: row.paymentMethod || undefined };
+    }
+    vendorDefaults = defaults;
   }
 
   function validateExpense() {
@@ -502,7 +503,7 @@
   }
 
   async function doShare() {
-    const url = buildShareUrl($selectedBusiness.id, lastSavedYear, lastSavedTxnId);
+    const url = buildShareUrl($selectedBusiness.id ?? $selectedBusiness.folderId, lastSavedYear, lastSavedTxnId);
     try {
       if (navigator.share) {
         await navigator.share({ title: 'Complete this expense', url });
@@ -517,7 +518,7 @@
   }
 
   async function doCopyShareLink() {
-    const url = buildShareUrl($selectedBusiness.id, lastSavedYear, lastSavedTxnId);
+    const url = buildShareUrl($selectedBusiness.id ?? $selectedBusiness.folderId, lastSavedYear, lastSavedTxnId);
     await navigator.clipboard.writeText(url);
     showToast('Link copied!', 'success');
     lastSavedTxnId = '';

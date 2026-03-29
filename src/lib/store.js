@@ -4,15 +4,15 @@
  * Auth stores bridge auth.js module state into the Svelte reactive system via
  * callbacks registered in +layout.svelte (token lives in memory only, §4.2).
  *
- * Business/config stores are initialized from localStorage cache on module
- * load and subscribed to persist changes back. businessConfig is NOT cached —
- * it is loaded fresh from Drive config.json each session.
+ * Business/config stores are populated from Drive on each session start
+ * (see initFromDrive in +layout.svelte). Nothing is cached in localStorage
+ * except UX preferences (selected business name, email hint, iOS prompt flag).
  *
  * Business object shape:
- *   { name, folderId, yearFolders: {}, sheetIds: {}, receiptFolderIds: {} }
+ *   { id, name, folderId, configFileId, yearFolders: {}, sheetIds: {}, receiptFolderIds: {} }
  *
  * businessConfig shape (from Drive config.json):
- *   { payment_accounts: string[], mileage_favorites: [{name,from,to,miles,purpose}] }
+ *   { payment_accounts: string[], mileage_favorites: Array, categories: string[] }
  */
 
 import { writable, derived } from 'svelte/store';
@@ -22,9 +22,7 @@ import * as storage from './storage.js';
 // localStorage keys
 // ---------------------------------------------------------------------------
 
-const KEY_BUSINESSES     = 'biztrack_businesses';
 const KEY_SELECTED_NAME  = 'biztrack_selected_name';
-const KEY_VENDOR_CACHE   = 'biztrack_vendor_cache';
 
 // ---------------------------------------------------------------------------
 // Auth stores
@@ -49,34 +47,33 @@ export const isAuthenticated = derived(authToken, ($t) => !!$t);
 
 /**
  * List of all configured businesses.
- * Persisted to localStorage as a convenience cache.
- * @type {import('svelte/store').Writable<Array<{name:string,folderId:string,yearFolders:Object,sheetIds:Object,receiptFolderIds:Object}>>}
+ * Populated from Drive on each session start — NOT cached in localStorage.
+ * @type {import('svelte/store').Writable<Array<{id:string,name:string,folderId:string,configFileId:string,yearFolders:Object,sheetIds:Object,receiptFolderIds:Object}>>}
  */
-export const businesses = writable(storage.get(KEY_BUSINESSES, []));
+export const businesses = writable([]);
 
 /**
  * The currently selected business object, or null if none selected.
- * Rehydrated from localStorage by name lookup on module load (below).
- * Only the name is persisted — the full object is rehydrated from the
- * businesses array so stale object shapes aren't preserved.
+ * Set by initFromDrive after Drive discovery completes.
+ * Only the name is persisted to localStorage as a UX preference.
  * @type {import('svelte/store').Writable<Object|null>}
  */
 export const selectedBusiness = writable(null);
 
 /**
  * Per-business config loaded from Drive config.json.
- * Shape: { payment_accounts: string[], mileage_favorites: Array }
+ * Shape: { payment_accounts: string[], mileage_favorites: Array, categories: string[] }
  * NOT persisted to localStorage — loaded fresh each session.
- * @type {import('svelte/store').Writable<{payment_accounts:string[],mileage_favorites:Array}|null>}
+ * @type {import('svelte/store').Writable<{payment_accounts:string[],mileage_favorites:Array,categories:string[]}|null>}
  */
 export const businessConfig = writable(null);
 
 /**
- * Vendor name strings for autocomplete, synced from column B of the current
- * year's Expenses sheet. Persisted to localStorage as a cache.
+ * Vendor name strings for autocomplete, synced from the current year's Expenses sheet.
+ * NOT cached in localStorage — populated from Sheets on each page load.
  * @type {import('svelte/store').Writable<string[]>}
  */
-export const vendorCache = writable(storage.get(KEY_VENDOR_CACHE, []));
+export const vendorCache = writable([]);
 
 /**
  * A receipt File shared via the Android Web Share Target.
@@ -87,26 +84,11 @@ export const vendorCache = writable(storage.get(KEY_VENDOR_CACHE, []));
 export const pendingReceipt = writable(null);
 
 // ---------------------------------------------------------------------------
-// Persistence subscriptions
+// Persistence subscriptions — UX preferences only
 // ---------------------------------------------------------------------------
 
-businesses.subscribe((v) => storage.set(KEY_BUSINESSES, v));
-vendorCache.subscribe((v) => storage.set(KEY_VENDOR_CACHE, v));
+// Persist the selected business NAME so initFromDrive can restore the selection
+// on next session start.
 selectedBusiness.subscribe((v) => {
   if (v?.name) storage.set(KEY_SELECTED_NAME, v.name);
 });
-
-// ---------------------------------------------------------------------------
-// Rehydrate selectedBusiness from saved name
-// ---------------------------------------------------------------------------
-
-// Run once on module load: look up the last-used business by name in the
-// cached businesses array. If found, set it as the selected business.
-// This ensures selectedBusiness holds a full object, not a stale serialized copy.
-(function rehydrateSelected() {
-  const savedName = storage.get(KEY_SELECTED_NAME, null);
-  if (!savedName) return;
-  const list = storage.get(KEY_BUSINESSES, []);
-  const found = list.find((b) => b.name === savedName);
-  if (found) selectedBusiness.set(found);
-})();

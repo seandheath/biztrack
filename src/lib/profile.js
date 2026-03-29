@@ -80,10 +80,14 @@ export async function loadProfile(folderId) {
  * @returns {Promise<void>}
  */
 export async function saveProfile(folderId, bizList) {
+  // Only persist the minimal fields needed to locate each business on Drive.
+  // All other state (sheetIds, yearFolders, configFileId, etc.) is
+  // discovered from Drive folder structure on each session start.
+  const minimal = bizList.map(({ name, folderId: bFolderId }) => ({ name, folderId: bFolderId }));
   const fileId = await findFile(PROFILE_FILENAME, folderId);
   if (fileId) {
-    await updateJson(fileId, { businesses: bizList });
+    await updateJson(fileId, { businesses: minimal });
   } else {
-    await uploadJson(PROFILE_FILENAME, { businesses: bizList }, folderId);
+    await uploadJson(PROFILE_FILENAME, { businesses: minimal }, folderId);
   }
 }

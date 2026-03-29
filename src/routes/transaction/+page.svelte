@@ -131,7 +131,7 @@
     }
 
     try {
-      const biz = $businesses.find((b) => b.id === bizId);
+      const biz = $businesses.find((b) => b.id === bizId || b.folderId === bizId);
       if (!biz) throw new Error("Business not found. Make sure you're signed in to the correct account.");
       selectedBusiness.set(biz);
 

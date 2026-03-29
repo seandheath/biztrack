@@ -16,7 +16,8 @@
   import { get } from 'svelte/store';
   import { authToken, userEmail, isAuthenticated, businesses, selectedBusiness } from '$lib/store.js';
   import { ensureBizTrackFolder, loadProfile, saveProfile } from '$lib/profile.js';
-  import { loadConfig } from '$lib/business.js';
+  import { loadConfig, discoverYearFolders, ensureYearFolder } from '$lib/business.js';
+  import { findFile, downloadJson } from '$lib/drive.js';
   import * as storage from '$lib/storage.js';
   import { drainQueue } from '$lib/services/offline-queue.js';
 
@@ -69,60 +70,49 @@
   let iosPromptDismissed = $state(false);
 
   // ---------------------------------------------------------------------------
-  // Profile sync (cross-device via Drive)
+  // Drive-first initialization
   // ---------------------------------------------------------------------------
 
   /**
-   * Ensures the BizTrack root Drive folder exists, then merges any businesses
-   * from profile.json into the local store (once per tab session).
-   * Called non-blocking after a valid token is available.
+   * Discovers business structure from Drive on every session start.
+   * Reads profile.json for the {name, folderId} index, then for each business
+   * finds config.json (→ id) and scans year subfolders (→ sheetIds etc.).
+   * Populates the businesses store from scratch — no localStorage cache.
    */
-  async function syncProfile() {
+  async function initFromDrive() {
     try {
-      const folderId = await ensureBizTrackFolder();
+      const rootFolderId = await ensureBizTrackFolder();
+      const profileBusinesses = await loadProfile(rootFolderId);
+      if (!profileBusinesses?.length) return;
 
-      // Only load from Drive once per tab session (sessionStorage-scoped flag).
-      // Subsequent page navigations within the same tab skip the Drive fetch.
-      if (!sessionStorage.getItem('bt_profile_loaded')) {
-        // Fetch Drive profile first — only mark session synced if this succeeds.
-        const driveBusinesses = await loadProfile(folderId);
-        sessionStorage.setItem('bt_profile_loaded', '1');
+      const currentYear = new Date().getFullYear();
+      const hydrated = await Promise.all(
+        profileBusinesses.map(async ({ name, folderId }) => {
+          try {
+            // config.json holds the stable business UUID and user preferences
+            const configFileId = await findFile('config.json', folderId);
+            let id = null;
+            if (configFileId) {
+              const cfg = await downloadJson(configFileId);
+              id = cfg.id ?? null;
+            }
+            const skeleton = { name, folderId, configFileId, id, yearFolders: {}, sheetIds: {}, receiptFolderIds: {} };
+            const discovered = await discoverYearFolders(skeleton);
+            return await ensureYearFolder(discovered, currentYear);
+          } catch (err) {
+            console.warn(`[init] failed to hydrate "${name}":`, err);
+            return { name, folderId, configFileId: null, id: null, yearFolders: {}, sheetIds: {}, receiptFolderIds: {} };
+          }
+        })
+      );
 
-        if (driveBusinesses?.length) {
-          businesses.update((local) => {
-            const driveByName = Object.fromEntries(driveBusinesses.map((b) => [b.name, b]));
-            const merged = local.map((b) => {
-              const d = driveByName[b.name];
-              if (!d) return b;
-              // Fill missing year-keyed IDs from Drive; local wins for years we already have
-              // so we never clobber data that was written more recently on this device.
-              return {
-                ...b,
-                folderId:         b.folderId         || d.folderId,
-                configFileId:     b.configFileId     || d.configFileId,
-                sheetIds:         { ...d.sheetIds,         ...b.sheetIds },
-                yearFolders:      { ...d.yearFolders,      ...b.yearFolders },
-                receiptFolderIds: { ...d.receiptFolderIds, ...b.receiptFolderIds },
-              };
-            });
-            const localNames = new Set(local.map((b) => b.name));
-            const newOnes = driveBusinesses.filter((b) => !localNames.has(b.name));
-            return newOnes.length ? [...merged, ...newOnes] : merged;
-          });
-        }
+      businesses.set(hydrated);
 
-        // Backfill IDs for legacy businesses that predate the id field.
-        // loadConfig() generates the UUID, persists it to Drive, and updates the store.
-        const current = get(businesses);
-        await Promise.all(
-          current
-            .filter((biz) => !biz.id && biz.configFileId)
-            .map((biz) => loadConfig(biz).catch((err) => console.warn('[profile] backfill failed:', err)))
-        );
-      }
+      const savedName = localStorage.getItem('biztrack_selected_name');
+      const toSelect = (savedName && hydrated.find((b) => b.name === savedName)) ?? hydrated[0] ?? null;
+      if (toSelect) selectedBusiness.set(toSelect);
     } catch (err) {
-      // Drive unreachable — do NOT set the session flag so sync retries on next token refresh.
-      console.warn('[profile] sync failed:', err);
+      console.warn('[init] Drive discovery failed:', err);
     }
   }
 
@@ -163,26 +153,7 @@
       authToken.set(token);
       if (email) userEmail.set(email);
       if (token) {
-        syncProfile().then(() => {
-          // Post-sync refresh: Drive may have year data (sheetIds etc.) that the local
-          // store was missing. Always re-resolve selectedBusiness from the (now-merged)
-          // store so the home page sees the up-to-date object.
-          const cur = get(selectedBusiness);
-          const list = get(businesses);
-          if (!cur) {
-            // Fresh device: no business selected yet — auto-select from Drive data.
-            if (list.length) {
-              const savedName = localStorage.getItem('biztrack_selected_name');
-              const toSelect = (savedName && list.find((b) => b.name === savedName)) ?? list[0];
-              selectedBusiness.set(toSelect);
-            }
-          } else {
-            // Business already selected — refresh it in case Drive merge added new
-            // year entries (e.g. sheetIds[2026] missing locally but present in Drive).
-            const refreshed = list.find((b) => b.name === cur.name);
-            if (refreshed && refreshed !== cur) selectedBusiness.set(refreshed);
-          }
-        }).then(() => drainQueue().catch(console.warn));
+        initFromDrive().then(() => drainQueue().catch(console.warn));
       }
     });
     onAuthRequired(() => {
@@ -201,22 +172,6 @@
         userEmail.set(null);
       }
     }, 30_000);
-
-    // Auto-save businesses to Drive on any change (debounced 2s, skip initial fire).
-    let saveTimer = null;
-    let firstFire = true;
-    const unsubBiz = businesses.subscribe((list) => {
-      if (firstFire) { firstFire = false; return; }
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(async () => {
-        try {
-          const folderId = sessionStorage.getItem('bt_biz_folder');
-          if (folderId) await saveProfile(folderId, list);
-        } catch (err) {
-          console.warn('[profile] save failed:', err);
-        }
-      }, 2000);
-    });
 
     // Reload when a new SW takes control so the app picks up fresh cached assets.
     // controllerchange fires after the new SW calls skipWaiting + clientsClaim.
@@ -250,8 +205,6 @@
     // onMount cleanup
     return () => {
       clearInterval(interval);
-      clearTimeout(saveTimer);
-      unsubBiz();
       window.removeEventListener('online',  setOnline);
       window.removeEventListener('online',  drainOnOnline);
       window.removeEventListener('offline', setOffline);

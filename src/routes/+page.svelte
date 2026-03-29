@@ -29,7 +29,7 @@
 
   $effect(() => {
     const biz = $selectedBusiness;
-    if (!biz?.id) { rows = []; uncategorizedCount = 0; return; }
+    if (!biz) { rows = []; uncategorizedCount = 0; return; }
     const spreadsheetId = biz.sheetIds?.[new Date().getFullYear()];
     if (!spreadsheetId) { rows = []; return; }
 
@@ -51,7 +51,7 @@
   function transactionUrl(row) {
     const year = new Date(row.date + 'T00:00:00').getFullYear();
     const u = new URL('/transaction', window.location.origin);
-    u.searchParams.set('biz',  $selectedBusiness.id);
+    u.searchParams.set('biz',  $selectedBusiness.id ?? $selectedBusiness.folderId);
     u.searchParams.set('year', String(year));
     u.searchParams.set('txn',  row.id);
     return u.toString();

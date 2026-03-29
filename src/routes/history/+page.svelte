@@ -68,7 +68,7 @@
 
   function transactionUrl(row) {
     const u = new URL('/transaction', window.location.origin);
-    u.searchParams.set('biz',  $selectedBusiness.id);
+    u.searchParams.set('biz',  $selectedBusiness.id ?? $selectedBusiness.folderId);
     u.searchParams.set('year', selectedYear);
     u.searchParams.set('txn',  row.id);
     if (activeTab === 'mileage') u.searchParams.set('type', 'mileage');
