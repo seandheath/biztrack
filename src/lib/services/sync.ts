@@ -709,6 +709,23 @@ function _scheduleSyncCycle(): void {
       for (const year of yearsToPull) {
         await pullTransactions(biz.id, year).catch(console.warn);
       }
+
+      // Orphan cleanup: delete synced/error rows for years no longer in the Drive cache.
+      // Re-read the store so sheetIds reflects any 404-triggered clears from the pulls above.
+      // Guard: skip if sheetIds is empty — means ensureYearFolder hasn't run yet this
+      // session (fresh browser), so a missing year means "not discovered yet", not "deleted".
+      const freshBiz = get(selectedBusiness);
+      const freshSheetIds = freshBiz?.sheetIds ?? {};
+      if (freshBiz?.id === biz.id && Object.keys(freshSheetIds).length > 0) {
+        await db.transactions
+          .where('businessId')
+          .equals(biz.id)
+          .filter((t) =>
+            (t.syncStatus === 'synced' || t.syncStatus === 'error') &&
+            !(freshSheetIds as Record<number, string>)[t.year],
+          )
+          .delete();
+      }
     }
     _scheduleSyncCycle();
   }, _nextSyncDelayMs());
