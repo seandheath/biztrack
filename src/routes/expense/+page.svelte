@@ -24,9 +24,9 @@
   import { enqueue } from '$lib/services/offline-queue.js';
   import { ensureYearFolder } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
-  import { QUICKBOOKS_CATEGORIES } from '$lib/constants.js';
+  import { DEFAULT_CATEGORIES } from '$lib/constants.js';
 
-  let categories = $derived($businessConfig?.categories ?? QUICKBOOKS_CATEGORIES);
+  let categories = $derived($businessConfig?.categories ?? DEFAULT_CATEGORIES);
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
   import VendorAutocomplete from '../../components/VendorAutocomplete.svelte';
   import ReceiptPicker from '../../components/ReceiptPicker.svelte';

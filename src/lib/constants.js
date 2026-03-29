@@ -59,63 +59,45 @@ export const IRS_RATES = {
 };
 
 // ---------------------------------------------------------------------------
-// QuickBooks expense categories
+// Default expense categories — Schedule C + Schedule E combined
 // ---------------------------------------------------------------------------
 
 /**
- * Minimal default category set for new businesses. Saved to config.json and
- * user-editable via Settings → Expense Categories.
+ * Default category set for new businesses covering both Schedule C (sole
+ * proprietor / LLC) and Schedule E (rental / royalty) IRS line items.
+ * Saved to config.json and user-editable via Settings → Expense Categories.
  * @type {string[]}
  */
 export const DEFAULT_CATEGORIES = [
   'Uncategorized',
-  // Income
+
+  // Income (Schedule E)
   'Rents Received',
   'Royalties Received',
-  // Expenses (Schedule E lines 5–19)
-  'Advertising',
-  'Auto and Travel',
-  'Cleaning and Maintenance',
-  'Commissions',
-  'Insurance',
-  'Legal and Other Professional Fees',
-  'Management Fees',
-  'Mortgage Interest',
-  'Other Interest',
-  'Repairs',
-  'Supplies',
-  'Taxes',
-  'Utilities',
-  'Depreciation / Depletion',
-  'Other',
-];
 
-/**
- * Full QuickBooks Schedule C category list — kept as a reference / fallback.
- * @type {string[]}
- */
-export const QUICKBOOKS_CATEGORIES = [
-  'Uncategorized',
-  'Advertising',
-  'Car & Truck Expenses',
-  'Commissions & Fees',
-  'Contract Labor',
-  'Depreciation',
-  'Employee Benefits',
-  'Insurance',
-  'Interest (Mortgage)',
-  'Interest (Other)',
-  'Legal & Professional Services',
-  'Office Expenses',
-  'Pension & Profit Sharing',
-  'Rent or Lease (Vehicles/Machinery/Equipment)',
-  'Rent or Lease (Other Business Property)',
-  'Repairs & Maintenance',
-  'Supplies',
-  'Taxes & Licenses',
-  'Travel',
-  'Meals',
-  'Utilities',
-  'Wages',
+  // Expenses — Schedule C & E combined
+  'Advertising',                   // Sch C line 8  / Sch E line 5
+  'Car & Truck Expenses',          // Sch C line 9  / Sch E line 6
+  'Cleaning & Maintenance',        // Sch E line 7
+  'Commissions & Fees',            // Sch C line 10 / Sch E line 8
+  'Contract Labor',                // Sch C line 11
+  'Depreciation & Depletion',      // Sch C line 13 / Sch E line 18
+  'Employee Benefits',             // Sch C line 14
+  'Insurance',                     // Sch C line 15 / Sch E line 9
+  'Interest - Mortgage',           // Sch C line 16a / Sch E line 12
+  'Interest - Other',              // Sch C line 16b / Sch E line 13
+  'Legal & Professional Services', // Sch C line 17 / Sch E line 10
+  'Management Fees',               // Sch E line 11
+  'Meals',                         // Sch C line 24b
+  'Office Expenses',               // Sch C line 18
+  'Pension & Profit Sharing',      // Sch C line 19
+  'Rent or Lease - Equipment',     // Sch C line 20a
+  'Rent or Lease - Property',      // Sch C line 20b
+  'Repairs & Maintenance',         // Sch C line 21 / Sch E line 14
+  'Supplies',                      // Sch C line 22 / Sch E line 15
+  'Taxes & Licenses',              // Sch C line 23 / Sch E line 16
+  'Travel',                        // Sch C line 24a
+  'Utilities',                     // Sch C line 25 / Sch E line 17
+  'Wages',                         // Sch C line 26
   'Other Expenses',
 ];
