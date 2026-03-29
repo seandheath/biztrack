@@ -51,6 +51,17 @@
   let expErrors    = $state(/** @type {Record<string,string>} */({}));
   let expSubmitting = $state(false);
 
+  // ---------------------------------------------------------------------------
+  // Split mode state
+  // ---------------------------------------------------------------------------
+
+  let splitMode = $state(false);
+  /** @type {{ description: string, amount: string, category: string }[]} */
+  let splits = $state([
+    { description: '', amount: '', category: '' },
+    { description: '', amount: '', category: '' },
+  ]);
+
   /** Ref to vendor input for auto-focus after submit */
   let vendorInputEl = $state(null);
 
@@ -181,11 +192,16 @@
 
   function validateExpense() {
     const errs = {};
-    if (!expDate)                              errs.date     = 'Required';
-    if (!expVendor.trim())                     errs.vendor   = 'Required';
-    if (!expAmount || isNaN(parseFloat(expAmount))) errs.amount = 'Valid amount required';
-    if (!expCategory)                          errs.category = 'Required';
-    if (!expPayment)                           errs.payment  = 'Required';
+    if (!expDate)        errs.date    = 'Required';
+    if (!expVendor.trim()) errs.vendor = 'Required';
+    if (!expPayment)     errs.payment = 'Required';
+    if (splitMode) {
+      const valid = splits.some((s) => s.amount && s.category);
+      if (!valid) errs.splits = 'At least one line needs an amount and category';
+    } else {
+      if (!expAmount || isNaN(parseFloat(expAmount))) errs.amount   = 'Valid amount required';
+      if (!expCategory)                               errs.category = 'Required';
+    }
     expErrors = errs;
     return Object.keys(errs).length === 0;
   }
@@ -235,20 +251,38 @@
         shareMode = false;
       } else {
         // New expense — write to Dexie, sync engine pushes to Sheets
-        const txnId = await enqueueCreate({
-          businessId:    biz.id,
-          type:          'expense',
+        const common = {
+          businessId:     biz.id,
+          type:           /** @type {'expense'} */ ('expense'),
           year,
-          date:          expDate,
-          vendor:        expVendor.trim(),
-          description:   expDesc.trim(),
-          amount,
-          category:      expCategory,
-          paymentMethod: expPayment,
+          date:           expDate,
+          vendor:         expVendor.trim(),
+          paymentMethod:  expPayment,
           receiptDriveId: receiptDriveId || undefined,
-          notes:         expNotes.trim(),
-          submittedBy:   $userEmail ?? '',
-        });
+          notes:          expNotes.trim(),
+          submittedBy:    $userEmail ?? '',
+        };
+
+        let txnId;
+        if (splitMode) {
+          // Each non-blank split line becomes its own transaction row
+          const validLines = splits.filter((s) => s.amount && s.category);
+          for (const split of validLines) {
+            txnId = await enqueueCreate({
+              ...common,
+              description: split.description.trim(),
+              amount:      parseFloat(split.amount),
+              category:    split.category,
+            });
+          }
+        } else {
+          txnId = await enqueueCreate({
+            ...common,
+            description: expDesc.trim(),
+            amount,
+            category:    expCategory,
+          });
+        }
 
         // Update vendor autocomplete cache
         const vendor = expVendor.trim();
@@ -256,11 +290,13 @@
           cache.includes(vendor) ? cache : [...cache, vendor]
         );
 
-        // Show share panel
-        lastSavedTxnId = txnId;
-        lastSavedYear  = year;
+        // Show share panel (only in single mode — split rows share no single txnId)
+        if (!splitMode && txnId) {
+          lastSavedTxnId = txnId;
+          lastSavedYear  = year;
+        }
 
-        showToast('Expense saved!', 'success');
+        showToast(splitMode ? `${splits.filter((s) => s.amount && s.category).length} expenses saved!` : 'Expense saved!', 'success');
 
         // Clear fields — preserve date, category, payment for rapid entry
         expVendor   = '';
@@ -269,6 +305,12 @@
         expNotes    = '';
         expReceipt  = null;
         expErrors   = {};
+        if (splitMode) {
+          splits = [
+            { description: '', amount: '', category: '' },
+            { description: '', amount: '', category: '' },
+          ];
+        }
 
         // Auto-focus vendor for next entry
         setTimeout(() => vendorInputEl?.focus(), 50);
@@ -292,6 +334,43 @@
   function handleAmountBlur() {
     const val = parseFloat(expAmount);
     if (!isNaN(val)) expAmount = val.toFixed(2);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Split mode handlers
+  // ---------------------------------------------------------------------------
+
+  function toggleSplitMode() {
+    splitMode = !splitMode;
+    if (splitMode) {
+      // Carry existing description into first line if set
+      splits = [
+        { description: expDesc, amount: expAmount, category: expCategory },
+        { description: '', amount: '', category: '' },
+      ];
+    }
+  }
+
+  function addSplitLine() {
+    splits = [...splits, { description: '', amount: '', category: '' }];
+  }
+
+  function removeSplitLine(i) {
+    if (splits.length <= 2) return;
+    splits = splits.filter((_, idx) => idx !== i);
+  }
+
+  /** Calculator-style amount input for split lines. */
+  function handleSplitAmountInput(e, i) {
+    const digits = e.target.value.replace(/\D/g, '');
+    const val = digits ? (parseInt(digits, 10) / 100).toFixed(2) : '';
+    splits = splits.map((s, idx) => idx === i ? { ...s, amount: val } : s);
+    e.target.value = val;
+  }
+
+  function handleSplitAmountBlur(i) {
+    const val = parseFloat(splits[i].amount);
+    if (!isNaN(val)) splits = splits.map((s, idx) => idx === i ? { ...s, amount: val.toFixed(2) } : s);
   }
 
   // ---------------------------------------------------------------------------
@@ -487,37 +566,133 @@
         {/if}
       </div>
 
-      <!-- Amount -->
-      <div class="flex flex-col gap-1">
-        <label for="exp-amount" class="text-sm font-medium" style="color: var(--color-text-muted);">Amount ($)</label>
-        <input
-          id="exp-amount"
-          type="text"
-          inputmode="numeric"
-          bind:value={expAmount}
-          oninput={handleAmountInput}
-          onblur={handleAmountBlur}
-          placeholder="0.00"
-          required
-        />
-        {#if expErrors.amount}
-          <span class="text-xs" style="color: var(--color-error);">{expErrors.amount}</span>
-        {/if}
-      </div>
+      <!-- Amount / Split toggle -->
+      {#if !splitMode}
+        <div class="flex flex-col gap-1">
+          <div class="flex items-center justify-between">
+            <label for="exp-amount" class="text-sm font-medium" style="color: var(--color-text-muted);">Amount ($)</label>
+            <button
+              type="button"
+              onclick={toggleSplitMode}
+              class="text-xs px-2 py-0.5 rounded-lg transition-opacity hover:opacity-70"
+              style="color: var(--color-primary); border: 1px solid var(--color-primary);"
+            >
+              Split
+            </button>
+          </div>
+          <input
+            id="exp-amount"
+            type="text"
+            inputmode="numeric"
+            bind:value={expAmount}
+            oninput={handleAmountInput}
+            onblur={handleAmountBlur}
+            placeholder="0.00"
+            required
+          />
+          {#if expErrors.amount}
+            <span class="text-xs" style="color: var(--color-error);">{expErrors.amount}</span>
+          {/if}
+        </div>
 
-      <!-- Category -->
-      <div class="flex flex-col gap-1">
-        <label for="exp-category" class="text-sm font-medium" style="color: var(--color-text-muted);">Category</label>
-        <select id="exp-category" bind:value={expCategory} required>
-          <option value="" disabled>Select category…</option>
-          {#each QUICKBOOKS_CATEGORIES as cat (cat)}
-            <option value={cat}>{cat}</option>
+        <!-- Category (single mode) -->
+        <div class="flex flex-col gap-1">
+          <label for="exp-category" class="text-sm font-medium" style="color: var(--color-text-muted);">Category</label>
+          <select id="exp-category" bind:value={expCategory} required>
+            <option value="" disabled>Select category…</option>
+            {#each QUICKBOOKS_CATEGORIES as cat (cat)}
+              <option value={cat}>{cat}</option>
+            {/each}
+          </select>
+          {#if expErrors.category}
+            <span class="text-xs" style="color: var(--color-error);">{expErrors.category}</span>
+          {/if}
+        </div>
+
+      {:else}
+        <!-- Split mode — multiple line items -->
+        <div class="flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium" style="color: var(--color-text-muted);">Split Lines</span>
+            <button
+              type="button"
+              onclick={toggleSplitMode}
+              class="text-xs px-2 py-0.5 rounded-lg transition-opacity hover:opacity-70"
+              style="color: var(--color-text-muted); border: 1px solid var(--color-border);"
+            >
+              Single
+            </button>
+          </div>
+
+          {#each splits as split, i (i)}
+            <div class="rounded-xl border p-3 flex flex-col gap-2" style="border-color: var(--color-border); background-color: var(--color-surface-2);">
+              <!-- Description + remove -->
+              <div class="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={split.description}
+                  oninput={(e) => splits = splits.map((s, idx) => idx === i ? { ...s, description: e.target.value } : s)}
+                  placeholder="Description (optional)"
+                  class="flex-1 text-sm"
+                  style="min-height: 36px;"
+                />
+                {#if splits.length > 2}
+                  <button
+                    type="button"
+                    onclick={() => removeSplitLine(i)}
+                    class="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-opacity hover:opacity-70"
+                    style="color: var(--color-text-muted);"
+                    aria-label="Remove line"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                {:else}
+                  <span class="w-7 flex-shrink-0"></span>
+                {/if}
+              </div>
+              <!-- Amount + Category -->
+              <div class="flex gap-2">
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  value={split.amount}
+                  oninput={(e) => handleSplitAmountInput(e, i)}
+                  onblur={() => handleSplitAmountBlur(i)}
+                  placeholder="0.00"
+                  class="w-24 flex-shrink-0 text-sm"
+                  style="min-height: 36px;"
+                />
+                <select
+                  value={split.category}
+                  onchange={(e) => splits = splits.map((s, idx) => idx === i ? { ...s, category: e.target.value } : s)}
+                  class="flex-1 text-sm"
+                  style="min-height: 36px;"
+                >
+                  <option value="" disabled>Category…</option>
+                  {#each QUICKBOOKS_CATEGORIES as cat (cat)}
+                    <option value={cat}>{cat}</option>
+                  {/each}
+                </select>
+              </div>
+            </div>
           {/each}
-        </select>
-        {#if expErrors.category}
-          <span class="text-xs" style="color: var(--color-error);">{expErrors.category}</span>
-        {/if}
-      </div>
+
+          <button
+            type="button"
+            onclick={addSplitLine}
+            class="text-sm py-2 rounded-xl transition-opacity hover:opacity-70"
+            style="color: var(--color-primary); border: 1px dashed var(--color-border);"
+          >
+            + Add Line
+          </button>
+
+          {#if expErrors.splits}
+            <span class="text-xs" style="color: var(--color-error);">{expErrors.splits}</span>
+          {/if}
+        </div>
+      {/if}
 
       <!-- Payment Method -->
       <div class="flex flex-col gap-1">
@@ -556,13 +731,15 @@
         <ReceiptPicker id="exp-receipt" bind:file={expReceipt} />
       </div>
 
-      <!-- Description -->
-      <div class="flex flex-col gap-1">
-        <label for="exp-desc" class="text-sm font-medium" style="color: var(--color-text-muted);">
-          Description <span style="color: var(--color-text-muted); font-weight: 400;">(optional)</span>
-        </label>
-        <input id="exp-desc" type="text" bind:value={expDesc} placeholder="What was this for?" />
-      </div>
+      <!-- Description (single mode only — in split mode description is per-line) -->
+      {#if !splitMode}
+        <div class="flex flex-col gap-1">
+          <label for="exp-desc" class="text-sm font-medium" style="color: var(--color-text-muted);">
+            Description <span style="color: var(--color-text-muted); font-weight: 400;">(optional)</span>
+          </label>
+          <input id="exp-desc" type="text" bind:value={expDesc} placeholder="What was this for?" />
+        </div>
+      {/if}
 
       <!-- Notes -->
       <div class="flex flex-col gap-1">
