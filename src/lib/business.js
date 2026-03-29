@@ -253,8 +253,10 @@ export async function discoverYearFolders(business) {
  * @returns {Promise<Object>} Updated business object with year IDs populated
  */
 export async function ensureYearFolder(business, year) {
-  // Fast path: year already set up (cached from previous session)
-  if (business.yearFolders[year]) return business;
+  // Fast path: both folder and sheet IDs are cached locally.
+  // Require sheetIds[year] as well — if it was cleared (e.g. by 404 recovery in
+  // the sync engine), we need to go through the Drive check to rediscover it.
+  if (business.yearFolders[year] && business.sheetIds?.[year]) return business;
 
   // Deduplicate concurrent calls for the same business+year (e.g. prefetch on
   // date change races with loadBusinessData on mount after a SW-triggered reload).

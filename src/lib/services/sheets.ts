@@ -359,21 +359,17 @@ export async function deleteByUUID(
 }
 
 /**
- * Reads all data rows from a sheet tab, optionally filtered by a cutoff date.
+ * Reads all data rows from a sheet tab.
  *
- * Returns rows with a non-empty UUID field only. The `since` parameter filters
- * by the row's date column (A) — useful for delta pulls. Pass null for a full
- * pull on first launch.
+ * Returns rows with a non-empty UUID field only. Always fetches the full sheet
+ * so the caller can detect deletions by comparing returned UUIDs against Dexie.
  *
- * NOTE: Sheets has no server-side timestamp filtering; all rows are always
- * fetched and filtered client-side. For typical usage (hundreds of rows/year)
- * this is fast enough. Row dates are yyyy-mm-dd strings — lexicographic
- * comparison works correctly.
+ * NOTE: Sheets has no server-side filtering; all rows are fetched in one call
+ * (A:Z). For typical usage (hundreds of rows/year) this is fast enough.
  */
 export async function pullTransactions(
   spreadsheetId: string,
   sheetName: SheetName,
-  since: Date | null,
 ): Promise<TransactionRow[]> {
   const range    = encodeURIComponent(`${sheetName}!A:Z`);
   const url      = `${SHEETS_BASE}/${spreadsheetId}/values/${range}`;
@@ -384,16 +380,10 @@ export async function pullTransactions(
   const allRows: string[][] = data.values ?? [];
   const dataRows = allRows.slice(1); // skip header
 
-  const sinceStr = since ? since.toISOString().slice(0, 10) : null;
-
   return dataRows
     .map((cells) => {
       const padded = Array.from({ length: 10 }, (_, i) => String(cells[i] ?? ''));
       return _valuesToRow(padded, sheetName);
     })
-    .filter((row) => {
-      if (!row.id) return false; // skip rows without UUID
-      if (sinceStr && row.date < sinceStr) return false;
-      return true;
-    });
+    .filter((row) => Boolean(row.id));
 }

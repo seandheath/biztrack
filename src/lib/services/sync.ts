@@ -1,5 +1,5 @@
 /**
- * BizTrack sync engine — outbox pattern for IndexedDB ↔ Google Sheets.
+ * BizTrack sync engine — bidirectional IndexedDB ↔ Google Sheets.
  *
  * Write path: enqueueCreate / enqueueUpdate / enqueueDelete
  *   → writes to Dexie immediately (optimistic)
@@ -11,19 +11,27 @@
  *   → calls pushTransactions / updateByUUID / deleteByUUID in services/sheets.ts
  *   → on success: marks Transaction.syncStatus = 'synced', removes queue entry
  *   → on error: retryCount++, exponential backoff
+ *   → on 404: sheet was deleted — clears synced rows, resets pending, recreates sheet
  *
  * Pull path: pullTransactions()
- *   → fetches all rows from Sheets since lastSyncedAt
- *   → merges into Dexie, detects conflicts
+ *   → fetches ALL rows from Sheets (no date filter — full reconciliation)
+ *   → inserts/updates Dexie rows from Sheets
+ *   → deletes Dexie 'synced'/'error' rows whose UUID is no longer in Sheets
+ *   → on 404: sheet deleted — clears synced rows from Dexie
+ *
+ * Sync cycle: self-scheduling setTimeout, adaptive rate
+ *   → base interval 10s, backs off to 30s/60s when approaching API quota
+ *   → also fires on online event, visibilitychange, and SW Background Sync
  *
  * Lifecycle:
- *   startSyncEngine() — call after sign-in; starts 60s timer + online listener
+ *   startSyncEngine() — call after sign-in
  *   stopSyncEngine()  — call on sign-out
  */
 
 import { get } from 'svelte/store';
 import { db, type Transaction, type SyncQueueEntry } from '../db/dexie.js';
-import { businesses } from '../store.js';
+import { businesses, selectedBusiness } from '../store.js';
+import { ensureYearFolder } from '../business.js';
 import {
   pushTransactions,
   updateByUUID,
@@ -33,20 +41,49 @@ import {
 } from './sheets.js';
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const FLUSH_INTERVAL_MS = 60_000;
-const SYNC_MARKER_PREFIX = 'biztrack_last_sync_';
-
-// ---------------------------------------------------------------------------
 // Private state
 // ---------------------------------------------------------------------------
 
-let _flushTimer: ReturnType<typeof setInterval> | null = null;
+let _syncTimer: ReturnType<typeof setTimeout> | null = null;
 let _flushing = false;
 let _onlineListener: (() => void) | null = null;
+let _visibilityListener: (() => void) | null = null;
 let _swMessageListener: ((e: MessageEvent) => void) | null = null;
+
+// ---------------------------------------------------------------------------
+// Adaptive rate limiting
+// ---------------------------------------------------------------------------
+
+// Sliding window of Sheets API call timestamps (last 60s).
+const _apiCallTimestamps: number[] = [];
+
+function _trackApiCall(): void {
+  const now = Date.now();
+  _apiCallTimestamps.push(now);
+  const cutoff = now - 60_000;
+  while (_apiCallTimestamps.length && _apiCallTimestamps[0] < cutoff) {
+    _apiCallTimestamps.shift();
+  }
+}
+
+function _currentRpm(): number {
+  const cutoff = Date.now() - 60_000;
+  return _apiCallTimestamps.filter((t) => t > cutoff).length;
+}
+
+/**
+ * Returns the next sync cycle delay based on recent Sheets API call rate.
+ * Quota: 300 req/min per user. Thresholds stay well under.
+ *   < 60 RPM  (20%) → 10s   comfortable
+ *   60–180 RPM (60%) → 30s  backing off
+ *   > 180 RPM        → 60s  near ceiling
+ */
+function _nextSyncDelayMs(): number {
+  const rpm = _currentRpm();
+  if (rpm < 60)  return 10_000;
+  if (rpm < 180) return 30_000;
+  return 60_000;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -57,9 +94,32 @@ function _backoffMs(retryCount: number): number {
   return Math.min(Math.pow(2, retryCount) * 1000 + Math.random() * 1000, 64_000);
 }
 
-/** localStorage key for the last-sync timestamp for a given business+year. */
-function _syncMarkerKey(businessId: string, year: number): string {
-  return `${SYNC_MARKER_PREFIX}${businessId}_${year}`;
+/** Returns true if an error message indicates the resource was not found (404). */
+function _isNotFound(err: Error): boolean {
+  return err.message.includes('404') || err.message.toLowerCase().includes('not found');
+}
+
+/** Returns true if an error message indicates rate limiting (429). */
+function _isRateLimited(err: Error): boolean {
+  return err.message.includes('429') || err.message.toLowerCase().includes('rate limit') ||
+    err.message.toLowerCase().includes('quota');
+}
+
+/**
+ * Clears the cached sheetId and yearFolder for a given business+year in both
+ * stores, so the next ensureYearFolder call goes through Drive re-discovery.
+ */
+function _clearCachedSheetIds(bizId: string, year: number): void {
+  const clearIds = <T extends { id?: string; sheetIds?: Record<number, string>; yearFolders?: Record<number, string> } | null | undefined>(biz: T): T => {
+    if (!biz || (biz as { id?: string }).id !== bizId) return biz;
+    const sheetIds    = { ...(biz as { sheetIds?: Record<number, string> }).sheetIds };
+    const yearFolders = { ...(biz as { yearFolders?: Record<number, string> }).yearFolders };
+    delete sheetIds[year];
+    delete yearFolders[year];
+    return { ...biz, sheetIds, yearFolders };
+  };
+  businesses.update((list) => list.map(clearIds));
+  selectedBusiness.update(clearIds);
 }
 
 /** Maps a Dexie Transaction to the wire format for Sheets. */
@@ -270,32 +330,59 @@ export async function flushQueue(): Promise<void> {
   }
 }
 
-type BizEntry = { id: string; sheetIds?: Record<number, string>; [k: string]: unknown };
+type BizEntry = { id: string; sheetIds?: Record<number, string>; yearFolders?: Record<number, string>; [k: string]: unknown };
+
+/**
+ * Resolves a spreadsheetId for an entry, creating the year folder if needed.
+ * Returns the updated biz entry and spreadsheetId, or null if it couldn't be resolved.
+ */
+async function _resolveSpreadsheetId(
+  entry: SyncQueueEntry,
+  biz: BizEntry,
+): Promise<{ biz: BizEntry; spreadsheetId: string } | null> {
+  let spreadsheetId = biz.sheetIds?.[entry.year];
+  if (spreadsheetId) return { biz, spreadsheetId };
+
+  // sheetId missing — try to find or create the year folder
+  try {
+    const updated = await ensureYearFolder(biz as Parameters<typeof ensureYearFolder>[0], entry.year);
+    businesses.update((list) => list.map((b) => b.id === biz.id ? updated : b));
+    selectedBusiness.update((b) => b?.id === biz.id ? updated : b);
+    spreadsheetId = updated.sheetIds?.[entry.year];
+    if (spreadsheetId) return { biz: updated as BizEntry, spreadsheetId };
+  } catch (err) {
+    console.warn('[sync] ensureYearFolder failed during flush:', (err as Error).message);
+  }
+  return null;
+}
 
 /** Batch-appends create entries to Sheets, grouped by spreadsheet+tab. */
 async function _flushCreates(entries: SyncQueueEntry[], bizList: BizEntry[]): Promise<void> {
-  // Group by "spreadsheetId::sheetName"
   const groups = new Map<string, { spreadsheetId: string; sheetName: 'Expenses' | 'Mileage'; entries: SyncQueueEntry[] }>();
 
   for (const entry of entries) {
-    const biz = bizList.find((b) => b.id === entry.businessId);
+    let biz = bizList.find((b) => b.id === entry.businessId);
     if (!biz) continue;
-    const spreadsheetId = biz.sheetIds?.[entry.year];
-    if (!spreadsheetId) continue;
+
+    const resolved = await _resolveSpreadsheetId(entry, biz);
+    if (!resolved) continue;
+    biz = resolved.biz;
+    // Update bizList ref so subsequent entries in this batch use the recovered ID
+    const idx = bizList.findIndex((b) => b.id === biz!.id);
+    if (idx >= 0) bizList[idx] = biz;
 
     const tx = entry.data as Transaction;
     const sheetName: 'Expenses' | 'Mileage' = tx.type === 'mileage' ? 'Mileage' : 'Expenses';
-    const key = `${spreadsheetId}::${sheetName}`;
-
-    if (!groups.has(key)) groups.set(key, { spreadsheetId, sheetName, entries: [] });
+    const key = `${resolved.spreadsheetId}::${sheetName}`;
+    if (!groups.has(key)) groups.set(key, { spreadsheetId: resolved.spreadsheetId, sheetName, entries: [] });
     groups.get(key)!.entries.push(entry);
   }
 
   for (const { spreadsheetId, sheetName, entries: group } of groups.values()) {
     const rows: TransactionRow[] = group.map((e) => _txToRow(e.data as Transaction));
     try {
+      _trackApiCall();
       await pushTransactions(spreadsheetId, sheetName, rows);
-      // Mark all entries in this batch as synced
       await db.transaction('rw', [db.transactions, db.syncQueue], async () => {
         for (const entry of group) {
           await db.transactions.update(entry.entityId, { syncStatus: 'synced' });
@@ -311,15 +398,20 @@ async function _flushCreates(entries: SyncQueueEntry[], bizList: BizEntry[]): Pr
 /** Updates rows in Sheets one by one (each requires a UUID re-scan). */
 async function _flushUpdates(entries: SyncQueueEntry[], bizList: BizEntry[]): Promise<void> {
   for (const entry of entries) {
-    const biz = bizList.find((b) => b.id === entry.businessId);
+    let biz = bizList.find((b) => b.id === entry.businessId);
     if (!biz) continue;
-    const spreadsheetId = biz.sheetIds?.[entry.year];
-    if (!spreadsheetId) continue;
+
+    const resolved = await _resolveSpreadsheetId(entry, biz);
+    if (!resolved) continue;
+    biz = resolved.biz;
+    const idx = bizList.findIndex((b) => b.id === biz!.id);
+    if (idx >= 0) bizList[idx] = biz;
 
     const tx = entry.data as Transaction;
     const sheetName: 'Expenses' | 'Mileage' = tx.type === 'mileage' ? 'Mileage' : 'Expenses';
     try {
-      await updateByUUID(spreadsheetId, sheetName, _txToRow(tx));
+      _trackApiCall();
+      await updateByUUID(resolved.spreadsheetId, sheetName, _txToRow(tx));
       await db.transaction('rw', [db.transactions, db.syncQueue], async () => {
         await db.transactions.update(entry.entityId, { syncStatus: 'synced' });
         if (entry.id != null) await db.syncQueue.delete(entry.id);
@@ -333,18 +425,20 @@ async function _flushUpdates(entries: SyncQueueEntry[], bizList: BizEntry[]): Pr
 /** Deletes rows in Sheets one by one, then removes from Dexie on success. */
 async function _flushDeletes(entries: SyncQueueEntry[], bizList: BizEntry[]): Promise<void> {
   for (const entry of entries) {
-    const biz = bizList.find((b) => b.id === entry.businessId);
+    let biz = bizList.find((b) => b.id === entry.businessId);
     if (!biz) continue;
-    const spreadsheetId = biz.sheetIds?.[entry.year];
-    if (!spreadsheetId) continue;
 
-    // Determine sheet name from the Dexie record
+    const resolved = await _resolveSpreadsheetId(entry, biz);
+    if (!resolved) continue;
+    biz = resolved.biz;
+    const idx = bizList.findIndex((b) => b.id === biz!.id);
+    if (idx >= 0) bizList[idx] = biz;
+
     const tx = await db.transactions.get(entry.entityId);
     const sheetName: 'Expenses' | 'Mileage' = tx?.type === 'mileage' ? 'Mileage' : 'Expenses';
-
     try {
-      await deleteByUUID(spreadsheetId, sheetName, entry.entityId);
-      // Confirmed deleted in Sheets — now remove from Dexie too
+      _trackApiCall();
+      await deleteByUUID(resolved.spreadsheetId, sheetName, entry.entityId);
       await db.transaction('rw', [db.transactions, db.syncQueue], async () => {
         await db.transactions.delete(entry.entityId);
         if (entry.id != null) await db.syncQueue.delete(entry.id);
@@ -355,9 +449,48 @@ async function _flushDeletes(entries: SyncQueueEntry[], bizList: BizEntry[]): Pr
   }
 }
 
-/** On flush error: increment retryCount, record the error message. */
+/**
+ * Handles a Sheets API error during a push operation.
+ *
+ * - 404 (sheet deleted): clears synced Dexie rows for that year, resets the
+ *   failed entries to pending so they sync to the recreated sheet.
+ * - 429 (rate limited): marks error, schedules retry after 60s.
+ * - Other errors: marks error, exponential backoff.
+ */
 async function _handleFlushError(entries: SyncQueueEntry[], err: Error): Promise<void> {
   console.warn('[sync] flush error:', err.message);
+
+  if (_isNotFound(err) && entries.length > 0) {
+    const year  = entries[0].year;
+    const bizId = entries[0].businessId;
+
+    // Sheet was deleted — Drive is source of truth. Remove synced rows for this
+    // year; the failed entries (never successfully pushed) are reset to pending
+    // and will sync to the recreated sheet on the next flush.
+    await db.transactions
+      .where('[businessId+year]')
+      .equals([bizId, year])
+      .filter((t) => t.syncStatus === 'synced' || t.syncStatus === 'error')
+      .delete();
+
+    // Clear stale cached IDs so ensureYearFolder goes through Drive re-discovery
+    _clearCachedSheetIds(bizId, year);
+
+    // Reset failed entries to pending (they never made it to the sheet)
+    for (const entry of entries) {
+      if (entry.id == null) continue;
+      await db.syncQueue.update(entry.id, { retryCount: 0, syncStatus: 'pending', lastError: null });
+      await db.transactions.update(entry.entityId, { syncStatus: 'pending', syncError: undefined });
+    }
+
+    // Trigger a flush shortly — ensureYearFolder will run inside the next flush
+    // to recreate the sheet before pushing the pending entries.
+    setTimeout(() => flushQueue(), 2_000);
+    return;
+  }
+
+  const retryDelay = _isRateLimited(err) ? 60_000 : undefined;
+
   for (const entry of entries) {
     if (entry.id == null) continue;
     const retryCount = entry.retryCount + 1;
@@ -370,26 +503,28 @@ async function _handleFlushError(entries: SyncQueueEntry[], err: Error): Promise
       syncStatus: 'error',
       syncError:  err.message,
     });
-    // Schedule a retry after backoff (non-blocking)
-    const delay = _backoffMs(retryCount);
+    const delay = retryDelay ?? _backoffMs(retryCount);
     setTimeout(() => flushQueue(), delay);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Pull path — Sheets → Dexie
+// Pull path — Sheets → Dexie (full reconciliation)
 // ---------------------------------------------------------------------------
 
 /**
- * Pulls all rows for a business+year from Google Sheets and merges into Dexie.
+ * Pulls ALL rows for a business+year from Google Sheets and fully reconciles
+ * with Dexie. Drive is the source of truth:
  *
- * Conflict detection:
- *   - Row not in Dexie          → insert as 'synced'
- *   - Row in Dexie, 'synced'    → overwrite if remote updatedAt is newer
- *   - Row in Dexie, 'pending'   → mark as 'conflict' (user must resolve)
- *   - Row in Dexie, 'conflict'  → leave as-is
+ *   - Row in Sheets, not in Dexie               → insert as 'synced'
+ *   - Row in Sheets, Dexie 'synced'/'error'      → overwrite with remote data
+ *   - Row in Sheets, Dexie 'pending'             → mark as 'conflict'
+ *   - Row in Sheets, Dexie 'conflict'            → leave for user to resolve
+ *   - Row in Dexie 'synced'/'error', not Sheets  → delete (removed from Drive)
+ *   - Row in Dexie 'pending'/'conflict', not Sheets → keep (unsaved local work)
  *
- * Sets a localStorage sync marker on completion for delta pulls.
+ * On 404 (sheet deleted): clears all 'synced'/'error' rows for the year and
+ * resets the cached sheetId so the next flush recreates the sheet.
  */
 export async function pullTransactions(businessId: string, year: number): Promise<void> {
   const bizList = get(businesses);
@@ -399,28 +534,39 @@ export async function pullTransactions(businessId: string, year: number): Promis
   const spreadsheetId = biz.sheetIds?.[year];
   if (!spreadsheetId) return;
 
-  const markerKey = _syncMarkerKey(businessId, year);
-  const markerStr = localStorage.getItem(markerKey);
-  const since = markerStr ? new Date(parseInt(markerStr, 10)) : null;
-
   const now = Date.now();
 
   for (const sheetName of ['Expenses', 'Mileage'] as const) {
     const type = sheetName === 'Expenses' ? 'expense' : 'mileage';
     let rows: TransactionRow[];
     try {
-      rows = await sheetsPull(spreadsheetId, sheetName, since);
+      _trackApiCall();
+      rows = await sheetsPull(spreadsheetId, sheetName);
     } catch (err) {
-      console.warn(`[sync] pullTransactions ${sheetName}:`, err);
+      const e = err as Error;
+      if (_isNotFound(e)) {
+        // Spreadsheet was deleted. Remove synced rows — Drive is truth.
+        // Pending rows survive and will sync to the recreated sheet.
+        await db.transactions
+          .where('[businessId+type+year]')
+          .equals([businessId, type, year])
+          .filter((t) => t.syncStatus === 'synced' || t.syncStatus === 'error')
+          .delete();
+        _clearCachedSheetIds(businessId, year);
+      } else {
+        console.warn(`[sync] pull ${sheetName}:`, e.message);
+      }
       continue;
     }
 
+    // Build set of UUIDs present in Sheets for deletion detection
+    const sheetUUIDs = new Set(rows.map((r) => r.id));
+
+    // Process each row from Sheets
     for (const row of rows) {
-      if (!row.id) continue;
       const existing = await db.transactions.get(row.id);
 
       if (!existing) {
-        // New row — insert as synced
         await db.transactions.add({
           ..._rowToTx(row, businessId, type),
           createdAt: now,
@@ -430,36 +576,60 @@ export async function pullTransactions(businessId: string, year: number): Promis
       }
 
       if (existing.syncStatus === 'pending') {
-        // Local write in flight — mark conflict for user resolution
         await db.transactions.update(row.id, { syncStatus: 'conflict' });
         continue;
       }
 
       if (existing.syncStatus === 'conflict') {
-        // Already flagged — leave for user to resolve
-        continue;
+        continue; // leave for user to resolve
       }
 
-      // syncStatus === 'synced' or 'error' — safe to overwrite
+      // 'synced' or 'error' — safe to overwrite with Drive's version
       await db.transactions.put({
         ..._rowToTx(row, businessId, type),
         createdAt: existing.createdAt,
         updatedAt: now,
       });
     }
-  }
 
-  // Update sync marker
-  localStorage.setItem(markerKey, String(now));
+    // Delete Dexie rows no longer present in Sheets.
+    // Only remove 'synced'/'error' rows — 'pending'/'conflict' are local work.
+    const dexieRows = await db.transactions
+      .where('[businessId+type+year]')
+      .equals([businessId, type, year])
+      .toArray();
+
+    for (const row of dexieRows) {
+      if (row.syncStatus === 'pending' || row.syncStatus === 'conflict') continue;
+      if (!sheetUUIDs.has(row.id)) {
+        await db.transactions.delete(row.id);
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Lifecycle
+// Lifecycle — adaptive sync cycle
 // ---------------------------------------------------------------------------
 
 /**
- * Starts the sync engine: 60s flush interval + online event listener.
- * Also registers a service worker message listener for Background Sync.
+ * Runs one flush+pull cycle, then schedules the next one after an adaptive
+ * delay based on the current Sheets API request rate.
+ */
+function _scheduleSyncCycle(): void {
+  _syncTimer = setTimeout(async () => {
+    await flushQueue().catch(console.warn);
+    const biz = get(selectedBusiness);
+    if (biz?.id) {
+      await pullTransactions(biz.id, new Date().getFullYear()).catch(console.warn);
+    }
+    _scheduleSyncCycle();
+  }, _nextSyncDelayMs());
+}
+
+/**
+ * Starts the sync engine: adaptive flush+pull cycle, online listener,
+ * visibilitychange listener, and SW Background Sync.
  *
  * Call once after the user authenticates. Returns a cleanup function.
  * Internally idempotent — stops any previously running engine first.
@@ -467,24 +637,39 @@ export async function pullTransactions(businessId: string, year: number): Promis
 export function startSyncEngine(): () => void {
   stopSyncEngine();
 
-  // Flush immediately on start (catches anything queued before auth)
+  // Run immediately on start (flush any queued entries, pull current state)
   flushQueue().catch(console.warn);
+  const biz = get(selectedBusiness);
+  if (biz?.id) {
+    pullTransactions(biz.id, new Date().getFullYear()).catch(console.warn);
+  }
 
-  // 60s periodic flush
-  _flushTimer = setInterval(() => flushQueue().catch(console.warn), FLUSH_INTERVAL_MS);
+  // Adaptive sync cycle: flush + pull, rescheduling based on API rate
+  _scheduleSyncCycle();
 
-  // Flush on reconnect
-  _onlineListener = () => flushQueue().catch(console.warn);
+  // Flush + pull immediately on reconnect
+  _onlineListener = () => {
+    flushQueue().catch(console.warn);
+    const b = get(selectedBusiness);
+    if (b?.id) pullTransactions(b.id, new Date().getFullYear()).catch(console.warn);
+  };
   window.addEventListener('online', _onlineListener);
 
-  // Background Sync message from service worker (Chrome only; Safari/Firefox fall back to the interval)
+  // Pull immediately when the app comes back to the foreground
+  _visibilityListener = () => {
+    if (document.visibilityState !== 'visible') return;
+    if (_syncTimer !== null) { clearTimeout(_syncTimer); _syncTimer = null; }
+    _scheduleSyncCycle();
+  };
+  document.addEventListener('visibilitychange', _visibilityListener);
+
+  // Background Sync message from service worker (Chrome only)
   if ('serviceWorker' in navigator) {
     _swMessageListener = (e: MessageEvent) => {
       if (e.data?.type === 'BG_SYNC') flushQueue().catch(console.warn);
     };
     navigator.serviceWorker.addEventListener('message', _swMessageListener);
 
-    // Register the Background Sync tag so the SW can wake the engine
     navigator.serviceWorker.ready
       .then((reg) => {
         if ('sync' in reg) {
@@ -503,13 +688,17 @@ export function startSyncEngine(): () => void {
  * Called on sign-out.
  */
 export function stopSyncEngine(): void {
-  if (_flushTimer !== null) {
-    clearInterval(_flushTimer);
-    _flushTimer = null;
+  if (_syncTimer !== null) {
+    clearTimeout(_syncTimer);
+    _syncTimer = null;
   }
   if (_onlineListener) {
     window.removeEventListener('online', _onlineListener);
     _onlineListener = null;
+  }
+  if (_visibilityListener) {
+    document.removeEventListener('visibilitychange', _visibilityListener);
+    _visibilityListener = null;
   }
   if (_swMessageListener && 'serviceWorker' in navigator) {
     navigator.serviceWorker.removeEventListener('message', _swMessageListener);
