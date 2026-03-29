@@ -11,13 +11,14 @@
  *   → calls pushTransactions / updateByUUID / deleteByUUID in services/sheets.ts
  *   → on success: marks Transaction.syncStatus = 'synced', removes queue entry
  *   → on error: retryCount++, exponential backoff
- *   → on 404: sheet was deleted — clears synced rows, resets pending, recreates sheet
+ *   → on 404: sheet deleted — clears synced rows, purges stale pending (Drive epoch),
+ *             resets any fresh pending entries to retry against recreated sheet
  *
  * Pull path: pullTransactions()
  *   → fetches ALL rows from Sheets (no date filter — full reconciliation)
  *   → inserts/updates Dexie rows from Sheets
  *   → deletes Dexie 'synced'/'error' rows whose UUID is no longer in Sheets
- *   → on 404: sheet deleted — clears synced rows from Dexie
+ *   → on 404: sheet deleted — clears synced rows, purges stale pending (Drive epoch)
  *
  * Sync cycle: self-scheduling setTimeout, adaptive rate
  *   → base interval 10s, backs off to 30s/60s when approaching API quota
@@ -83,6 +84,72 @@ function _nextSyncDelayMs(): number {
   if (rpm < 60)  return 10_000;
   if (rpm < 180) return 30_000;
   return 60_000;
+}
+
+// ---------------------------------------------------------------------------
+// Drive epoch — stale pending purge
+// ---------------------------------------------------------------------------
+
+/**
+ * Per business+year epoch: the first moment a Drive 404 was detected for that
+ * key in this session. Pending transactions with createdAt < epoch predate the
+ * detected Drive reset and are discarded. Only set once per key — a second 404
+ * in the same session must not advance the epoch or it would discard work the
+ * user entered after the first reset was noticed.
+ *
+ * Key: `${bizId}/${year}`
+ */
+const _driveEpoch = new Map<string, number>();
+
+function _setDriveEpoch(bizId: string, year: number): void {
+  const key = `${bizId}/${year}`;
+  if (!_driveEpoch.has(key)) _driveEpoch.set(key, Date.now());
+}
+
+function _getDriveEpoch(bizId: string, year: number): number {
+  return _driveEpoch.get(`${bizId}/${year}`) ?? 0;
+}
+
+/**
+ * Purges pending/error transactions and their sync-queue entries that predate
+ * the Drive epoch for this business+year. Called after a 404 so that stale
+ * locally-cached data (e.g. a bulk CSV import that was never pushed to Drive)
+ * is discarded rather than being pushed to the freshly-recreated sheet.
+ *
+ * Transactions with createdAt >= epoch were created after the reset was first
+ * detected and represent genuine offline work — they are kept and retried.
+ */
+async function _purgeStaleData(bizId: string, year: number): Promise<void> {
+  const epoch = _getDriveEpoch(bizId, year);
+  if (!epoch) return;
+
+  const staleIds = (await db.transactions
+    .where('[businessId+year]')
+    .equals([bizId, year])
+    .filter((t) =>
+      (t.syncStatus === 'pending' || t.syncStatus === 'error') && t.createdAt < epoch,
+    )
+    .primaryKeys()) as string[];
+
+  if (staleIds.length === 0) return;
+
+  await db.transactions.bulkDelete(staleIds);
+
+  const staleSet = new Set(staleIds);
+  const staleQueueIds = (await db.syncQueue
+    .where('businessId')
+    .equals(bizId)
+    .filter((e) => e.year === year && staleSet.has(e.entityId))
+    .primaryKeys()) as number[];
+
+  if (staleQueueIds.length > 0) {
+    await db.syncQueue.bulkDelete(staleQueueIds);
+  }
+
+  console.info(
+    `[sync] purged ${staleIds.length} stale pending transaction(s) for ${bizId}/${year}` +
+    ` (predated Drive epoch ${new Date(epoch).toISOString()})`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -464,28 +531,35 @@ async function _handleFlushError(entries: SyncQueueEntry[], err: Error): Promise
     const year  = entries[0].year;
     const bizId = entries[0].businessId;
 
-    // Sheet was deleted — Drive is source of truth. Remove synced rows for this
-    // year; the failed entries (never successfully pushed) are reset to pending
-    // and will sync to the recreated sheet on the next flush.
+    // Record the Drive reset epoch (only on first detection for this key).
+    _setDriveEpoch(bizId, year);
+
+    // Remove synced/error rows — Drive is source of truth and the sheet is gone.
     await db.transactions
       .where('[businessId+year]')
       .equals([bizId, year])
       .filter((t) => t.syncStatus === 'synced' || t.syncStatus === 'error')
       .delete();
 
-    // Clear stale cached IDs so ensureYearFolder goes through Drive re-discovery
+    // Purge stale pending data (predates Drive reset) from Dexie and queue.
+    await _purgeStaleData(bizId, year);
+
+    // Clear stale cached IDs so ensureYearFolder goes through Drive re-discovery.
     _clearCachedSheetIds(bizId, year);
 
-    // Reset failed entries to pending (they never made it to the sheet)
-    for (const entry of entries) {
-      if (entry.id == null) continue;
-      await db.syncQueue.update(entry.id, { retryCount: 0, syncStatus: 'pending', lastError: null });
-      await db.transactions.update(entry.entityId, { syncStatus: 'pending', syncError: undefined });
+    // Reset *fresh* entries (entered in this session after reset was detected)
+    // so they sync to the recreated sheet.
+    const epoch = _getDriveEpoch(bizId, year);
+    const freshEntries = entries.filter((e) => e.timestamp >= epoch);
+    for (const e of freshEntries) {
+      if (e.id == null) continue;
+      await db.syncQueue.update(e.id, { retryCount: 0, syncStatus: 'pending', lastError: null });
+      await db.transactions.update(e.entityId, { syncStatus: 'pending', syncError: undefined });
     }
 
-    // Trigger a flush shortly — ensureYearFolder will run inside the next flush
-    // to recreate the sheet before pushing the pending entries.
-    setTimeout(() => flushQueue(), 2_000);
+    if (freshEntries.length > 0) {
+      setTimeout(() => flushQueue(), 2_000);
+    }
     return;
   }
 
@@ -545,13 +619,15 @@ export async function pullTransactions(businessId: string, year: number): Promis
     } catch (err) {
       const e = err as Error;
       if (_isNotFound(e)) {
-        // Spreadsheet was deleted. Remove synced rows — Drive is truth.
-        // Pending rows survive and will sync to the recreated sheet.
+        // Spreadsheet was deleted. Record epoch, remove synced rows, purge
+        // stale pending data. Drive is source of truth — local cache clears.
+        _setDriveEpoch(businessId, year);
         await db.transactions
           .where('[businessId+type+year]')
           .equals([businessId, type, year])
           .filter((t) => t.syncStatus === 'synced' || t.syncStatus === 'error')
           .delete();
+        await _purgeStaleData(businessId, year);
         _clearCachedSheetIds(businessId, year);
       } else {
         console.warn(`[sync] pull ${sheetName}:`, e.message);
