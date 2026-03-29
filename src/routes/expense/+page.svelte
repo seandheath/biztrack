@@ -652,22 +652,22 @@
                   <span class="w-7 flex-shrink-0"></span>
                 {/if}
               </div>
-              <!-- Amount + Category -->
-              <div class="flex gap-2">
-                <input
-                  type="text"
-                  inputmode="numeric"
-                  value={split.amount}
-                  oninput={(e) => handleSplitAmountInput(e, i)}
-                  onblur={() => handleSplitAmountBlur(i)}
-                  placeholder="0.00"
-                  class="w-24 flex-shrink-0 text-sm"
-                  style="min-height: 36px;"
-                />
-                <select
+              <!-- Amount -->
+              <input
+                type="text"
+                inputmode="numeric"
+                value={split.amount}
+                oninput={(e) => handleSplitAmountInput(e, i)}
+                onblur={() => handleSplitAmountBlur(i)}
+                placeholder="0.00"
+                class="w-full text-sm"
+                style="min-height: 36px;"
+              />
+              <!-- Category -->
+              <select
                   value={split.category}
                   onchange={(e) => splits = splits.map((s, idx) => idx === i ? { ...s, category: e.target.value } : s)}
-                  class="flex-1 text-sm"
+                  class="w-full text-sm"
                   style="min-height: 36px;"
                 >
                   <option value="" disabled>Category…</option>
@@ -675,7 +675,6 @@
                     <option value={cat}>{cat}</option>
                   {/each}
                 </select>
-              </div>
             </div>
           {/each}
 
