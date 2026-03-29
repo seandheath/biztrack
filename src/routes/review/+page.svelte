@@ -1,61 +1,33 @@
+<script module>
+  // Persists across SvelteKit client-side navigations within the session.
+  // Transactions in this set are filtered out so they don't reappear.
+  let skippedIds = new Set();
+</script>
+
 <script>
+  /**
+   * Review screen — routes directly to the expense edit form for each
+   * uncategorized transaction. The summary card is intentionally gone;
+   * the edit form is the review.
+   *
+   * Skip mechanism: the expense form navigates back as
+   *   /review?skipped=<txnId>
+   * This page picks up the param, adds it to the module-level skippedIds
+   * Set, then redirects to the next transaction (or "all caught up").
+   */
+
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { selectedBusiness } from '$lib/store.js';
   import { pullTransactions } from '$lib/services/sheets.js';
 
-  // ---------------------------------------------------------------------------
-  // State
-  // ---------------------------------------------------------------------------
-
-  /** All uncategorized transactions loaded on mount */
-  let transactions = $state([]);
-
-  /** Index into transactions — which one is currently being reviewed */
-  let index = $state(0);
-
   let loaded = $state(false);
+  let total  = $state(0);
 
   // ---------------------------------------------------------------------------
-  // Derived
+  // Helpers
   // ---------------------------------------------------------------------------
 
-  let current  = $derived(transactions[index] ?? null);
-  let total    = $derived(transactions.length);
-  let done     = $derived(loaded && index >= total);
-  let progress = $derived(total > 0 ? Math.round((index / total) * 100) : 0);
-
-  // ---------------------------------------------------------------------------
-  // Lifecycle
-  // ---------------------------------------------------------------------------
-
-  onMount(async () => {
-    if (!$selectedBusiness) { goto('/'); return; }
-    const biz = $selectedBusiness;
-    const currentYear = new Date().getFullYear();
-    const allRows = [];
-    for (let y = currentYear; y >= currentYear - 2; y--) {
-      const sid = biz.sheetIds?.[y];
-      if (!sid) continue;
-      try { allRows.push(...await pullTransactions(sid, 'Expenses')); }
-      catch (err) { console.warn(`[review] pull ${y}:`, err); }
-    }
-    transactions = allRows
-      .filter((r) => !r.category || r.category === 'Uncategorized')
-      .sort((a, b) => b.date.localeCompare(a.date));
-    loaded = true;
-  });
-
-  // ---------------------------------------------------------------------------
-  // Actions
-  // ---------------------------------------------------------------------------
-
-  /** Skip this transaction without editing */
-  function skip() {
-    index++;
-  }
-
-  /** Build the URL to open the full expense form for a transaction */
   function buildEditUrl(txn) {
     const year = new Date(txn.date + 'T00:00:00').getFullYear();
     const u = new URL('/expense', window.location.origin);
@@ -65,6 +37,42 @@
     u.searchParams.set('returnTo', '/review');
     return u.toString();
   }
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------------------------
+
+  onMount(async () => {
+    if (!$selectedBusiness) { goto('/'); return; }
+
+    // Pick up any skipped txnId from the URL before pulling
+    const sp = new URLSearchParams(window.location.search);
+    const justSkipped = sp.get('skipped');
+    if (justSkipped) skippedIds.add(justSkipped);
+
+    const biz = $selectedBusiness;
+    const currentYear = new Date().getFullYear();
+    const allRows = [];
+    for (let y = currentYear; y >= currentYear - 2; y--) {
+      const sid = biz.sheetIds?.[y];
+      if (!sid) continue;
+      try { allRows.push(...await pullTransactions(sid, 'Expenses')); }
+      catch (err) { console.warn(`[review] pull ${y}:`, err); }
+    }
+
+    const uncategorized = allRows
+      .filter((r) => (!r.category || r.category === 'Uncategorized') && !skippedIds.has(r.id))
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    total = uncategorized.length;
+
+    if (uncategorized.length > 0) {
+      // Go directly to the edit form — replaceState so back button goes home
+      goto(buildEditUrl(uncategorized[0]), { replaceState: true });
+    } else {
+      loaded = true;
+    }
+  });
 </script>
 
 <div class="flex flex-col h-full" style="background-color: var(--color-surface);">
@@ -85,28 +93,14 @@
       Home
     </a>
     <h1 class="text-base font-semibold" style="color: var(--color-text);">Review Uncategorized</h1>
-    {#if !done && total > 0}
-      <span class="text-sm" style="color: var(--color-text-muted);">{index + 1} of {total}</span>
-    {:else}
-      <span class="w-12"></span>
-    {/if}
+    <span class="w-12"></span>
   </div>
-
-  <!-- Progress bar -->
-  {#if total > 0}
-    <div class="h-1 flex-shrink-0" style="background-color: var(--color-border);">
-      <div
-        class="h-full transition-all duration-300"
-        style="width: {progress}%; background-color: var(--color-primary);"
-      ></div>
-    </div>
-  {/if}
 
   <!-- Body -->
   <div class="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-6 max-w-lg mx-auto w-full">
 
     {#if !loaded}
-      <!-- Loading -->
+      <!-- Loading / redirecting -->
       <div class="flex items-center justify-center py-12">
         <svg class="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24" aria-label="Loading">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -114,8 +108,8 @@
         </svg>
       </div>
 
-    {:else if done}
-      <!-- All done -->
+    {:else}
+      <!-- All caught up -->
       <div class="flex flex-col items-center justify-center py-12 gap-4 text-center">
         <div class="w-12 h-12 rounded-full flex items-center justify-center" style="background-color: var(--color-success); opacity: 0.15;"></div>
         <svg class="w-10 h-10 -mt-14" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-success);">
@@ -135,41 +129,6 @@
           Back to Home
         </a>
       </div>
-
-    {:else if current}
-      <!-- Transaction summary card -->
-      <div
-        class="rounded-xl border p-4 flex flex-col gap-2"
-        style="border-color: var(--color-border); background-color: var(--color-surface-2);"
-      >
-        <div class="flex items-start justify-between gap-3">
-          <span class="text-base font-semibold truncate" style="color: var(--color-text);">{current.vendor}</span>
-          <span class="text-base font-bold flex-shrink-0" style="color: var(--color-primary);">
-            ${Number(current.amount).toFixed(2)}
-          </span>
-        </div>
-        <span class="text-sm" style="color: var(--color-text-muted);">{current.date}</span>
-        {#if current.description}
-          <p class="text-xs" style="color: var(--color-text-muted);">{current.description}</p>
-        {/if}
-      </div>
-
-      <!-- Open full form to review/edit -->
-      <a
-        href={buildEditUrl(current)}
-        class="w-full rounded-xl font-semibold text-base transition-opacity hover:opacity-80 flex items-center justify-center"
-        style="min-height: 52px; background-color: var(--color-primary); color: var(--color-primary-text);"
-      >
-        Review →
-      </a>
-
-      <button
-        onclick={skip}
-        class="text-sm hover:opacity-70 transition-opacity px-2 py-2 self-start"
-        style="color: var(--color-text-muted);"
-      >
-        Skip
-      </button>
     {/if}
 
   </div>

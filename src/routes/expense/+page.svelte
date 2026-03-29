@@ -20,7 +20,7 @@
   } from '$lib/store.js';
   import { downloadJson, findFile, listFileNames, uploadFile } from '$lib/drive.js';
   import { appendRow, readColumn, updateRow, readRow, findRowByTxnId } from '$lib/sheets.js';
-  import { pushTransactions, updateByUUID } from '$lib/services/sheets.js';
+  import { pushTransactions, updateByUUID, batchSetCategory, pullTransactions } from '$lib/services/sheets.js';
   import { enqueue } from '$lib/services/offline-queue.js';
   import { ensureYearFolder } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
@@ -52,6 +52,8 @@
   let expReceipt   = $state(/** @type {File|null} */(null));
   let expErrors    = $state(/** @type {Record<string,string>} */({}));
   let expSubmitting = $state(false);
+  /** Only active in review mode — apply chosen category to all uncategorized rows for this vendor. */
+  let applyToAll    = $state(false);
 
   // ---------------------------------------------------------------------------
   // Split mode state
@@ -170,8 +172,7 @@
       // Sync vendor autocomplete cache from this year's sheet
       const sheetId = business.sheetIds?.[year];
       if (sheetId) {
-        const { pullTransactions: pull } = await import('$lib/services/sheets.js');
-        const expenseRows = await pull(sheetId, 'Expenses');
+        const expenseRows = await pullTransactions(sheetId, 'Expenses');
         const unique = [...new Set(expenseRows.map((r) => r.vendor).filter(Boolean))];
         vendorCache.set(unique);
         _cacheVendorDefaults(expenseRows);
@@ -283,6 +284,22 @@
         }
         showToast('Details saved!', 'success');
         if (returnTo) {
+          if (applyToAll && expVendor && expCategory) {
+            const biz = $selectedBusiness;
+            const currentYear = new Date().getFullYear();
+            for (let y = currentYear; y >= currentYear - 2; y--) {
+              const sid = biz.sheetIds?.[y];
+              if (!sid) continue;
+              try {
+                const rows = await pullTransactions(sid, 'Expenses');
+                const targets = rows
+                  .filter((r) => r.vendor === expVendor && r.id !== shareTxnId &&
+                                 (!r.category || r.category === 'Uncategorized'))
+                  .map((r) => r.id);
+                if (targets.length) await batchSetCategory(sid, targets, expCategory);
+              } catch (err) { console.warn('[expense] batchSetCategory:', err); }
+            }
+          }
           goto(returnTo);
           return;
         }
@@ -808,6 +825,20 @@
         ></textarea>
       </div>
 
+      <!-- Apply-to-all checkbox — only in review mode, single expense (not split) -->
+      {#if returnTo === '/review' && !splitMode}
+        <label class="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            bind:checked={applyToAll}
+            style="width:20px; height:20px; min-width:0; min-height:0; flex-shrink:0; margin-top:2px;"
+          />
+          <span class="text-sm" style="color: var(--color-text-muted);">
+            Apply this category to all uncategorized {expVendor ? `"${expVendor}"` : 'vendor'} transactions
+          </span>
+        </label>
+      {/if}
+
       <!-- Submit -->
       <button
         type="submit"
@@ -829,6 +860,18 @@
           {shareMode ? 'Save Changes' : 'Save Expense'}
         {/if}
       </button>
+
+      <!-- Skip for now — only in review mode -->
+      {#if returnTo}
+        <button
+          type="button"
+          onclick={() => goto(`${returnTo}?skipped=${shareTxnId}`)}
+          class="text-sm hover:opacity-70 transition-opacity px-2 py-2 self-center"
+          style="color: var(--color-text-muted);"
+        >
+          Skip for now
+        </button>
+      {/if}
 
     </form>
 

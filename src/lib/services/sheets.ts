@@ -403,6 +403,39 @@ export async function deleteByUUID(
 }
 
 /**
+ * Updates the category column (E) for multiple expense rows identified by UUID.
+ *
+ * Reads the UUID column once, maps each UUID to its row number, then issues a
+ * single values:batchUpdate to set column E for all matched rows. Rows whose
+ * UUID is not found in the sheet are silently skipped (idempotent).
+ */
+export async function batchSetCategory(
+  spreadsheetId: string,
+  uuids: string[],
+  category: string,
+): Promise<void> {
+  if (uuids.length === 0) return;
+  await ensureNotTrashed(spreadsheetId);
+  const ids = await _readIdColumn(spreadsheetId, 'Expenses');
+  const data = uuids
+    .map((uuid) => {
+      const idx = ids.findIndex((v) => v === uuid);
+      if (idx === -1) return null;
+      const rowNum = idx + 2; // row 1 is header; data index 0 → sheet row 2
+      return { range: `Expenses!E${rowNum}`, values: [[category]] };
+    })
+    .filter(Boolean);
+  if (data.length === 0) return;
+  const url = `${SHEETS_BASE}/${spreadsheetId}/values:batchUpdate`;
+  const response = await apiFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data }),
+  });
+  if (!response.ok) return _throwSheetsError(response, 'batchSetCategory');
+}
+
+/**
  * Reads all data rows from a sheet tab.
  *
  * Returns rows with a non-empty UUID field only. Always fetches the full sheet
