@@ -63,8 +63,25 @@ export const IRS_RATES = {
 // ---------------------------------------------------------------------------
 
 /**
- * Standard QuickBooks category list for Schedule C deductions.
- * Fixed for v1 — no user customization.
+ * Minimal default category set for new businesses. Saved to config.json and
+ * user-editable via Settings → Expense Categories.
+ * @type {string[]}
+ */
+export const DEFAULT_CATEGORIES = [
+  'Uncategorized',
+  'Advertising',
+  'Insurance',
+  'Meals',
+  'Office Expenses',
+  'Repairs & Maintenance',
+  'Supplies',
+  'Travel',
+  'Utilities',
+  'Other Expenses',
+];
+
+/**
+ * Full QuickBooks Schedule C category list — kept as a reference / fallback.
  * @type {string[]}
  */
 export const QUICKBOOKS_CATEGORIES = [

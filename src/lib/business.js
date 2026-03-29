@@ -14,7 +14,7 @@
 
 import { findFile, downloadJson, uploadJson, updateJson, createFolder, moveFile, listFolders } from './drive.js';
 import { createExpenseSheet } from './sheets.js';
-import { DEFAULT_PAYMENT_METHODS } from './constants.js';
+import { DEFAULT_PAYMENT_METHODS, DEFAULT_CATEGORIES } from './constants.js';
 import { businessConfig, businesses, selectedBusiness } from './store.js';
 
 /** Strip characters that are invalid in Drive/Sheets file names: / \ : * ? " < > | */
@@ -46,6 +46,7 @@ export async function setupBusiness(name, folderId) {
     name,
     payment_accounts: [...DEFAULT_PAYMENT_METHODS],
     mileage_favorites: [],
+    categories: [...DEFAULT_CATEGORIES],
   };
 
   const configId = await findFile('config.json', folderId);
@@ -57,8 +58,9 @@ export async function setupBusiness(name, folderId) {
     configFileId = configId;
     // Guard against malformed config missing required keys
     if (typeof config.name !== 'string' || !config.name) config.name = name;
-    if (!Array.isArray(config.payment_accounts)) config.payment_accounts = [...DEFAULT_PAYMENT_METHODS];
-    if (!Array.isArray(config.mileage_favorites)) config.mileage_favorites = [];
+    if (!Array.isArray(config.payment_accounts))                            config.payment_accounts = [...DEFAULT_PAYMENT_METHODS];
+    if (!Array.isArray(config.mileage_favorites))                           config.mileage_favorites = [];
+    if (!Array.isArray(config.categories) || config.categories.length === 0) config.categories = [...DEFAULT_CATEGORIES];
   } else {
     const { id } = await uploadJson('config.json', defaultConfig, folderId);
     configFileId = id;
@@ -100,8 +102,9 @@ export async function loadConfig(business) {
   const cfg = await downloadJson(business.configFileId);
   // Backfill name for configs written before this field was added
   if (typeof cfg.name !== 'string' || !cfg.name) cfg.name = business.name ?? '';
-  if (!Array.isArray(cfg.payment_accounts))  cfg.payment_accounts  = [...DEFAULT_PAYMENT_METHODS];
-  if (!Array.isArray(cfg.mileage_favorites)) cfg.mileage_favorites = [];
+  if (!Array.isArray(cfg.payment_accounts))                          cfg.payment_accounts  = [...DEFAULT_PAYMENT_METHODS];
+  if (!Array.isArray(cfg.mileage_favorites))                         cfg.mileage_favorites = [];
+  if (!Array.isArray(cfg.categories) || cfg.categories.length === 0) cfg.categories        = [...DEFAULT_CATEGORIES];
   // Backfill business ID — generate and persist if missing, then update store
   if (!cfg.id) {
     cfg.id = crypto.randomUUID();
@@ -194,6 +197,42 @@ export async function deleteMileageFavorite(business, config, name) {
   const updated = {
     ...config,
     mileage_favorites: config.mileage_favorites.filter((f) => f.name !== name),
+  };
+  await saveConfig(business, updated);
+  return updated;
+}
+
+/**
+ * Adds an expense category to a business config and saves to Drive.
+ * No-op if the category already exists.
+ *
+ * @param {Object} business
+ * @param {Object} config - Current config
+ * @param {string} category - Category label to add
+ * @returns {Promise<Object>} Updated config
+ */
+export async function addCategory(business, config, category) {
+  const trimmed = category.trim();
+  if (!trimmed || (config.categories ?? []).includes(trimmed)) return config;
+  const updated = { ...config, categories: [...(config.categories ?? []), trimmed] };
+  await saveConfig(business, updated);
+  return updated;
+}
+
+/**
+ * Removes an expense category from a business config and saves to Drive.
+ * Refuses to remove 'Uncategorized' (required default).
+ *
+ * @param {Object} business
+ * @param {Object} config - Current config
+ * @param {string} category - Category label to remove
+ * @returns {Promise<Object>} Updated config
+ */
+export async function removeCategory(business, config, category) {
+  if (category === 'Uncategorized') return config;
+  const updated = {
+    ...config,
+    categories: (config.categories ?? []).filter((c) => c !== category),
   };
   await saveConfig(business, updated);
   return updated;

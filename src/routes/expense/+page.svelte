@@ -25,6 +25,8 @@
   import { ensureYearFolder } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
   import { QUICKBOOKS_CATEGORIES } from '$lib/constants.js';
+
+  let categories = $derived($businessConfig?.categories ?? QUICKBOOKS_CATEGORIES);
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
   import VendorAutocomplete from '../../components/VendorAutocomplete.svelte';
   import ReceiptPicker from '../../components/ReceiptPicker.svelte';
@@ -623,7 +625,7 @@
           <label for="exp-category" class="text-sm font-medium" style="color: var(--color-text-muted);">Category</label>
           <select id="exp-category" bind:value={expCategory} required>
             <option value="" disabled>Select category…</option>
-            {#each QUICKBOOKS_CATEGORIES as cat (cat)}
+            {#each categories as cat (cat)}
               <option value={cat}>{cat}</option>
             {/each}
           </select>
@@ -694,7 +696,7 @@
                   style="min-height: 36px;"
                 >
                   <option value="" disabled>Category…</option>
-                  {#each QUICKBOOKS_CATEGORIES as cat (cat)}
+                  {#each categories as cat (cat)}
                     <option value={cat}>{cat}</option>
                   {/each}
                 </select>

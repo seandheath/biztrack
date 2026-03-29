@@ -181,6 +181,16 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
           </svg>
         </a>
+        <a
+          href="/settings/categories"
+          class="flex items-center justify-between px-4 hover:opacity-70 transition-opacity"
+          style="color: var(--color-text); min-height: 48px;"
+        >
+          <span class="text-base">Expense Categories</span>
+          <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          </svg>
+        </a>
       </div>
     </section>
 
