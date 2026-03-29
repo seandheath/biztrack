@@ -1,6 +1,6 @@
 <script>
   import { selectedBusiness, businessConfig, userEmail, businesses } from '$lib/store.js';
-  import { enqueueCreate } from '$lib/services/sync.js';
+  import { enqueueCreate, pullTransactions } from '$lib/services/sync.js';
   import { queryTransactions, getConsistentVendorCategory } from '$lib/db/queries.js';
   import { ensureYearFolder } from '$lib/business.js';
 
@@ -161,16 +161,22 @@
         }
       }
 
+      // Pull Drive state into Dexie before dedup so rows that are already in
+      // the sheet (but were cleared from local cache) are correctly skipped.
+      for (const year of years) {
+        await pullTransactions($selectedBusiness.id, year).catch(console.warn);
+      }
+
       const dedupKeys = new Set();
       for (const year of years) {
         const existing = await queryTransactions($selectedBusiness.id, year, 'expense');
         for (const t of existing) {
-          dedupKeys.add(`${t.date}|${t.vendor}|${t.amount}`);
+          dedupKeys.add(`${t.date}|${t.vendor}|${(+(t.amount ?? 0)).toFixed(2)}`);
         }
       }
 
       for (const row of parsedRows) {
-        const key = `${row.date}|${row.vendor}|${row.amount}`;
+        const key = `${row.date}|${row.vendor}|${row.amount.toFixed(2)}`;
         if (dedupKeys.has(key)) { skipped++; continue; }
 
         try {
