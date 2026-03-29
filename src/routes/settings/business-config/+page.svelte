@@ -159,7 +159,7 @@
       <h2 class="text-xs font-semibold uppercase tracking-wider mb-2 px-1" style="color: var(--color-text-muted);">
         Configuration
       </h2>
-      <div class="rounded-xl border divide-y overflow-hidden"
+      <div class="rounded-xl border divide-y overflow-hidden flex flex-col"
            style="border-color: var(--color-border); background-color: var(--color-surface-2);">
         <a
           href="/settings/payments"
