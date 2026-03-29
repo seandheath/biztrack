@@ -16,22 +16,29 @@
   /** @type {'expense'|'mileage'} */
   let activeTab = $state('expense');
 
-  /** Years with data for the selected business — derived from sheetIds. */
-  let availableYears = $state([]);
-
-  /** Currently selected year (number). */
-  let selectedYear = $state(new Date().getFullYear());
-
-  $effect(() => {
+  /** Years with data — derived directly from sheetIds so it's always in sync. */
+  let availableYears = $derived.by(() => {
     const biz = $selectedBusiness;
-    if (!biz) { availableYears = []; return; }
-    const sheetYears = Object.keys(biz.sheetIds ?? {}).map(Number).sort((a, b) => b - a);
-    availableYears = sheetYears.map(String);
-    if (availableYears.length && !availableYears.includes(String(selectedYear))) {
+    if (!biz) return [];
+    return Object.keys(biz.sheetIds ?? {}).map(Number).sort((a, b) => b - a).map(String);
+  });
+
+  /** Currently selected year (string to match availableYears and <select> value). */
+  let selectedYear = $state('');
+
+  // Keep selectedYear valid whenever availableYears changes.
+  $effect(() => {
+    if (!availableYears.length) { selectedYear = ''; return; }
+    if (!availableYears.includes(selectedYear)) {
       const current = String(new Date().getFullYear());
-      selectedYear = Number(availableYears.includes(current) ? current : availableYears[0]);
+      selectedYear = availableYears.includes(current) ? current : availableYears[0];
     }
   });
+
+  /** Derived spreadsheet ID — always reflects the current year selection. */
+  let spreadsheetId = $derived(
+    $selectedBusiness?.sheetIds?.[Number(selectedYear)] ?? ''
+  );
 
   // ---------------------------------------------------------------------------
   // Row state — pulled from Sheets
@@ -43,15 +50,13 @@
   let loading = $state(false);
 
   $effect(() => {
-    const biz = $selectedBusiness;
-    const year = Number(selectedYear);
-    if (!biz?.id || !year) { rows = []; return; }
-    const spreadsheetId = biz.sheetIds?.[year];
-    if (!spreadsheetId) { rows = []; return; }
-    const sheetName = activeTab === 'mileage' ? 'Mileage' : 'Expenses';
+    const sid = spreadsheetId;
+    const tab = activeTab;
+    if (!sid) { rows = []; return; }
+    const sheetName = tab === 'mileage' ? 'Mileage' : 'Expenses';
 
     loading = true;
-    pullTransactions(spreadsheetId, sheetName)
+    pullTransactions(sid, sheetName)
       .then((pulled) => { rows = pulled.sort((a, b) => b.date.localeCompare(a.date)); })
       .catch((err) => { console.error('[history] pull:', err); rows = []; })
       .finally(() => { loading = false; });
@@ -64,7 +69,7 @@
   function transactionUrl(row) {
     const u = new URL('/transaction', window.location.origin);
     u.searchParams.set('biz',  $selectedBusiness.id);
-    u.searchParams.set('year', String(selectedYear));
+    u.searchParams.set('year', selectedYear);
     u.searchParams.set('txn',  row.id);
     if (activeTab === 'mileage') u.searchParams.set('type', 'mileage');
     return u.toString();
@@ -102,8 +107,7 @@
       <!-- Year selector -->
       {#if availableYears.length > 0}
         <select
-          value={String(selectedYear)}
-          onchange={(e) => { selectedYear = Number(e.target.value); }}
+          bind:value={selectedYear}
           class="text-sm"
           style="min-height: 40px; flex-shrink: 0;"
           aria-label="Select year"
@@ -141,16 +145,24 @@
       </div>
     </div>
 
-    <!-- Empty state -->
-    {#if rows.length === 0}
+    <!-- Loading / empty / row list -->
+    {#if loading}
+      <div class="flex items-center justify-center py-12">
+        <svg class="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24" aria-label="Loading">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"></path>
+        </svg>
+      </div>
+
+    {:else if rows.length === 0}
       <div class="text-center py-12">
         <p class="text-base" style="color: var(--color-text-muted);">
           No {activeTab} entries in {selectedYear}.
         </p>
       </div>
 
-    <!-- Row list — keyed by UUID -->
     {:else}
+      <!-- Row list — keyed by UUID -->
       <div
         class="rounded-xl border overflow-hidden divide-y"
         style="border-color: var(--color-border); background-color: var(--color-surface-2);"
