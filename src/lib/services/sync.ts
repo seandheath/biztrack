@@ -11,29 +11,30 @@
  *   → calls pushTransactions / updateByUUID / deleteByUUID in services/sheets.ts
  *   → on success: marks Transaction.syncStatus = 'synced', removes queue entry
  *   → on error: retryCount++, exponential backoff
- *   → on 404: sheet deleted — clears synced rows, purges stale pending (Drive epoch),
- *             resets any fresh pending entries to retry against recreated sheet
+ *   → on 404: sheet deleted — clears synced/error rows, resets pending entries to
+ *             retry against the recreated sheet
  *
  * Pull path: pullTransactions()
  *   → fetches ALL rows from Sheets (no date filter — full reconciliation)
- *   → inserts/updates Dexie rows from Sheets
+ *   → inserts/updates Dexie rows from Sheets; skips pending rows (in-flight)
  *   → deletes Dexie 'synced'/'error' rows whose UUID is no longer in Sheets
- *   → on 404: sheet deleted — clears synced rows, purges stale pending (Drive epoch)
+ *   → on 404: sheet deleted — clears synced/error rows, clears cached sheet IDs
  *
  * Sync cycle: self-scheduling setTimeout, adaptive rate
  *   → base interval 10s, backs off to 30s/60s when approaching API quota
  *   → also fires on online event, visibilitychange, and SW Background Sync
  *
  * Lifecycle:
- *   startSyncEngine() — call after sign-in
- *   stopSyncEngine()  — call on sign-out
+ * Exports:
+ *   enqueueCreate, enqueueUpdate, enqueueDelete — write path
+ *   flushQueue, pullTransactions — sync path
+ *   startSyncEngine, stopSyncEngine — lifecycle
  */
 
 import { get } from 'svelte/store';
 import { db, type Transaction, type SyncQueueEntry } from '../db/dexie.js';
 import { businesses, selectedBusiness } from '../store.js';
 import { ensureYearFolder } from '../business.js';
-import { findFile } from '../drive.js';
 import {
   pushTransactions,
   updateByUUID,
@@ -48,8 +49,6 @@ import {
 
 let _syncTimer: ReturnType<typeof setTimeout> | null = null;
 let _flushing = false;
-let _lastIntegrityCheck = 0;
-const _INTEGRITY_CHECK_COOLDOWN_MS = 30_000;
 let _onlineListener: (() => void) | null = null;
 let _visibilityListener: (() => void) | null = null;
 let _swMessageListener: ((e: MessageEvent) => void) | null = null;
@@ -90,72 +89,6 @@ function _nextSyncDelayMs(): number {
 }
 
 // ---------------------------------------------------------------------------
-// Drive epoch — stale pending purge
-// ---------------------------------------------------------------------------
-
-/**
- * Per business+year epoch: the first moment a Drive 404 was detected for that
- * key in this session. Pending transactions with createdAt < epoch predate the
- * detected Drive reset and are discarded. Only set once per key — a second 404
- * in the same session must not advance the epoch or it would discard work the
- * user entered after the first reset was noticed.
- *
- * Key: `${bizId}/${year}`
- */
-const _driveEpoch = new Map<string, number>();
-
-function _setDriveEpoch(bizId: string, year: number): void {
-  const key = `${bizId}/${year}`;
-  if (!_driveEpoch.has(key)) _driveEpoch.set(key, Date.now());
-}
-
-function _getDriveEpoch(bizId: string, year: number): number {
-  return _driveEpoch.get(`${bizId}/${year}`) ?? 0;
-}
-
-/**
- * Purges pending/error transactions and their sync-queue entries that predate
- * the Drive epoch for this business+year. Called after a 404 so that stale
- * locally-cached data (e.g. a bulk CSV import that was never pushed to Drive)
- * is discarded rather than being pushed to the freshly-recreated sheet.
- *
- * Transactions with createdAt >= epoch were created after the reset was first
- * detected and represent genuine offline work — they are kept and retried.
- */
-async function _purgeStaleData(bizId: string, year: number): Promise<void> {
-  const epoch = _getDriveEpoch(bizId, year);
-  if (!epoch) return;
-
-  const staleIds = (await db.transactions
-    .where('[businessId+year]')
-    .equals([bizId, year])
-    .filter((t) =>
-      (t.syncStatus === 'pending' || t.syncStatus === 'error') && t.createdAt < epoch,
-    )
-    .primaryKeys()) as string[];
-
-  if (staleIds.length === 0) return;
-
-  await db.transactions.bulkDelete(staleIds);
-
-  const staleSet = new Set(staleIds);
-  const staleQueueIds = (await db.syncQueue
-    .where('businessId')
-    .equals(bizId)
-    .filter((e) => e.year === year && staleSet.has(e.entityId))
-    .primaryKeys()) as number[];
-
-  if (staleQueueIds.length > 0) {
-    await db.syncQueue.bulkDelete(staleQueueIds);
-  }
-
-  console.info(
-    `[sync] purged ${staleIds.length} stale pending transaction(s) for ${bizId}/${year}` +
-    ` (predated Drive epoch ${new Date(epoch).toISOString()})`,
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -190,6 +123,21 @@ function _clearCachedSheetIds(bizId: string, year: number): void {
   };
   businesses.update((list) => list.map(clearIds));
   selectedBusiness.update(clearIds);
+}
+
+/**
+ * Handles a Drive 404 for a business+year: deletes all synced/error rows from
+ * Dexie and clears the cached sheet/folder IDs so the next flush re-discovers
+ * or recreates the sheet via ensureYearFolder.
+ */
+async function _handle404(bizId: string, year: number): Promise<void> {
+  await db.transactions
+    .where('[businessId+year]')
+    .equals([bizId, year])
+    .filter((t) => t.syncStatus === 'synced' || t.syncStatus === 'error')
+    .delete();
+  _clearCachedSheetIds(bizId, year);
+  console.info(`[sync] 404 — cleared synced data for ${bizId}/${year}`);
 }
 
 /** Maps a Dexie Transaction to the wire format for Sheets. */
@@ -538,38 +486,16 @@ async function _handleFlushError(entries: SyncQueueEntry[], err: Error): Promise
   console.warn('[sync] flush error:', err.message);
 
   if (_isNotFound(err) && entries.length > 0) {
-    const year  = entries[0].year;
-    const bizId = entries[0].businessId;
+    const { businessId, year } = entries[0];
+    await _handle404(businessId, year);
 
-    // Record the Drive reset epoch (only on first detection for this key).
-    _setDriveEpoch(bizId, year);
-
-    // Remove synced/error rows — Drive is source of truth and the sheet is gone.
-    await db.transactions
-      .where('[businessId+year]')
-      .equals([bizId, year])
-      .filter((t) => t.syncStatus === 'synced' || t.syncStatus === 'error')
-      .delete();
-
-    // Purge stale pending data (predates Drive reset) from Dexie and queue.
-    await _purgeStaleData(bizId, year);
-
-    // Clear stale cached IDs so ensureYearFolder goes through Drive re-discovery.
-    _clearCachedSheetIds(bizId, year);
-
-    // Reset *fresh* entries (entered in this session after reset was detected)
-    // so they sync to the recreated sheet.
-    const epoch = _getDriveEpoch(bizId, year);
-    const freshEntries = entries.filter((e) => e.timestamp >= epoch);
-    for (const e of freshEntries) {
+    // Reset all entries to retry — they'll push to the recreated sheet.
+    for (const e of entries) {
       if (e.id == null) continue;
       await db.syncQueue.update(e.id, { retryCount: 0, syncStatus: 'pending', lastError: null });
       await db.transactions.update(e.entityId, { syncStatus: 'pending', syncError: undefined });
     }
-
-    if (freshEntries.length > 0) {
-      setTimeout(() => flushQueue(), 2_000);
-    }
+    setTimeout(() => flushQueue(), 2_000);
     return;
   }
 
@@ -602,10 +528,9 @@ async function _handleFlushError(entries: SyncQueueEntry[], err: Error): Promise
  *
  *   - Row in Sheets, not in Dexie               → insert as 'synced'
  *   - Row in Sheets, Dexie 'synced'/'error'      → overwrite with remote data
- *   - Row in Sheets, Dexie 'pending'             → mark as 'conflict'
- *   - Row in Sheets, Dexie 'conflict'            → leave for user to resolve
+ *   - Row in Sheets, Dexie 'pending'             → skip (local write in flight)
  *   - Row in Dexie 'synced'/'error', not Sheets  → delete (removed from Drive)
- *   - Row in Dexie 'pending'/'conflict', not Sheets → keep (unsaved local work)
+ *   - Row in Dexie 'pending', not Sheets         → keep (unsaved local work)
  *
  * On 404 (sheet deleted): clears all 'synced'/'error' rows for the year and
  * resets the cached sheetId so the next flush recreates the sheet.
@@ -627,20 +552,10 @@ export async function pullTransactions(businessId: string, year: number): Promis
       _trackApiCall();
       rows = await sheetsPull(spreadsheetId, sheetName);
     } catch (err) {
-      const e = err as Error;
-      if (_isNotFound(e)) {
-        // Spreadsheet was deleted. Record epoch, remove synced rows, purge
-        // stale pending data. Drive is source of truth — local cache clears.
-        _setDriveEpoch(businessId, year);
-        await db.transactions
-          .where('[businessId+type+year]')
-          .equals([businessId, type, year])
-          .filter((t) => t.syncStatus === 'synced' || t.syncStatus === 'error')
-          .delete();
-        await _purgeStaleData(businessId, year);
-        _clearCachedSheetIds(businessId, year);
+      if (_isNotFound(err as Error)) {
+        await _handle404(businessId, year);
       } else {
-        console.warn(`[sync] pull ${sheetName}:`, e.message);
+        console.warn(`[sync] pull ${sheetName}:`, (err as Error).message);
       }
       continue;
     }
@@ -661,14 +576,8 @@ export async function pullTransactions(businessId: string, year: number): Promis
         continue;
       }
 
-      if (existing.syncStatus === 'pending') {
-        await db.transactions.update(row.id, { syncStatus: 'conflict' });
-        continue;
-      }
-
-      if (existing.syncStatus === 'conflict') {
-        continue; // leave for user to resolve
-      }
+      // pending = local write waiting to flush — don't overwrite
+      if (existing.syncStatus === 'pending') continue;
 
       // 'synced' or 'error' — safe to overwrite with Drive's version
       await db.transactions.put({
@@ -679,76 +588,16 @@ export async function pullTransactions(businessId: string, year: number): Promis
     }
 
     // Delete Dexie rows no longer present in Sheets.
-    // Only remove 'synced'/'error' rows — 'pending'/'conflict' are local work.
+    // Only remove 'synced'/'error' rows — 'pending' rows are unsaved local work.
     const dexieRows = await db.transactions
       .where('[businessId+type+year]')
       .equals([businessId, type, year])
       .toArray();
 
     for (const row of dexieRows) {
-      if (row.syncStatus === 'pending' || row.syncStatus === 'conflict') continue;
+      if (row.syncStatus === 'pending') continue; // keep unsaved work
       if (!sheetUUIDs.has(row.id)) {
         await db.transactions.delete(row.id);
-      }
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Drive integrity check — on-demand, not every cycle
-// ---------------------------------------------------------------------------
-
-/**
- * Verifies that each cached year folder and its expense sheet still exist in Drive
- * (i.e. are not trashed or permanently deleted). Purges local Dexie data for any
- * year whose folder or sheet is gone.
- *
- * Call on navigation and after mutations. Rate-limited to once per 30 s so rapid
- * navigation doesn't generate excess Drive API calls.
- */
-export async function checkDriveIntegrity(): Promise<void> {
-  const now = Date.now();
-  if (now - _lastIntegrityCheck < _INTEGRITY_CHECK_COOLDOWN_MS) return;
-  _lastIntegrityCheck = now;
-
-  const biz = get(selectedBusiness);
-  if (!biz?.id) return;
-
-  const yearFolders = (biz.yearFolders ?? {}) as Record<number, string>;
-
-  for (const yearStr of Object.keys(yearFolders)) {
-    const year = parseInt(yearStr, 10);
-
-    // Check 1: year folder exists and is not trashed
-    const yearFolderId = await findFile(yearStr, biz.folderId).catch(() => null);
-    if (yearFolderId === null) {
-      _setDriveEpoch(biz.id, year);
-      await db.transactions
-        .where('[businessId+year]')
-        .equals([biz.id, year])
-        .filter((t) => t.syncStatus === 'synced' || t.syncStatus === 'error')
-        .delete();
-      await _purgeStaleData(biz.id, year);
-      _clearCachedSheetIds(biz.id, year);
-      console.info(`[sync] purged ${biz.id}/${year} — year folder not found in Drive`);
-      continue;
-    }
-
-    // Check 2: expense sheet exists and is not trashed (only when sheetId is cached)
-    const sheetIds = (biz.sheetIds ?? {}) as Record<number, string>;
-    if (sheetIds[year]) {
-      const safeName = (biz.name as string).replace(/[/\\:*?"<>|]/g, '');
-      const sheetExists = await findFile(`${year}_${safeName}_expenses`, yearFolderId).catch(() => null);
-      if (sheetExists === null) {
-        _setDriveEpoch(biz.id, year);
-        await db.transactions
-          .where('[businessId+year]')
-          .equals([biz.id, year])
-          .filter((t) => t.syncStatus === 'synced' || t.syncStatus === 'error')
-          .delete();
-        await _purgeStaleData(biz.id, year);
-        _clearCachedSheetIds(biz.id, year);
-        console.info(`[sync] purged ${biz.id}/${year} — expense sheet not found in Drive`);
       }
     }
   }
@@ -758,38 +607,26 @@ export async function checkDriveIntegrity(): Promise<void> {
 // Lifecycle — adaptive sync cycle
 // ---------------------------------------------------------------------------
 
+/** Flushes the outbox and pulls all known years for the selected business. */
+async function _syncNow(): Promise<void> {
+  await flushQueue().catch(console.warn);
+  const biz = get(selectedBusiness);
+  if (biz?.id) {
+    const currentYear = new Date().getFullYear();
+    const years = new Set([currentYear, ...Object.keys(biz.sheetIds ?? {}).map(Number)]);
+    for (const year of years) {
+      await pullTransactions(biz.id, year).catch(console.warn);
+    }
+  }
+}
+
 /**
  * Runs one flush+pull cycle, then schedules the next one after an adaptive
  * delay based on the current Sheets API request rate.
  */
 function _scheduleSyncCycle(): void {
   _syncTimer = setTimeout(async () => {
-    await flushQueue().catch(console.warn);
-    const biz = get(selectedBusiness);
-    if (biz?.id) {
-      const currentYear = new Date().getFullYear();
-      const yearsToPull = new Set([currentYear, ...Object.keys(biz.sheetIds ?? {}).map(Number)]);
-      for (const year of yearsToPull) {
-        await pullTransactions(biz.id, year).catch(console.warn);
-      }
-
-      // Orphan cleanup: delete synced/error rows for years no longer in the Drive cache.
-      // Re-read the store so sheetIds reflects any 404-triggered clears from the pulls above.
-      // Guard: skip if sheetIds is empty — means ensureYearFolder hasn't run yet this
-      // session (fresh browser), so a missing year means "not discovered yet", not "deleted".
-      const freshBiz = get(selectedBusiness);
-      const freshSheetIds = freshBiz?.sheetIds ?? {};
-      if (freshBiz?.id === biz.id && Object.keys(freshSheetIds).length > 0) {
-        await db.transactions
-          .where('businessId')
-          .equals(biz.id)
-          .filter((t) =>
-            (t.syncStatus === 'synced' || t.syncStatus === 'error') &&
-            !(freshSheetIds as Record<number, string>)[t.year],
-          )
-          .delete();
-      }
-    }
+    await _syncNow();
     _scheduleSyncCycle();
   }, _nextSyncDelayMs());
 }
@@ -805,32 +642,13 @@ export function startSyncEngine(): () => void {
   stopSyncEngine();
 
   // Run immediately on start (flush any queued entries, pull current state)
-  flushQueue().catch(console.warn);
-  checkDriveIntegrity().catch(console.warn);
-  const biz = get(selectedBusiness);
-  if (biz?.id) {
-    const currentYear = new Date().getFullYear();
-    const yearsToPull = new Set([currentYear, ...Object.keys(biz.sheetIds ?? {}).map(Number)]);
-    for (const year of yearsToPull) {
-      pullTransactions(biz.id, year).catch(console.warn);
-    }
-  }
+  _syncNow();
 
   // Adaptive sync cycle: flush + pull, rescheduling based on API rate
   _scheduleSyncCycle();
 
   // Flush + pull immediately on reconnect
-  _onlineListener = () => {
-    flushQueue().catch(console.warn);
-    const b = get(selectedBusiness);
-    if (b?.id) {
-      const currentYear = new Date().getFullYear();
-      const yearsToPull = new Set([currentYear, ...Object.keys(b.sheetIds ?? {}).map(Number)]);
-      for (const year of yearsToPull) {
-        pullTransactions(b.id, year).catch(console.warn);
-      }
-    }
-  };
+  _onlineListener = () => { _syncNow(); };
   window.addEventListener('online', _onlineListener);
 
   // Pull immediately when the app comes back to the foreground

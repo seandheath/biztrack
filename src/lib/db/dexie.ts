@@ -17,7 +17,7 @@ import Dexie, { type Table } from 'dexie';
 // Sync status
 // ---------------------------------------------------------------------------
 
-export type SyncStatus = 'pending' | 'synced' | 'conflict' | 'error';
+export type SyncStatus = 'pending' | 'synced' | 'error';
 
 // ---------------------------------------------------------------------------
 // Table row types

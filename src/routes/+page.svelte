@@ -171,8 +171,8 @@
                 {#if row.syncStatus !== 'synced'}
                   <span
                     class="w-2 h-2 rounded-full"
-                    title={row.syncStatus === 'error' ? 'Sync failed' : row.syncStatus === 'conflict' ? 'Conflict' : 'Saving…'}
-                    style="background-color: {row.syncStatus === 'error' ? 'var(--color-error)' : row.syncStatus === 'conflict' ? '#f59e0b' : 'var(--color-text-muted)'};"
+                    title={row.syncStatus === 'error' ? 'Sync failed' : 'Saving…'}
+                    style="background-color: {row.syncStatus === 'error' ? 'var(--color-error)' : 'var(--color-text-muted)'};"
                   ></span>
                 {/if}
                 <span class="text-sm font-semibold" style="color: var(--color-primary);">${Number(row.amount).toFixed(2)}</span>

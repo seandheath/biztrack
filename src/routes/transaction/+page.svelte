@@ -337,8 +337,8 @@
         {#if syncStatus && syncStatus !== 'synced'}
           <div class="flex justify-between items-baseline gap-3 py-0.5 mt-1">
             <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Sync</span>
-            <span class="text-sm text-right" style="color: {syncStatus === 'error' ? 'var(--color-error)' : syncStatus === 'conflict' ? '#f59e0b' : 'var(--color-text-muted)'};">
-              {syncStatus === 'pending' ? 'Saving locally…' : syncStatus === 'error' ? 'Sync failed' : 'Conflict'}
+            <span class="text-sm text-right" style="color: {syncStatus === 'error' ? 'var(--color-error)' : 'var(--color-text-muted)'};">
+              {syncStatus === 'error' ? 'Sync failed' : 'Saving locally…'}
             </span>
           </div>
         {/if}

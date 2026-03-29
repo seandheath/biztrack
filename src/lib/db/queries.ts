@@ -56,14 +56,6 @@ export function getPendingSyncCount(): Promise<number> {
   return db.transactions.where('syncStatus').equals('pending').count();
 }
 
-/**
- * Returns the count of transactions with syncStatus === 'conflict'.
- * Used to show a conflict resolution badge in settings.
- */
-export function getConflictCount(): Promise<number> {
-  return db.transactions.where('syncStatus').equals('conflict').count();
-}
-
 // ---------------------------------------------------------------------------
 // liveQuery wrappers (Observable-based — reactive)
 // ---------------------------------------------------------------------------
@@ -92,15 +84,6 @@ export function liveTransactions(
 export function livePendingCount() {
   return liveQuery(() =>
     db.transactions.where('syncStatus').equals('pending').count(),
-  );
-}
-
-/**
- * Live-reactive count of conflicted transactions.
- */
-export function liveConflictCount() {
-  return liveQuery(() =>
-    db.transactions.where('syncStatus').equals('conflict').count(),
   );
 }
 
