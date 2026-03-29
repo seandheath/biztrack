@@ -76,6 +76,22 @@
     </div>
   </section>
 
+  <!-- Data -->
+  <section>
+    <h2 class="text-xs font-semibold uppercase tracking-wider mb-2 px-1" style="color: var(--color-text-muted);">
+      Data
+    </h2>
+    <div class="rounded-xl border divide-y overflow-hidden" style="border-color: var(--color-border); background-color: var(--color-surface-2);">
+      <a
+        href="/settings/csv-import"
+        class="flex items-center px-4 hover:opacity-70 transition-opacity"
+        style="color: var(--color-text); min-height: 48px;"
+      >
+        <span class="text-base">Import bank CSV</span>
+      </a>
+    </div>
+  </section>
+
   <!-- App version -->
   {#if appVersion}
     <p class="text-center text-xs pb-2" style="color: var(--color-text-muted);">
