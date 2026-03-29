@@ -10,6 +10,7 @@
   import { liveQuery } from 'dexie';
   import { selectedBusiness } from '$lib/store.js';
   import { db } from '$lib/db/dexie.js';
+  import { getTransactionYears } from '$lib/db/queries.js';
 
   // ---------------------------------------------------------------------------
   // Tab / year state
@@ -18,15 +19,32 @@
   /** @type {'expense'|'mileage'} */
   let activeTab = $state('expense');
 
-  /** Years with sheets for the selected business, newest first. */
-  let availableYears = $derived(
-    Object.keys($selectedBusiness?.sheetIds ?? {})
-      .sort()
-      .reverse()
-  );
+  /** Years with data for the selected business — union of sheetIds and local Dexie records. */
+  let availableYears = $state([]);
 
   /** Currently selected year (number). */
   let selectedYear = $state(new Date().getFullYear());
+
+  // Rebuild year list whenever business changes.
+  // Unions sheetIds (years with Drive sheets) with Dexie years (pending/unsynced
+  // transactions), so newly imported records appear before they've synced.
+  $effect(() => {
+    const biz = $selectedBusiness;
+    if (!biz) { availableYears = []; return; }
+
+    const sheetYears = Object.keys(biz.sheetIds ?? {}).map(Number);
+    getTransactionYears(biz.id).then((dexieYears) => {
+      const all = [...new Set([...sheetYears, ...dexieYears])].sort((a, b) => b - a);
+      availableYears = all.map(String);
+      // Snap selectedYear to the best available if it's not in the new list
+      if (availableYears.length && !availableYears.includes(String(selectedYear))) {
+        const currentYear = String(new Date().getFullYear());
+        selectedYear = Number(
+          availableYears.includes(currentYear) ? currentYear : availableYears[0]
+        );
+      }
+    });
+  });
 
   // ---------------------------------------------------------------------------
   // Live row state — driven by Dexie liveQuery
@@ -75,12 +93,7 @@
   // ---------------------------------------------------------------------------
 
   onMount(() => {
-    if ($selectedBusiness) {
-      const years = Object.keys($selectedBusiness.sheetIds ?? {}).sort().reverse();
-      const currentYear = String(new Date().getFullYear());
-      const bestYear = years.includes(currentYear) ? currentYear : (years[0] ?? String(currentYear));
-      selectedYear = Number(bestYear);
-    }
+    // Year selection is handled reactively by the $effect above.
   });
 </script>
 

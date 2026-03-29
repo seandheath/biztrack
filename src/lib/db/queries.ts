@@ -105,6 +105,20 @@ export function liveConflictCount() {
 }
 
 /**
+ * Returns all years that have at least one transaction in Dexie for the given
+ * business. Used to populate the history year picker for locally-stored (pending)
+ * transactions that haven't synced to Sheets yet.
+ */
+export async function getTransactionYears(businessId: string): Promise<number[]> {
+  const rows = await db.transactions
+    .where('businessId')
+    .equals(businessId)
+    .toArray();
+  const years = [...new Set(rows.map((r) => r.year).filter(Boolean))];
+  return years.sort((a, b) => b - a); // descending
+}
+
+/**
  * Returns all expense transactions with category 'Uncategorized' (or no category)
  * for the given business, looking back 3 years. Sorted by date descending.
  * Used by the review workflow triggered after a bulk CSV import.
