@@ -18,7 +18,7 @@
   import { ensureBizTrackFolder, loadProfile, saveProfile } from '$lib/profile.js';
   import { loadConfig } from '$lib/business.js';
   import * as storage from '$lib/storage.js';
-  import { startSyncEngine, stopSyncEngine, pullTransactions } from '$lib/services/sync.js';
+  import { startSyncEngine, stopSyncEngine } from '$lib/services/sync.js';
 
   /** @type {{ children: import('svelte').Snippet }} */
   let { children } = $props();
@@ -146,18 +146,9 @@
       authToken.set(token);
       if (email) userEmail.set(email);
       if (token) {
-        syncProfile().then(() => {
-          // First-launch pull: seed Dexie from Sheets for the current business + year.
-          // Non-blocking — liveQuery components update as rows arrive.
-          const biz = get(businesses).find((b) => b.id === get(selectedBusiness)?.id) ?? get(businesses)[0];
-          if (biz?.id) {
-            const year = new Date().getFullYear();
-            pullTransactions(biz.id, year).catch((err) =>
-              console.warn('[layout] first-launch pull failed:', err)
-            );
-          }
-        });
-        startSyncEngine();
+        // syncProfile first so the business list is up-to-date before the
+        // engine's first pull runs (startSyncEngine pulls immediately on start).
+        syncProfile().then(() => startSyncEngine());
       }
     });
     onAuthRequired(() => {
