@@ -69,15 +69,25 @@ export const IRS_RATES = {
  */
 export const DEFAULT_CATEGORIES = [
   'Uncategorized',
+  // Income
+  'Rents Received',
+  'Royalties Received',
+  // Expenses (Schedule E lines 5–19)
   'Advertising',
+  'Auto and Travel',
+  'Cleaning and Maintenance',
+  'Commissions',
   'Insurance',
-  'Meals',
-  'Office Expenses',
-  'Repairs & Maintenance',
+  'Legal and Other Professional Fees',
+  'Management Fees',
+  'Mortgage Interest',
+  'Other Interest',
+  'Repairs',
   'Supplies',
-  'Travel',
+  'Taxes',
   'Utilities',
-  'Other Expenses',
+  'Depreciation / Depletion',
+  'Other',
 ];
 
 /**
