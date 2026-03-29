@@ -1,7 +1,8 @@
 <script>
-  import { selectedBusiness, businessConfig, userEmail } from '$lib/store.js';
+  import { selectedBusiness, businessConfig, userEmail, businesses } from '$lib/store.js';
   import { enqueueCreate } from '$lib/services/sync.js';
   import { queryTransactions } from '$lib/db/queries.js';
+  import { ensureYearFolder } from '$lib/business.js';
 
   // ---------------------------------------------------------------------------
   // CSV column indices for the bank export format
@@ -165,6 +166,20 @@
     try {
       // Build dedup set from existing transactions for each year in the import.
       const years = [...new Set(parsedRows.map((r) => parseInt(r.date.slice(0, 4), 10)))];
+
+      // Ensure a Drive spreadsheet exists for every year in the import.
+      // Without this, prior-year transactions (e.g. 2025 imported in 2026) would
+      // be enqueued but never synced — _flushCreates silently skips entries whose
+      // year has no sheetId.
+      let biz = $selectedBusiness;
+      for (const year of years) {
+        if (!biz.yearFolders?.[year]) {
+          biz = await ensureYearFolder(biz, year);
+          businesses.update((list) => list.map((b) => b.id === biz.id ? biz : b));
+          selectedBusiness.set(biz);
+        }
+      }
+
       const dedupKeys = new Set();
       for (const year of years) {
         const existing = await queryTransactions($selectedBusiness.id, year, 'expense');
@@ -202,9 +217,10 @@
     } catch (err) {
       console.error('[csv-import] import failed:', err);
       errors = parsedRows.length;
+      result = { imported, skipped, errors, fatalError: err?.message ?? 'Import failed.' };
     } finally {
       importing = false;
-      result = { imported, skipped, errors };
+      if (!result) result = { imported, skipped, errors };
       // Clear state so user can start a new import
       parsedRows = [];
     }
@@ -346,11 +362,15 @@
         role="status"
       >
         <p class="text-sm font-medium" style="color: var(--color-text);">Import complete</p>
-        <p class="text-sm" style="color: var(--color-text-muted);">
-          {result.imported} imported
-          {#if result.skipped > 0}· {result.skipped} duplicate{result.skipped === 1 ? '' : 's'} skipped{/if}
-          {#if result.errors > 0}· <span style="color: var(--color-error);">{result.errors} error{result.errors === 1 ? '' : 's'}</span>{/if}
-        </p>
+        {#if result.fatalError}
+          <p class="text-sm" style="color: var(--color-error);">{result.fatalError}</p>
+        {:else}
+          <p class="text-sm" style="color: var(--color-text-muted);">
+            {result.imported} imported
+            {#if result.skipped > 0}· {result.skipped} duplicate{result.skipped === 1 ? '' : 's'} skipped{/if}
+            {#if result.errors > 0}· <span style="color: var(--color-error);">{result.errors} error{result.errors === 1 ? '' : 's'}</span>{/if}
+          </p>
+        {/if}
         {#if result.imported > 0}
           <a href="/history" class="text-sm mt-1" style="color: var(--color-primary);">
             View in history →
