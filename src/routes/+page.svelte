@@ -14,6 +14,7 @@
   import { liveQuery } from 'dexie';
   import { businesses, selectedBusiness, pendingReceipt } from '$lib/store.js';
   import { db } from '$lib/db/dexie.js';
+  import { queryUncategorized } from '$lib/db/queries.js';
   import BusinessDropdown from '../components/BusinessDropdown.svelte';
 
   // ---------------------------------------------------------------------------
@@ -22,6 +23,9 @@
 
   /** @type {import('$lib/db/dexie.js').Transaction[]} */
   let rows = $state([]);
+
+  /** Count of uncategorized expense transactions — drives the review banner */
+  let uncategorizedCount = $state(0);
 
   // Re-subscribe whenever the selected business changes.
   // $effect tracks $selectedBusiness reactively — when it changes, the old
@@ -43,6 +47,15 @@
     });
 
     return () => sub.unsubscribe();
+  });
+
+  // Update uncategorized count whenever the selected business changes.
+  // One-shot promise — not a liveQuery, since this banner doesn't need
+  // sub-second reactivity (it updates on navigation).
+  $effect(() => {
+    const biz = $selectedBusiness;
+    if (!biz) { uncategorizedCount = 0; return; }
+    queryUncategorized(biz.id).then((r) => { uncategorizedCount = r.length; });
   });
 
   // ---------------------------------------------------------------------------
@@ -99,6 +112,20 @@
     <div class="px-4 pt-3 pb-2 flex-shrink-0">
       <BusinessDropdown />
     </div>
+
+    <!-- Uncategorized review banner — shown when import leaves unreviewed rows -->
+    {#if uncategorizedCount > 0}
+      <div class="px-4 pb-2 flex-shrink-0">
+        <a
+          href="/review"
+          class="flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font-medium transition-opacity hover:opacity-80"
+          style="background-color: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-primary);"
+        >
+          <span>{uncategorizedCount} uncategorized transaction{uncategorizedCount === 1 ? '' : 's'}</span>
+          <span>Review →</span>
+        </a>
+      </div>
+    {/if}
 
     <!-- =====================================================================
          Row list area — fills remaining space, scrollable

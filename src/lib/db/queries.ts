@@ -105,6 +105,21 @@ export function liveConflictCount() {
 }
 
 /**
+ * Returns all expense transactions with category 'Uncategorized' (or no category)
+ * for the given business, looking back 3 years. Sorted by date descending.
+ * Used by the review workflow triggered after a bulk CSV import.
+ */
+export async function queryUncategorized(businessId: string): Promise<Transaction[]> {
+  const currentYear = new Date().getFullYear();
+  const rows: Transaction[] = [];
+  for (let y = currentYear; y >= currentYear - 2; y--) {
+    const yr = await queryTransactions(businessId, y, 'expense');
+    rows.push(...yr.filter((t) => !t.category || t.category === 'Uncategorized'));
+  }
+  return rows.sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/**
  * Returns the most recent category and payment method used for a vendor.
  * Searches current year first, then walks back up to 5 years.
  * Returns undefined if no prior expense transaction exists for this vendor.
