@@ -6,9 +6,11 @@
    */
 
   import { selectedBusiness, businessConfig } from '$lib/store.js';
-  import { addCategory, removeCategory } from '$lib/business.js';
+  import { addCategory, removeCategory, saveConfig } from '$lib/business.js';
+  import { DEFAULT_CATEGORIES } from '$lib/constants.js';
   import { get } from 'svelte/store';
 
+  let resetting = $state(false);
   let addOpen   = $state(false);
   let newCat    = $state('');
   let adding    = $state(false);
@@ -34,6 +36,23 @@
       error = 'Failed to save. Check your connection.';
     } finally {
       adding = false;
+    }
+  }
+
+  async function handleReset() {
+    const biz = get(selectedBusiness);
+    const cfg = get(businessConfig);
+    if (!biz || !cfg) return;
+
+    resetting = true;
+    error = '';
+    try {
+      await saveConfig(biz, { ...cfg, categories: [...DEFAULT_CATEGORIES] });
+    } catch (err) {
+      console.error('[categories] reset:', err);
+      error = 'Failed to reset. Try again.';
+    } finally {
+      resetting = false;
     }
   }
 
@@ -169,6 +188,16 @@
     <p class="text-xs px-1" style="color: var(--color-text-muted);">
       "Uncategorized" is always available and cannot be removed.
     </p>
+
+    <button
+      type="button"
+      onclick={handleReset}
+      disabled={resetting}
+      class="w-full rounded-xl px-4 text-sm font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+      style="min-height: 44px; background-color: var(--color-surface-2); color: var(--color-text-muted); border: 1px solid var(--color-border);"
+    >
+      {resetting ? 'Resetting…' : 'Reset to Defaults'}
+    </button>
   {/if}
 
 </div>
