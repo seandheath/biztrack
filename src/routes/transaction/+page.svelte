@@ -369,6 +369,21 @@
       >
         Share
       </button>
+      {#if spreadsheetId}
+        <a
+          href="https://docs.google.com/spreadsheets/d/{spreadsheetId}/edit"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="rounded-xl text-sm px-4 flex-shrink-0 flex items-center justify-center gap-1.5 transition-opacity hover:opacity-80"
+          style="min-height: 44px; background-color: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border);"
+        >
+          <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+          Sheets
+        </a>
+      {/if}
       <button
         type="button"
         onclick={handleDelete}
