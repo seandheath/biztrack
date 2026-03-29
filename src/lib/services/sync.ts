@@ -704,7 +704,11 @@ function _scheduleSyncCycle(): void {
     await flushQueue().catch(console.warn);
     const biz = get(selectedBusiness);
     if (biz?.id) {
-      await pullTransactions(biz.id, new Date().getFullYear()).catch(console.warn);
+      const currentYear = new Date().getFullYear();
+      const yearsToPull = new Set([currentYear, ...Object.keys(biz.sheetIds ?? {}).map(Number)]);
+      for (const year of yearsToPull) {
+        await pullTransactions(biz.id, year).catch(console.warn);
+      }
     }
     _scheduleSyncCycle();
   }, _nextSyncDelayMs());
@@ -724,7 +728,11 @@ export function startSyncEngine(): () => void {
   flushQueue().catch(console.warn);
   const biz = get(selectedBusiness);
   if (biz?.id) {
-    pullTransactions(biz.id, new Date().getFullYear()).catch(console.warn);
+    const currentYear = new Date().getFullYear();
+    const yearsToPull = new Set([currentYear, ...Object.keys(biz.sheetIds ?? {}).map(Number)]);
+    for (const year of yearsToPull) {
+      pullTransactions(biz.id, year).catch(console.warn);
+    }
   }
 
   // Adaptive sync cycle: flush + pull, rescheduling based on API rate
@@ -734,7 +742,13 @@ export function startSyncEngine(): () => void {
   _onlineListener = () => {
     flushQueue().catch(console.warn);
     const b = get(selectedBusiness);
-    if (b?.id) pullTransactions(b.id, new Date().getFullYear()).catch(console.warn);
+    if (b?.id) {
+      const currentYear = new Date().getFullYear();
+      const yearsToPull = new Set([currentYear, ...Object.keys(b.sheetIds ?? {}).map(Number)]);
+      for (const year of yearsToPull) {
+        pullTransactions(b.id, year).catch(console.warn);
+      }
+    }
   };
   window.addEventListener('online', _onlineListener);
 
