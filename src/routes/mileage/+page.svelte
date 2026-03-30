@@ -511,23 +511,20 @@
             <span class="text-xs" style="color: var(--color-error);">{milErrors.miles}</span>
           {/if}
         </div>
-        <label class="flex flex-col gap-1 cursor-pointer select-none">
-          <span class="text-sm font-medium" style="color: var(--color-text-muted);">Round trip</span>
-          <div class="flex items-center gap-2" style="min-height: 44px;">
-            <input type="checkbox" bind:checked={milRoundTrip} class="sr-only" />
-            <div class="relative flex-shrink-0">
-              <div
-                class="w-10 h-6 rounded-full transition-colors"
-                style="background-color: {milRoundTrip ? 'var(--color-primary)' : 'var(--color-border)'};"
-              ></div>
-              <div
-                class="absolute top-1 w-4 h-4 rounded-full transition-transform"
-                style="background-color: white; left: {milRoundTrip ? '22px' : '4px'};"
-              ></div>
-            </div>
-            <span class="text-sm" style="color: var(--color-text);">Double miles</span>
-          </div>
-        </label>
+        <button
+          type="button"
+          onclick={() => { milRoundTrip = !milRoundTrip; }}
+          class="rounded-xl font-medium text-sm transition-colors w-full"
+          style="
+            min-height: 44px;
+            align-self: end;
+            background-color: {milRoundTrip ? 'var(--color-primary)' : 'var(--color-surface-2)'};
+            color: {milRoundTrip ? 'var(--color-primary-text)' : 'var(--color-text-muted)'};
+            border: 1px solid {milRoundTrip ? 'var(--color-primary)' : 'var(--color-border)'};
+          "
+        >
+          Round trip
+        </button>
       </div>
       {#if milRoundTrip && milEffectiveMiles() !== milMiles && milEffectiveMiles() !== ''}
         <span class="text-xs -mt-2" style="color: var(--color-text-muted);">Total: {milEffectiveMiles()} mi</span>
