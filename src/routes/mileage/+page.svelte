@@ -59,6 +59,8 @@
   /** Favorite name being entered */
   let saveFavName    = $state('');
   let saveFavSaving  = $state(false);
+  /** Editable name for the currently matched favorite (update flow). */
+  let milUpdateFavName = $state('');
 
   /** Whether to double entered miles (round trip). */
   let milRoundTrip = $state(false);
@@ -92,6 +94,9 @@
   });
 
   let milUpdating = $state(false);
+
+  // Sync the editable update-name field whenever the matched favorite changes.
+  $effect(() => { milUpdateFavName = milMatchedFavorite()?.name ?? ''; });
 
   /** True when all mileage fields are filled (enables "Save as Favorite") */
   let milCanSaveFav = $derived(
@@ -319,18 +324,18 @@
 
   async function handleUpdateFavorite() {
     const matched = milMatchedFavorite();
-    if (!matched) return;
+    if (!matched || !milUpdateFavName.trim()) return;
     milUpdating = true;
     try {
-      await updateMileageFavorite($selectedBusiness, $businessConfig, {
-        name:      matched.name,
+      await updateMileageFavorite($selectedBusiness, $businessConfig, matched.name, {
+        name:      milUpdateFavName.trim(),
         from:      milFrom.trim(),
         to:        milTo.trim(),
         purpose:   milPurpose.trim(),
         miles:     parseFloat(milMiles),
         roundTrip: milRoundTrip,
       });
-      showToast(`"${matched.name}" updated!`, 'success');
+      showToast(`"${milUpdateFavName.trim()}" updated!`, 'success');
     } catch (err) {
       console.error('[mileage] updateFavorite:', err);
       showToast(friendlyError(err), 'error');
@@ -541,22 +546,28 @@
       <!-- Save / Update Favorite -->
       {#if milCanSaveFav}
         {#if milMatchedFavorite()}
-          <!-- Matched an existing favorite — offer one-click update -->
-          <button
-            type="button"
-            onclick={handleUpdateFavorite}
-            disabled={milUpdating}
-            class="text-sm font-medium text-left px-0 transition-opacity hover:opacity-70 disabled:opacity-50"
-            style="
-              min-height: 36px;
-              background: transparent;
-              color: var(--color-primary);
-              justify-content: flex-start;
-              min-width: unset;
-            "
-          >
-            {milUpdating ? 'Updating…' : `↻ Update "${milMatchedFavorite().name}"`}
-          </button>
+          <!-- Matched an existing favorite — show editable name + Update button -->
+          <div class="flex gap-2 items-center">
+            <input
+              type="text"
+              bind:value={milUpdateFavName}
+              placeholder="Favorite name…"
+              class="flex-1"
+            />
+            <button
+              type="button"
+              onclick={handleUpdateFavorite}
+              disabled={milUpdating || !milUpdateFavName.trim()}
+              class="rounded-xl font-medium text-sm px-4 flex-shrink-0 disabled:opacity-50"
+              style="
+                min-height: 44px;
+                background-color: var(--color-primary);
+                color: var(--color-primary-text);
+              "
+            >
+              {milUpdating ? 'Updating…' : 'Update'}
+            </button>
+          </div>
         {:else if !saveFavOpen}
           <button
             type="button"
