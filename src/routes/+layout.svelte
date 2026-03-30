@@ -69,6 +69,12 @@
   /** User dismissed the iOS install prompt (persisted to localStorage) */
   let iosPromptDismissed = $state(false);
 
+  /** True while initFromDrive() is in flight — prevents flash of empty-state */
+  let appLoading = $state(false);
+
+  /** Prevents initFromDrive() from re-running on the email-only onTokenUpdate callback */
+  let driveInitialized = false;
+
   // ---------------------------------------------------------------------------
   // Drive-first initialization
   // ---------------------------------------------------------------------------
@@ -153,8 +159,12 @@
     onTokenUpdate(({ token, email }) => {
       authToken.set(token);
       if (email) userEmail.set(email);
-      if (token) {
-        initFromDrive().then(() => drainQueue().catch(console.warn));
+      if (token && !driveInitialized) {
+        driveInitialized = true;
+        appLoading = true;
+        initFromDrive()
+          .then(() => drainQueue().catch(console.warn))
+          .finally(() => { appLoading = false; });
       }
     });
     onAuthRequired(() => {
@@ -506,7 +516,18 @@
     </header>
 
     <main class="flex-1 overflow-y-auto">
-      {@render children()}
+      {#if appLoading}
+        <div class="flex items-center justify-center min-h-[60vh]">
+          <svg class="w-8 h-8 animate-spin" fill="none" viewBox="0 0 24 24" aria-label="Loading"
+               style="color: var(--color-primary);">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor"
+                  d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"></path>
+          </svg>
+        </div>
+      {:else}
+        {@render children()}
+      {/if}
     </main>
 
     <!-- iOS install prompt — fixed bottom bar, only on iOS Safari when not installed -->
