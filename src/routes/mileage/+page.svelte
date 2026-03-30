@@ -14,6 +14,7 @@
     selectedBusiness,
     businessConfig,
     mileageFavorites,
+    userEmail,
   } from '$lib/store.js';
   import { downloadJson, findFile } from '$lib/drive.js';
   import { readRow, findRowByTxnId } from '$lib/sheets.js';
@@ -201,6 +202,7 @@
           to:      milTo.trim(),
           purpose: milPurpose.trim(),
           miles:   milEffectiveMiles(),
+          savedBy: $userEmail ?? '',
         };
         try {
           await updateByUUID(spreadsheetId, 'Mileage', updatedRow);
@@ -225,6 +227,7 @@
         to:      milTo.trim(),
         purpose: milPurpose.trim(),
         miles:   milEffectiveMiles(),
+        savedBy: $userEmail ?? '',
       };
       try {
         await pushTransactions(spreadsheetId, 'Mileage', [newRow]);
@@ -334,7 +337,7 @@
         if (!sheetId) throw new Error(`No mileage sheet found for ${yr}.`);
         editSheetId = sheetId;
 
-        const rowNum = await findRowByTxnId(sheetId, txnId, 'Mileage', 'F');
+        const rowNum = await findRowByTxnId(sheetId, txnId, 'Mileage', 'G');
         if (rowNum === null) throw new Error('Mileage entry not found.');
         editRowNum = rowNum;
 
@@ -344,7 +347,7 @@
         milTo      = raw[2] || '';
         milPurpose = raw[3] || '';
         milMiles   = raw[4] || '';
-        editTxnId  = raw[5] || txnId;
+        editTxnId  = raw[6] || txnId;
         editMode   = true;
       } catch (err) {
         console.error('[mileage] edit load:', err);

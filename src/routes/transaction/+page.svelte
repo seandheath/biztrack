@@ -140,7 +140,7 @@
       spreadsheetId = sheetId;
 
       if (type === 'mileage') {
-        const rn = await findRowByTxnId(sheetId, txnId, 'Mileage', 'F');
+        const rn = await findRowByTxnId(sheetId, txnId, 'Mileage', 'G');
         if (rn === null) throw new Error('Mileage entry not found.');
         rowNum = rn;
         const raw = await readRow(sheetId, 'Mileage', rowNum);
@@ -150,6 +150,7 @@
           to:      raw[2] ?? '',
           purpose: raw[3] ?? '',
           miles:   raw[4] ?? '',
+          savedBy: raw[5] ?? '',
         };
       } else {
         const rn = await findRowByTxnId(sheetId, txnId);
@@ -234,6 +235,12 @@
             <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Miles</span>
             <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">{fields.miles} mi</span>
           </div>
+          {#if fields.savedBy}
+            <div class="flex justify-between items-baseline gap-3 py-0.5">
+              <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Saved by</span>
+              <span class="text-sm text-right" style="color: var(--color-text);">{fields.savedBy}</span>
+            </div>
+          {/if}
 
         {:else}
           <!-- Expense fields -->

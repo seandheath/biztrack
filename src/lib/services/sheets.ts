@@ -10,8 +10,8 @@
  *   A=date  B=vendor  C=description  D=amount  E=category
  *   F=paymentMethod  G=receiptDriveId  H=notes  I=submittedBy  J=id (UUID)
  *
- * Mileage column order (A–F):
- *   A=date  B=from  C=to  D=purpose  E=miles  F=id (UUID)
+ * Mileage column order (A–G):
+ *   A=date  B=from  C=to  D=purpose  E=miles  F=savedBy  G=id (UUID)
  */
 
 import { apiFetch } from '../auth.js';
@@ -40,6 +40,7 @@ export interface TransactionRow {
   to?: string;
   purpose?: string;
   miles?: string;
+  savedBy?: string;
 }
 
 type SheetName = 'Expenses' | 'Mileage';
@@ -158,11 +159,12 @@ function _rowToValues(row: TransactionRow, sheetName: SheetName): (string | numb
   } else {
     // Mileage
     return [
-      row.date       ?? '',
-      row.from       ?? '',
-      row.to         ?? '',
-      row.purpose    ?? '',
-      row.miles      ?? '',
+      row.date    ?? '',
+      row.from    ?? '',
+      row.to      ?? '',
+      row.purpose ?? '',
+      row.miles   ?? '',
+      row.savedBy ?? '',
       row.id,
     ];
   }
@@ -192,7 +194,8 @@ function _valuesToRow(values: string[], sheetName: SheetName): TransactionRow {
       to:      s(values[2]),
       purpose: s(values[3]),
       miles:   s(values[4]),
-      id:      s(values[5]),
+      savedBy: s(values[5]),
+      id:      s(values[6]),
     };
   }
 }
@@ -202,7 +205,7 @@ async function _readIdColumn(
   spreadsheetId: string,
   sheetName: SheetName,
 ): Promise<string[]> {
-  const col = sheetName === 'Expenses' ? 'J' : 'F';
+  const col = sheetName === 'Expenses' ? 'J' : 'G';
   const range = encodeURIComponent(`${sheetName}!${col}:${col}`);
   const url = `${SHEETS_BASE}/${spreadsheetId}/values/${range}`;
   const response = await apiFetch(url);
@@ -230,7 +233,7 @@ export async function initSpreadsheet(title: string): Promise<{
   mileageSheetId: number;
 }> {
   const EXPENSE_HEADERS = ['Date','Vendor/Payee','Description','Amount','Category','Payment Method','Receipt','Notes','Submitted By','ID'];
-  const MILEAGE_HEADERS = ['Date','From','To','Purpose/Description','Miles','ID'];
+  const MILEAGE_HEADERS = ['Date','From','To','Purpose/Description','Miles','Saved By','ID'];
 
   const createResponse = await apiFetch(SHEETS_BASE, {
     method: 'POST',
