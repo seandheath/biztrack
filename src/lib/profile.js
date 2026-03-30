@@ -68,7 +68,10 @@ export async function loadProfile(folderId) {
   const fileId = await findFile(PROFILE_FILENAME, folderId);
   if (!fileId) return null;
   const data = await downloadJson(fileId);
-  return Array.isArray(data.businesses) ? data.businesses : null;
+  return Array.isArray(data.businesses) ? {
+    businesses: data.businesses,
+    mileage_favorites: data.mileage_favorites ?? {},
+  } : null;
 }
 
 /**
@@ -79,15 +82,16 @@ export async function loadProfile(folderId) {
  * @param {Object[]} bizList - Full businesses array from the store
  * @returns {Promise<void>}
  */
-export async function saveProfile(folderId, bizList) {
+export async function saveProfile(folderId, bizList, mileageFavs = {}) {
   // Only persist the minimal fields needed to locate each business on Drive.
   // All other state (sheetIds, yearFolders, configFileId, etc.) is
   // discovered from Drive folder structure on each session start.
   const minimal = bizList.map(({ name, folderId: bFolderId }) => ({ name, folderId: bFolderId }));
+  const payload = { businesses: minimal, mileage_favorites: mileageFavs };
   const fileId = await findFile(PROFILE_FILENAME, folderId);
   if (fileId) {
-    await updateJson(fileId, { businesses: minimal });
+    await updateJson(fileId, payload);
   } else {
-    await uploadJson(PROFILE_FILENAME, { businesses: minimal }, folderId);
+    await uploadJson(PROFILE_FILENAME, payload, folderId);
   }
 }

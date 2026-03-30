@@ -14,7 +14,7 @@
     onAuthRequired,
   } from '$lib/auth.js';
   import { get } from 'svelte/store';
-  import { authToken, userEmail, isAuthenticated, businesses, selectedBusiness } from '$lib/store.js';
+  import { authToken, userEmail, isAuthenticated, businesses, selectedBusiness, mileageFavorites } from '$lib/store.js';
   import { ensureBizTrackFolder, loadProfile, saveProfile } from '$lib/profile.js';
   import { loadConfig, discoverYearFolders, ensureYearFolder } from '$lib/business.js';
   import { findFile, downloadJson } from '$lib/drive.js';
@@ -82,12 +82,12 @@
   async function initFromDrive() {
     try {
       const rootFolderId = await ensureBizTrackFolder();
-      const profileBusinesses = await loadProfile(rootFolderId);
-      if (!profileBusinesses?.length) return;
+      const profile = await loadProfile(rootFolderId);
+      if (!profile?.businesses?.length) return;
 
       const currentYear = new Date().getFullYear();
       const hydrated = await Promise.all(
-        profileBusinesses.map(async ({ name, folderId }) => {
+        profile.businesses.map(async ({ name, folderId }) => {
           try {
             // config.json holds the stable business UUID and user preferences
             const configFileId = await findFile('config.json', folderId);
@@ -107,6 +107,7 @@
       );
 
       businesses.set(hydrated);
+      mileageFavorites.set(profile.mileage_favorites ?? {});
 
       const savedName = localStorage.getItem('biztrack_selected_name');
       const toSelect = (savedName && hydrated.find((b) => b.name === savedName)) ?? hydrated[0] ?? null;

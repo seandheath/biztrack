@@ -76,6 +76,14 @@ export const businessConfig = writable(null);
 export const vendorCache = writable([]);
 
 /**
+ * User-owned mileage favorites, keyed by business folderId.
+ * Populated from profile.json at session start — NOT derived from config.json.
+ * Each user has their own favorites per business, independent of other users.
+ * @type {import('svelte/store').Writable<Record<string, Array<{name:string,from:string,to:string,miles:number,purpose:string}>>>}
+ */
+export const mileageFavorites = writable({});
+
+/**
  * A receipt File shared via the Android Web Share Target.
  * Set by the /share route on mount; cleared by the expense form after attaching.
  * NOT persisted — the file blob is held in the SW cache until consumed.

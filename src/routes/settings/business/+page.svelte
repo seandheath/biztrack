@@ -1,7 +1,7 @@
 <script>
   import { goto } from '$app/navigation';
   import { get } from 'svelte/store';
-  import { businesses, selectedBusiness, businessConfig } from '$lib/store.js';
+  import { businesses, selectedBusiness, businessConfig, mileageFavorites } from '$lib/store.js';
   import { setupBusiness, ensureYearFolder, discoverYearFolders } from '$lib/business.js';
   import { createFolder } from '$lib/drive.js';
   import { saveProfile } from '$lib/profile.js';
@@ -116,7 +116,7 @@
       // Update profile.json so other devices discover the new business
       const rootFolderId = sessionStorage.getItem('bt_biz_folder');
       if (rootFolderId) {
-        await saveProfile(rootFolderId, get(businesses)).catch((e) => console.warn('[business] profile save:', e));
+        await saveProfile(rootFolderId, get(businesses), get(mileageFavorites)).catch((e) => console.warn('[business] profile save:', e));
       }
 
       goto('/settings');

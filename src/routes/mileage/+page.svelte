@@ -13,6 +13,7 @@
     businesses,
     selectedBusiness,
     businessConfig,
+    mileageFavorites,
   } from '$lib/store.js';
   import { downloadJson, findFile } from '$lib/drive.js';
   import { readRow, findRowByTxnId } from '$lib/sheets.js';
@@ -422,10 +423,10 @@
   {:else}
     <form onsubmit={(e) => { e.preventDefault(); submitMileage(); }} class="flex flex-col gap-4" novalidate>
 
-      <!-- Favorite route chips -->
-      {#if $businessConfig?.mileage_favorites?.length}
+      <!-- Favorite route chips (user-owned, from profile.json) -->
+      {#if ($mileageFavorites[$selectedBusiness?.folderId] ?? []).length}
         <FavoriteRouteList
-          favorites={$businessConfig.mileage_favorites}
+          favorites={$mileageFavorites[$selectedBusiness.folderId]}
           onselect={applyFavorite}
         />
       {/if}

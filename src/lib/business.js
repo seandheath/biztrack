@@ -15,7 +15,9 @@
 import { findFile, downloadJson, uploadJson, updateJson, createFolder, moveFile, listFolders } from './drive.js';
 import { createExpenseSheet } from './sheets.js';
 import { DEFAULT_PAYMENT_METHODS, DEFAULT_CATEGORIES } from './constants.js';
-import { businessConfig, businesses, selectedBusiness } from './store.js';
+import { get } from 'svelte/store';
+import { businessConfig, businesses, selectedBusiness, mileageFavorites } from './store.js';
+import { ensureBizTrackFolder, saveProfile } from './profile.js';
 
 /** Strip characters that are invalid in Drive/Sheets file names: / \ : * ? " < > | */
 function driveFileName(name) {
@@ -103,7 +105,7 @@ export async function loadConfig(business) {
   // Backfill name for configs written before this field was added
   if (typeof cfg.name !== 'string' || !cfg.name) cfg.name = business.name ?? '';
   if (!Array.isArray(cfg.payment_accounts))                          cfg.payment_accounts  = [...DEFAULT_PAYMENT_METHODS];
-  if (!Array.isArray(cfg.mileage_favorites))                         cfg.mileage_favorites = [];
+  // mileage_favorites are user-owned and live in profile.json, not config.json
   if (!Array.isArray(cfg.categories) || cfg.categories.length === 0) cfg.categories        = [...DEFAULT_CATEGORIES];
   // Backfill business ID — generate and persist if missing, then update store
   if (!cfg.id) {
@@ -169,37 +171,38 @@ export async function removePaymentMethod(business, config, method) {
 }
 
 /**
- * Saves a new mileage favorite and persists config to Drive.
+ * Saves a new mileage favorite to the user's profile.json.
+ * Favorites are user-owned and keyed by business folderId — independent of config.json.
  *
  * @param {Object} business
- * @param {Object} config - Current config
+ * @param {Object} _cfg - Unused (kept for call-site compatibility)
  * @param {{name:string, from:string, to:string, miles:number, purpose:string}} favorite
- * @returns {Promise<Object>} Updated config
  */
-export async function saveMileageFavorite(business, config, favorite) {
-  const updated = {
-    ...config,
-    mileage_favorites: [...config.mileage_favorites, favorite],
-  };
-  await saveConfig(business, updated);
-  return updated;
+export async function saveMileageFavorite(business, _cfg, favorite) {
+  const folderId = business.folderId;
+  mileageFavorites.update((all) => {
+    const current = Array.isArray(all[folderId]) ? all[folderId] : [];
+    return { ...all, [folderId]: [...current, favorite] };
+  });
+  const rootFolderId = await ensureBizTrackFolder();
+  await saveProfile(rootFolderId, get(businesses), get(mileageFavorites));
 }
 
 /**
- * Deletes a mileage favorite by name and persists config to Drive.
+ * Deletes a mileage favorite by name from the user's profile.json.
  *
  * @param {Object} business
- * @param {Object} config - Current config
+ * @param {Object} _cfg - Unused (kept for call-site compatibility)
  * @param {string} name - Favorite name to remove
- * @returns {Promise<Object>} Updated config
  */
-export async function deleteMileageFavorite(business, config, name) {
-  const updated = {
-    ...config,
-    mileage_favorites: config.mileage_favorites.filter((f) => f.name !== name),
-  };
-  await saveConfig(business, updated);
-  return updated;
+export async function deleteMileageFavorite(business, _cfg, name) {
+  const folderId = business.folderId;
+  mileageFavorites.update((all) => {
+    const current = Array.isArray(all[folderId]) ? all[folderId] : [];
+    return { ...all, [folderId]: current.filter((f) => f.name !== name) };
+  });
+  const rootFolderId = await ensureBizTrackFolder();
+  await saveProfile(rootFolderId, get(businesses), get(mileageFavorites));
 }
 
 /**

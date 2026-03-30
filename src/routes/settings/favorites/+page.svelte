@@ -6,7 +6,7 @@
    */
 
   import { goto } from '$app/navigation';
-  import { selectedBusiness, businessConfig } from '$lib/store.js';
+  import { selectedBusiness, mileageFavorites } from '$lib/store.js';
   import { deleteMileageFavorite } from '$lib/business.js';
   import { get } from 'svelte/store';
 
@@ -18,9 +18,8 @@
 
   async function handleDelete(name) {
     const biz = get(selectedBusiness);
-    const cfg = get(businessConfig);
 
-    if (!biz || !cfg) {
+    if (!biz) {
       error = 'No business selected. Go back to main screen first.';
       return;
     }
@@ -28,7 +27,7 @@
     deletingName = name;
     error = '';
     try {
-      await deleteMileageFavorite(biz, cfg, name);
+      await deleteMileageFavorite(biz, null, name);
     } catch (err) {
       console.error('[favorites] delete:', err);
       error = 'Failed to delete. Check your connection and try again.';
@@ -54,15 +53,6 @@
       </a>
     </div>
 
-  {:else if !$businessConfig}
-    <div class="flex items-center justify-center py-12 gap-3">
-      <svg class="w-5 h-5 animate-spin" style="color: var(--color-text-muted);" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
-      </svg>
-      <span class="text-sm" style="color: var(--color-text-muted);">Loading…</span>
-    </div>
-
   {:else}
     <!-- Business context label -->
     <p class="text-xs font-semibold uppercase tracking-wider px-1" style="color: var(--color-text-muted);">
@@ -75,7 +65,7 @@
       </p>
     {/if}
 
-    {#if $businessConfig.mileage_favorites.length === 0}
+    {#if ($mileageFavorites[$selectedBusiness.folderId] ?? []).length === 0}
       <div
         class="rounded-xl border p-6 text-center"
         style="border-color: var(--color-border); background-color: var(--color-surface-2);"
@@ -93,7 +83,7 @@
         class="rounded-xl border divide-y overflow-hidden"
         style="border-color: var(--color-border); background-color: var(--color-surface-2);"
       >
-        {#each $businessConfig.mileage_favorites as fav (fav.name)}
+        {#each ($mileageFavorites[$selectedBusiness.folderId] ?? []) as fav (fav.name)}
           <div class="px-4 py-3 flex items-start justify-between gap-3">
             <div class="flex-1 min-w-0">
               <p class="text-base font-medium truncate" style="color: var(--color-text);">{fav.name}</p>
