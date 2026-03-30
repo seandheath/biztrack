@@ -20,7 +20,6 @@
   import { pushTransactions, updateByUUID } from '$lib/services/sheets.js';
   import { enqueue } from '$lib/services/offline-queue.js';
   import { ensureYearFolder, saveMileageFavorite } from '$lib/business.js';
-  import { IRS_RATES } from '$lib/constants.js';
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
   import FavoriteRouteList from '../../components/FavoriteRouteList.svelte';
   import Toast from '../../components/Toast.svelte';
@@ -60,21 +59,17 @@
   let saveFavName    = $state('');
   let saveFavSaving  = $state(false);
 
-  /**
-   * Reactive IRS rate for the year of the current mileage date.
-   * Falls back to the most recent known rate if the year isn't in IRS_RATES.
-   */
-  let milRate = $derived(() => {
-    const year = new Date(milDate + 'T00:00:00').getFullYear();
-    if (IRS_RATES[year]) return IRS_RATES[year];
-    const years = Object.keys(IRS_RATES).map(Number).sort((a, b) => b - a);
-    return IRS_RATES[years[0]] ?? 0.70;
-  });
+  /** Whether to double entered miles (round trip). */
+  let milRoundTrip = $state(false);
 
-  /** Reactive deduction = miles × rate */
-  let milDeduction = $derived(() => {
+  /**
+   * Effective miles to store — doubled when round trip is checked.
+   * Returns a string so it can be passed directly to the row.
+   */
+  let milEffectiveMiles = $derived(() => {
     const m = parseFloat(milMiles);
-    return isNaN(m) ? '' : (m * milRate()).toFixed(2);
+    if (isNaN(m)) return milMiles;
+    return milRoundTrip ? String(m * 2) : milMiles;
   });
 
   /** True when all mileage fields are filled (enables "Save as Favorite") */
@@ -195,22 +190,17 @@
         selectedBusiness.set(biz);
       }
 
-      const rate      = milRate();
-      const deduction = milDeduction();
-
       const spreadsheetId = biz.sheetIds?.[year];
       if (!spreadsheetId) throw new Error(`No sheet found for ${year}.`);
 
       if (editMode) {
         const updatedRow = {
-          id:        editTxnId,
-          date:      milDate,
-          from:      milFrom.trim(),
-          to:        milTo.trim(),
-          purpose:   milPurpose.trim(),
-          miles:     milMiles,
-          irsRate:   String(rate),
-          deduction: String(deduction),
+          id:      editTxnId,
+          date:    milDate,
+          from:    milFrom.trim(),
+          to:      milTo.trim(),
+          purpose: milPurpose.trim(),
+          miles:   milEffectiveMiles(),
         };
         try {
           await updateByUUID(spreadsheetId, 'Mileage', updatedRow);
@@ -229,14 +219,12 @@
       }
 
       const newRow = {
-        id:        crypto.randomUUID(),
-        date:      milDate,
-        from:      milFrom.trim(),
-        to:        milTo.trim(),
-        purpose:   milPurpose.trim(),
-        miles:     milMiles,
-        irsRate:   String(rate),
-        deduction: String(deduction),
+        id:      crypto.randomUUID(),
+        date:    milDate,
+        from:    milFrom.trim(),
+        to:      milTo.trim(),
+        purpose: milPurpose.trim(),
+        miles:   milEffectiveMiles(),
       };
       try {
         await pushTransactions(spreadsheetId, 'Mileage', [newRow]);
@@ -271,12 +259,13 @@
 
   /** Fill mileage form from a saved favorite route. */
   function applyFavorite(fav) {
-    milFrom    = fav.from    ?? '';
-    milTo      = fav.to      ?? '';
-    milPurpose = fav.purpose ?? '';
-    milMiles   = String(fav.miles ?? '');
-    milDate    = todayISO();
-    milErrors  = {};
+    milFrom      = fav.from    ?? '';
+    milTo        = fav.to      ?? '';
+    milPurpose   = fav.purpose ?? '';
+    milMiles     = String(fav.miles ?? '');
+    milDate      = todayISO();
+    milErrors    = {};
+    milRoundTrip = false;
   }
 
   async function handleSaveFavorite() {
@@ -345,7 +334,7 @@
         if (!sheetId) throw new Error(`No mileage sheet found for ${yr}.`);
         editSheetId = sheetId;
 
-        const rowNum = await findRowByTxnId(sheetId, txnId, 'Mileage', 'H');
+        const rowNum = await findRowByTxnId(sheetId, txnId, 'Mileage', 'F');
         if (rowNum === null) throw new Error('Mileage entry not found.');
         editRowNum = rowNum;
 
@@ -355,7 +344,7 @@
         milTo      = raw[2] || '';
         milPurpose = raw[3] || '';
         milMiles   = raw[4] || '';
-        editTxnId  = raw[7] || txnId;
+        editTxnId  = raw[5] || txnId;
         editMode   = true;
       } catch (err) {
         console.error('[mileage] edit load:', err);
@@ -473,40 +462,35 @@
         {/if}
       </div>
 
-      <!-- Miles + IRS rate -->
-      <div class="grid gap-3" style="grid-template-columns: 1fr 1fr;">
-        <div class="flex flex-col gap-1">
-          <label for="mil-miles" class="text-sm font-medium" style="color: var(--color-text-muted);">Miles</label>
-          <input id="mil-miles" type="text" inputmode="decimal" bind:value={milMiles} placeholder="0.0" required />
-          {#if milErrors.miles}
-            <span class="text-xs" style="color: var(--color-error);">{milErrors.miles}</span>
-          {/if}
-        </div>
-        <div class="flex flex-col gap-1">
-          <label for="mil-irs-rate" class="text-sm font-medium" style="color: var(--color-text-muted);">IRS Rate</label>
-          <input
-            id="mil-irs-rate"
-            type="text"
-            value="${milRate()}/mi"
-            readonly
-            tabindex="-1"
-            style="color: var(--color-text-muted); cursor: default;"
-          />
-        </div>
+      <!-- Miles -->
+      <div class="flex flex-col gap-1">
+        <label for="mil-miles" class="text-sm font-medium" style="color: var(--color-text-muted);">Miles</label>
+        <input id="mil-miles" type="text" inputmode="decimal" bind:value={milMiles} placeholder="0.0" required />
+        {#if milErrors.miles}
+          <span class="text-xs" style="color: var(--color-error);">{milErrors.miles}</span>
+        {/if}
       </div>
 
-      <!-- Deduction -->
-      {#if milDeduction() !== ''}
-        <div
-          class="rounded-xl px-4 py-3 flex items-center justify-between"
-          style="background-color: var(--color-surface-2); border: 1px solid var(--color-border);"
-        >
-          <span class="text-sm font-medium" style="color: var(--color-text-muted);">Estimated Deduction</span>
-          <span class="text-xl font-semibold" style="color: var(--color-primary);">
-            ${milDeduction()}
-          </span>
+      <!-- Round trip toggle -->
+      <label class="flex items-center gap-3 cursor-pointer select-none" style="min-height: 44px;">
+        <div class="relative flex-shrink-0">
+          <input type="checkbox" bind:checked={milRoundTrip} class="sr-only" />
+          <div
+            class="w-10 h-6 rounded-full transition-colors"
+            style="background-color: {milRoundTrip ? 'var(--color-primary)' : 'var(--color-border)'};"
+          ></div>
+          <div
+            class="absolute top-1 w-4 h-4 rounded-full transition-transform"
+            style="background-color: white; left: {milRoundTrip ? '22px' : '4px'};"
+          ></div>
         </div>
-      {/if}
+        <div class="flex flex-col gap-0.5">
+          <span class="text-sm font-medium" style="color: var(--color-text);">Round trip (double mileage)</span>
+          {#if milRoundTrip && milEffectiveMiles() !== milMiles && milEffectiveMiles() !== ''}
+            <span class="text-xs" style="color: var(--color-text-muted);">Total: {milEffectiveMiles()} mi</span>
+          {/if}
+        </div>
+      </label>
 
       <!-- Save as Favorite -->
       {#if milCanSaveFav}

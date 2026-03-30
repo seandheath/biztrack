@@ -140,18 +140,16 @@
       spreadsheetId = sheetId;
 
       if (type === 'mileage') {
-        const rn = await findRowByTxnId(sheetId, txnId, 'Mileage', 'H');
+        const rn = await findRowByTxnId(sheetId, txnId, 'Mileage', 'F');
         if (rn === null) throw new Error('Mileage entry not found.');
         rowNum = rn;
         const raw = await readRow(sheetId, 'Mileage', rowNum);
         fields = {
-          date:      raw[0] ?? '',
-          from:      raw[1] ?? '',
-          to:        raw[2] ?? '',
-          purpose:   raw[3] ?? '',
-          miles:     raw[4] ?? '',
-          rate:      raw[5] ?? '',
-          deduction: raw[6] ?? '',
+          date:    raw[0] ?? '',
+          from:    raw[1] ?? '',
+          to:      raw[2] ?? '',
+          purpose: raw[3] ?? '',
+          miles:   raw[4] ?? '',
         };
       } else {
         const rn = await findRowByTxnId(sheetId, txnId);
@@ -235,16 +233,6 @@
           <div class="flex justify-between items-baseline gap-3 py-0.5">
             <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Miles</span>
             <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">{fields.miles} mi</span>
-          </div>
-          {#if fields.rate}
-            <div class="flex justify-between items-baseline gap-3 py-0.5">
-              <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">IRS Rate</span>
-              <span class="text-sm text-right" style="color: var(--color-text);">${fields.rate}/mi</span>
-            </div>
-          {/if}
-          <div class="flex justify-between items-baseline gap-3 py-0.5">
-            <span class="text-xs flex-shrink-0" style="color: var(--color-text-muted);">Deduction</span>
-            <span class="text-sm font-semibold text-right" style="color: var(--color-primary);">${fields.deduction}</span>
           </div>
 
         {:else}

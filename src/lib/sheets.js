@@ -33,8 +33,6 @@ const MILEAGE_HEADERS = [
   'To',
   'Purpose/Description',
   'Miles',
-  'IRS Standard Rate',
-  'Deduction Amount',
   'ID',
 ];
 
