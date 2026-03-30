@@ -189,6 +189,23 @@ export async function saveMileageFavorite(business, _cfg, favorite) {
 }
 
 /**
+ * Updates an existing mileage favorite in-place (matched by name) in the user's profile.json.
+ *
+ * @param {Object} business
+ * @param {Object} _cfg - Unused (kept for call-site compatibility)
+ * @param {{name:string, from:string, to:string, miles:number, purpose:string, roundTrip?:boolean}} favorite
+ */
+export async function updateMileageFavorite(business, _cfg, favorite) {
+  const folderId = business.folderId;
+  mileageFavorites.update((all) => {
+    const current = Array.isArray(all[folderId]) ? all[folderId] : [];
+    return { ...all, [folderId]: current.map((f) => f.name === favorite.name ? favorite : f) };
+  });
+  const rootFolderId = await ensureBizTrackFolder();
+  await saveProfile(rootFolderId, get(businesses), get(mileageFavorites));
+}
+
+/**
  * Deletes a mileage favorite by name from the user's profile.json.
  *
  * @param {Object} business

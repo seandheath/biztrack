@@ -20,7 +20,7 @@
   import { readRow, findRowByTxnId } from '$lib/sheets.js';
   import { pushTransactions, updateByUUID } from '$lib/services/sheets.js';
   import { enqueue } from '$lib/services/offline-queue.js';
-  import { ensureYearFolder, saveMileageFavorite } from '$lib/business.js';
+  import { ensureYearFolder, saveMileageFavorite, updateMileageFavorite } from '$lib/business.js';
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
   import FavoriteRouteList from '../../components/FavoriteRouteList.svelte';
   import Toast from '../../components/Toast.svelte';
@@ -72,6 +72,26 @@
     if (isNaN(m)) return milMiles;
     return milRoundTrip ? String(m * 2) : milMiles;
   });
+
+  /**
+   * Existing favorite whose from/to/miles/roundTrip all match the current form state.
+   * When non-null, offer "Update" instead of "Save as Favorite".
+   */
+  let milMatchedFavorite = $derived(() => {
+    const favs = $mileageFavorites[$selectedBusiness?.folderId] ?? [];
+    const from = milFrom.trim();
+    const to   = milTo.trim();
+    const m    = parseFloat(milMiles);
+    if (!from || !to || isNaN(m)) return null;
+    return favs.find((f) =>
+      f.from === from &&
+      f.to   === to   &&
+      f.miles === m   &&
+      (f.roundTrip ?? false) === milRoundTrip
+    ) ?? null;
+  });
+
+  let milUpdating = $state(false);
 
   /** True when all mileage fields are filled (enables "Save as Favorite") */
   let milCanSaveFav = $derived(
@@ -278,11 +298,12 @@
       const biz = $selectedBusiness;
       const cfg = $businessConfig;
       const fav = {
-        name:    saveFavName.trim(),
-        from:    milFrom.trim(),
-        to:      milTo.trim(),
-        purpose: milPurpose.trim(),
-        miles:   parseFloat(milMiles),
+        name:      saveFavName.trim(),
+        from:      milFrom.trim(),
+        to:        milTo.trim(),
+        purpose:   milPurpose.trim(),
+        miles:     parseFloat(milMiles),
+        roundTrip: milRoundTrip,
       };
       await saveMileageFavorite(biz, cfg, fav);
       saveFavOpen = false;
@@ -293,6 +314,28 @@
       showToast(friendlyError(err), 'error');
     } finally {
       saveFavSaving = false;
+    }
+  }
+
+  async function handleUpdateFavorite() {
+    const matched = milMatchedFavorite();
+    if (!matched) return;
+    milUpdating = true;
+    try {
+      await updateMileageFavorite($selectedBusiness, $businessConfig, {
+        name:      matched.name,
+        from:      milFrom.trim(),
+        to:        milTo.trim(),
+        purpose:   milPurpose.trim(),
+        miles:     parseFloat(milMiles),
+        roundTrip: milRoundTrip,
+      });
+      showToast(`"${matched.name}" updated!`, 'success');
+    } catch (err) {
+      console.error('[mileage] updateFavorite:', err);
+      showToast(friendlyError(err), 'error');
+    } finally {
+      milUpdating = false;
     }
   }
 
@@ -495,9 +538,26 @@
         </div>
       </label>
 
-      <!-- Save as Favorite -->
+      <!-- Save / Update Favorite -->
       {#if milCanSaveFav}
-        {#if !saveFavOpen}
+        {#if milMatchedFavorite()}
+          <!-- Matched an existing favorite — offer one-click update -->
+          <button
+            type="button"
+            onclick={handleUpdateFavorite}
+            disabled={milUpdating}
+            class="text-sm font-medium text-left px-0 transition-opacity hover:opacity-70 disabled:opacity-50"
+            style="
+              min-height: 36px;
+              background: transparent;
+              color: var(--color-primary);
+              justify-content: flex-start;
+              min-width: unset;
+            "
+          >
+            {milUpdating ? 'Updating…' : `↻ Update "${milMatchedFavorite().name}"`}
+          </button>
+        {:else if !saveFavOpen}
           <button
             type="button"
             onclick={() => { saveFavOpen = true; }}
