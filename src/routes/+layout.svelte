@@ -441,8 +441,8 @@
 
   <!-- App chrome: sticky top bar + scrollable main content -->
   <div
-    class="min-h-screen flex flex-col"
-    style="background-color: var(--color-surface); color: var(--color-text);"
+    class="flex flex-col"
+    style="height: 100dvh; background-color: var(--color-surface); color: var(--color-text);"
   >
     <header
       class="sticky top-0 z-10 flex items-center h-14 px-2 border-b"

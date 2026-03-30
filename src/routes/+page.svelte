@@ -90,20 +90,18 @@
 
 {:else}
   <!-- =======================================================================
-       Dashboard: transaction log + sticky entry buttons
+       Dashboard: transaction log + entry buttons
        ======================================================================= -->
-
-  <!-- Scrollable content — pb-[84px] clears the sticky button bar below -->
-  <div class="pb-[84px]">
+  <div class="flex flex-col h-full">
 
     <!-- Business selector -->
-    <div class="px-4 pt-3 pb-2">
+    <div class="px-4 pt-3 pb-2 flex-shrink-0">
       <BusinessDropdown />
     </div>
 
     <!-- Uncategorized review banner — shown when import leaves unreviewed rows -->
     {#if uncategorizedCount > 0}
-      <div class="px-4 pb-2">
+      <div class="px-4 pb-2 flex-shrink-0">
         <a
           href="/review"
           class="flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font-medium transition-opacity hover:opacity-80"
@@ -116,9 +114,9 @@
     {/if}
 
     <!-- =====================================================================
-         Row list area — <main> handles scrolling
+         Row list area — fills remaining space, scrolls independently
          ===================================================================== -->
-    <div class="px-4 pb-2">
+    <div class="flex-1 overflow-y-auto px-4 pb-2">
 
       {#if !$selectedBusiness}
         <p class="text-center py-12 text-sm" style="color: var(--color-text-muted);">
@@ -166,42 +164,41 @@
       {/if}
 
     </div>
-  </div>
 
-  <!-- =====================================================================
-       Bottom entry buttons — sticky to viewport bottom while list scrolls
-       ===================================================================== -->
-  <div
-    class="sticky bottom-0 flex gap-3 px-4 py-4 border-t"
-    style="
-      background-color: var(--color-surface);
-      border-color: var(--color-border);
-      padding-bottom: max(1rem, env(safe-area-inset-bottom));
-    "
-  >
-    <a
-      href="/expense"
-      class="flex-1 rounded-xl font-semibold text-base flex items-center justify-center transition-opacity hover:opacity-80"
+    <!-- =====================================================================
+         Bottom entry buttons — always visible (flex-shrink-0 prevents scroll)
+         ===================================================================== -->
+    <div
+      class="flex gap-3 px-4 py-4 border-t flex-shrink-0"
       style="
-        min-height: 52px;
-        background-color: var(--color-primary);
-        color: var(--color-primary-text);
+        border-color: var(--color-border);
+        padding-bottom: max(1rem, env(safe-area-inset-bottom));
       "
     >
-      + Expense
-    </a>
-    <a
-      href="/mileage"
-      class="flex-1 rounded-xl font-semibold text-base flex items-center justify-center transition-opacity hover:opacity-80"
-      style="
-        min-height: 52px;
-        background-color: var(--color-primary);
-        color: var(--color-primary-text);
-      "
-    >
-      + Mileage
-    </a>
-  </div>
+      <a
+        href="/expense"
+        class="flex-1 rounded-xl font-semibold text-base flex items-center justify-center transition-opacity hover:opacity-80"
+        style="
+          min-height: 52px;
+          background-color: var(--color-primary);
+          color: var(--color-primary-text);
+        "
+      >
+        + Expense
+      </a>
+      <a
+        href="/mileage"
+        class="flex-1 rounded-xl font-semibold text-base flex items-center justify-center transition-opacity hover:opacity-80"
+        style="
+          min-height: 52px;
+          background-color: var(--color-primary);
+          color: var(--color-primary-text);
+        "
+      >
+        + Mileage
+      </a>
+    </div>
 
+  </div>
 {/if}
 
