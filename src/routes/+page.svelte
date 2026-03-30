@@ -101,11 +101,11 @@
 
     <!-- Uncategorized review banner — shown when import leaves unreviewed rows -->
     {#if uncategorizedCount > 0}
-      <div class="pb-2 flex-shrink-0">
+      <div class="px-4 pb-2 flex-shrink-0">
         <a
           href="/review"
           class="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium transition-opacity hover:opacity-80"
-          style="background-color: var(--color-surface-2); border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); color: var(--color-primary);"
+          style="background-color: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 0.5rem; color: var(--color-primary);"
         >
           {uncategorizedCount} Uncategorized Transaction{uncategorizedCount === 1 ? '' : 's'} — Review →
         </a>
