@@ -102,7 +102,6 @@
   let milCanSaveFav = $derived(
     milFrom.trim() !== '' &&
     milTo.trim()   !== '' &&
-    milPurpose.trim() !== '' &&
     milMiles !== '' &&
     !isNaN(parseFloat(milMiles))
   );
@@ -194,9 +193,8 @@
   function validateMileage() {
     const errs = {};
     if (!milDate)               errs.date    = 'Required';
-    if (!milFrom.trim())        errs.from    = 'Required';
-    if (!milTo.trim())          errs.to      = 'Required';
-    if (!milPurpose.trim())     errs.purpose = 'Required';
+    if (!milFrom.trim())        errs.from  = 'Required';
+    if (!milTo.trim())          errs.to    = 'Required';
     if (!milMiles || isNaN(parseFloat(milMiles))) errs.miles = 'Valid miles required';
     milErrors = errs;
     return Object.keys(errs).length === 0;
@@ -504,44 +502,44 @@
         {/if}
       </div>
 
-      <!-- Purpose -->
-      <div class="flex flex-col gap-1">
-        <label for="mil-purpose" class="text-sm font-medium" style="color: var(--color-text-muted);">Purpose</label>
-        <input id="mil-purpose" type="text" bind:value={milPurpose} placeholder="Client meeting, site visit…" />
-        {#if milErrors.purpose}
-          <span class="text-xs" style="color: var(--color-error);">{milErrors.purpose}</span>
-        {/if}
-      </div>
-
-      <!-- Miles -->
-      <div class="flex flex-col gap-1">
-        <label for="mil-miles" class="text-sm font-medium" style="color: var(--color-text-muted);">Miles</label>
-        <input id="mil-miles" type="text" inputmode="decimal" bind:value={milMiles} placeholder="0.0" required />
-        {#if milErrors.miles}
-          <span class="text-xs" style="color: var(--color-error);">{milErrors.miles}</span>
-        {/if}
-      </div>
-
-      <!-- Round trip toggle -->
-      <label class="flex items-center gap-3 cursor-pointer select-none" style="min-height: 44px;">
-        <div class="relative flex-shrink-0">
-          <input type="checkbox" bind:checked={milRoundTrip} class="sr-only" />
-          <div
-            class="w-10 h-6 rounded-full transition-colors"
-            style="background-color: {milRoundTrip ? 'var(--color-primary)' : 'var(--color-border)'};"
-          ></div>
-          <div
-            class="absolute top-1 w-4 h-4 rounded-full transition-transform"
-            style="background-color: white; left: {milRoundTrip ? '22px' : '4px'};"
-          ></div>
-        </div>
-        <div class="flex flex-col gap-0.5">
-          <span class="text-sm font-medium" style="color: var(--color-text);">Round trip (double mileage)</span>
-          {#if milRoundTrip && milEffectiveMiles() !== milMiles && milEffectiveMiles() !== ''}
-            <span class="text-xs" style="color: var(--color-text-muted);">Total: {milEffectiveMiles()} mi</span>
+      <!-- Miles + Round trip (inline) -->
+      <div class="grid gap-3" style="grid-template-columns: 1fr 1fr;">
+        <div class="flex flex-col gap-1">
+          <label for="mil-miles" class="text-sm font-medium" style="color: var(--color-text-muted);">Miles</label>
+          <input id="mil-miles" type="text" inputmode="decimal" bind:value={milMiles} placeholder="0.0" required />
+          {#if milErrors.miles}
+            <span class="text-xs" style="color: var(--color-error);">{milErrors.miles}</span>
           {/if}
         </div>
-      </label>
+        <label class="flex flex-col gap-1 cursor-pointer select-none">
+          <span class="text-sm font-medium" style="color: var(--color-text-muted);">Round trip</span>
+          <div class="flex items-center gap-2" style="min-height: 44px;">
+            <input type="checkbox" bind:checked={milRoundTrip} class="sr-only" />
+            <div class="relative flex-shrink-0">
+              <div
+                class="w-10 h-6 rounded-full transition-colors"
+                style="background-color: {milRoundTrip ? 'var(--color-primary)' : 'var(--color-border)'};"
+              ></div>
+              <div
+                class="absolute top-1 w-4 h-4 rounded-full transition-transform"
+                style="background-color: white; left: {milRoundTrip ? '22px' : '4px'};"
+              ></div>
+            </div>
+            <span class="text-sm" style="color: var(--color-text);">Double miles</span>
+          </div>
+        </label>
+      </div>
+      {#if milRoundTrip && milEffectiveMiles() !== milMiles && milEffectiveMiles() !== ''}
+        <span class="text-xs -mt-2" style="color: var(--color-text-muted);">Total: {milEffectiveMiles()} mi</span>
+      {/if}
+
+      <!-- Purpose (optional) -->
+      <div class="flex flex-col gap-1">
+        <label for="mil-purpose" class="text-sm font-medium" style="color: var(--color-text-muted);">
+          Purpose <span style="font-weight: normal;">(optional)</span>
+        </label>
+        <input id="mil-purpose" type="text" bind:value={milPurpose} placeholder="Client meeting, site visit…" />
+      </div>
 
       <!-- Save / Update Favorite -->
       {#if milCanSaveFav}
