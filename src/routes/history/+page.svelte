@@ -22,8 +22,11 @@
     return Object.keys(biz.sheetIds ?? {}).map(Number).sort((a, b) => b - a).map(String);
   });
 
-  /** Currently selected year (string to match availableYears and <select> value). */
-  let selectedYear = $state('');
+  /** Currently selected year (string to match availableYears and <select> value).
+   *  Initialized from ?year= query param when navigating back from a transaction. */
+  let selectedYear = $state(
+    new URLSearchParams(window.location.search).get('year') ?? ''
+  );
 
   // Keep selectedYear valid whenever availableYears changes.
   $effect(() => {
@@ -116,7 +119,7 @@
     u.searchParams.set('year', selectedYear);
     u.searchParams.set('txn',  row.id);
     if (row._type === 'mileage') u.searchParams.set('type', 'mileage');
-    u.searchParams.set('returnTo', '/history');
+    u.searchParams.set('returnTo', `/history?year=${selectedYear}`);
     return u.toString();
   }
 
