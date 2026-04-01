@@ -19,6 +19,7 @@
     updateBusiness,
     destinationCache,
     originCache,
+    driverCache,
   } from '$lib/store.js';
   import { pushTransactions, updateByUUID, deleteByUUID, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.svelte.js';
@@ -30,6 +31,7 @@
   import FavoriteRouteList from '../../components/FavoriteRouteList.svelte';
   import DestinationAutocomplete from '../../components/DestinationAutocomplete.svelte';
   import OriginAutocomplete from '../../components/OriginAutocomplete.svelte';
+  import DriverAutocomplete from '../../components/DriverAutocomplete.svelte';
   import Toast from '../../components/Toast.svelte';
 
   // ---------------------------------------------------------------------------
@@ -47,6 +49,7 @@
   let milTo        = $state('');
   let milPurpose   = $state('');
   let milMiles     = $state('');
+  let milDriver    = $state('');
   let milErrors    = $state(/** @type {Record<string,string>} */({}));
   let milSubmitting = $state(false);
 
@@ -150,14 +153,18 @@
     const sorted = [...rows].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
     const destMap = new Map();
     const origins = new Set();
+    const drivers = new Set();
     for (const row of sorted) {
       const to = (row.to ?? '').trim();
       const from = (row.from ?? '').trim();
+      const driver = (row.driver ?? '').trim();
       if (to && !destMap.has(to)) destMap.set(to, from);
       if (from) origins.add(from);
+      if (driver) drivers.add(driver);
     }
     destinationCache.set(Array.from(destMap.entries()).map(([to, lastFrom]) => ({ to, lastFrom })));
     originCache.set([...origins]);
+    driverCache.set([...drivers]);
   }
 
   // ---------------------------------------------------------------------------
@@ -206,6 +213,7 @@
           purpose: milPurpose.trim(),
           miles:   milEffectiveMiles(),
           savedBy: $userEmail ?? '',
+          driver:  milDriver.trim(),
         };
         try {
           if (spreadsheetId !== editSheetId) {
@@ -237,6 +245,7 @@
         purpose: milPurpose.trim(),
         miles:   milEffectiveMiles(),
         savedBy: $userEmail ?? '',
+        driver:  milDriver.trim(),
       };
       try {
         await pushTransactions(spreadsheetId, 'Mileage', [newRow]);
@@ -244,7 +253,7 @@
         if (!navigator.onLine) {
           enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'create', row: newRow });
           showToast('Saved offline — will sync when back online', 'success');
-          milFrom = ''; milTo = ''; milPurpose = ''; milMiles = ''; milErrors = {};
+          milFrom = ''; milTo = ''; milPurpose = ''; milMiles = ''; milDriver = ''; milErrors = {};
           saveFavOpen = false; saveFavName = '';
           return;
         }
@@ -270,12 +279,19 @@
           cache.includes(submittedFrom) ? cache : [...cache, submittedFrom]
         );
       }
+      const submittedDriver = milDriver.trim();
+      if (submittedDriver) {
+        driverCache.update((cache) =>
+          cache.includes(submittedDriver) ? cache : [...cache, submittedDriver]
+        );
+      }
 
       // Clear fields — preserve date
       milFrom     = '';
       milTo       = '';
       milPurpose  = '';
       milMiles    = '';
+      milDriver   = '';
       milErrors   = {};
       saveFavOpen = false;
       saveFavName = '';
@@ -305,6 +321,7 @@
     milTo        = fav.to      ?? '';
     milPurpose   = fav.purpose ?? '';
     milMiles     = String(fav.miles ?? '');
+    milDriver    = '';
     milDate      = todayISO();
     milErrors    = {};
     milRoundTrip = false;
@@ -392,6 +409,7 @@
         milTo      = row.to      || '';
         milPurpose = row.purpose || '';
         milMiles   = row.miles   || '';
+        milDriver  = row.driver  || '';
         editTxnId  = row.id      || txnId;
         editMode   = true;
       } catch (err) {
@@ -521,6 +539,14 @@
           Purpose <span style="font-weight: normal;">(optional)</span>
         </label>
         <input id="mil-purpose" type="text" bind:value={milPurpose} placeholder="Client meeting, site visit…" />
+      </div>
+
+      <!-- Driver (autocomplete from history) -->
+      <div class="flex flex-col gap-1">
+        <label for="mil-driver" class="text-sm font-medium" style="color: var(--color-text-muted);">
+          Driver <span style="font-weight: normal;">(optional)</span>
+        </label>
+        <DriverAutocomplete id="mil-driver" bind:value={milDriver} placeholder="Driver name" />
       </div>
 
       <!-- Save / Update Favorite -->

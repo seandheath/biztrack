@@ -10,8 +10,8 @@
  *   A=date  B=vendor  C=description  D=amount  E=category
  *   F=paymentMethod  G=receipt  H=notes  I=submittedBy  J=id (UUID)
  *
- * Mileage column order (A–G):
- *   A=date  B=from  C=to  D=purpose  E=miles  F=savedBy  G=id (UUID)
+ * Mileage column order (A–H):
+ *   A=date  B=from  C=to  D=purpose  E=miles  F=savedBy  G=id (UUID)  H=driver
  */
 
 import { apiFetch } from '../auth.js';
@@ -42,6 +42,7 @@ export interface TransactionRow {
   purpose?: string;
   miles?: string;
   savedBy?: string;
+  driver?: string;
 }
 
 type SheetName = 'Expenses' | 'Mileage';
@@ -159,6 +160,7 @@ function _rowToValues(row: TransactionRow, sheetName: SheetName): (string | numb
       row.miles   ?? '',
       row.savedBy ?? '',
       row.id,
+      row.driver  ?? '',
     ];
   }
 }
@@ -189,6 +191,7 @@ function _valuesToRow(values: string[], sheetName: SheetName): TransactionRow {
       miles:   s(values[4]),
       savedBy: s(values[5]),
       id:      s(values[6]),
+      driver:  s(values[7]),
     };
   }
 }
@@ -226,7 +229,7 @@ export async function initSpreadsheet(title: string): Promise<{
   mileageSheetId: number;
 }> {
   const EXPENSE_HEADERS = ['Date','Vendor/Payee','Description','Amount','Category','Payment Method','Receipt','Notes','Submitted By','ID'];
-  const MILEAGE_HEADERS = ['Date','From','To','Purpose/Description','Miles','Saved By','ID'];
+  const MILEAGE_HEADERS = ['Date','From','To','Purpose/Description','Miles','Saved By','ID','Driver'];
 
   const createResponse = await apiFetch(SHEETS_BASE, {
     method: 'POST',
@@ -468,7 +471,7 @@ export async function readRow(
   sheetName: SheetName,
   rowNum: number,
 ): Promise<TransactionRow> {
-  const endCol = sheetName === 'Expenses' ? 'J' : 'G';
+  const endCol = sheetName === 'Expenses' ? 'J' : 'H';
   const range = encodeURIComponent(`${sheetName}!A${rowNum}:${endCol}${rowNum}`);
   const url = `${SHEETS_BASE}/${spreadsheetId}/values/${range}`;
 
@@ -477,7 +480,7 @@ export async function readRow(
 
   const data = await response.json();
   const row: string[] = data.values?.[0] ?? [];
-  const colCount = sheetName === 'Expenses' ? 10 : 7;
+  const colCount = sheetName === 'Expenses' ? 10 : 8;
   const padded = Array.from({ length: colCount }, (_, i) => String(row[i] ?? ''));
   return _valuesToRow(padded, sheetName);
 }

@@ -80,6 +80,12 @@ export const destinationCache: Writable<DestinationEntry[]> = writable([]);
 export const originCache: Writable<string[]> = writable([]);
 
 /**
+ * Mileage driver strings for autocomplete — unique driver names.
+ * NOT cached in localStorage — populated from Sheets on each page load.
+ */
+export const driverCache: Writable<string[]> = writable([]);
+
+/**
  * User-owned mileage favorites, keyed by business folderId.
  * Populated from profile.json at session start — NOT derived from config.json.
  * Each user has their own favorites per business, independent of other users.
