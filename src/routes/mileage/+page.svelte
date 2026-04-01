@@ -99,6 +99,7 @@
       f.from === from &&
       f.to   === to   &&
       f.miles === m   &&
+      (f.driver ?? '') === milDriver.trim() &&
       (f.roundTrip ?? false) === milRoundTrip
     ) ?? null;
   });
@@ -113,7 +114,8 @@
     milFrom.trim() !== '' &&
     milTo.trim()   !== '' &&
     milMiles !== '' &&
-    !isNaN(parseFloat(milMiles))
+    !isNaN(parseFloat(milMiles)) &&
+    milDriver.trim() !== ''
   );
 
   // ---------------------------------------------------------------------------
@@ -320,7 +322,7 @@
     milTo        = fav.to      ?? '';
     milPurpose   = fav.purpose ?? '';
     milMiles     = String(fav.miles ?? '');
-    milDriver    = '';
+    milDriver    = fav.driver ?? '';
     milDate      = todayISO();
     milErrors    = {};
     milRoundTrip = false;
@@ -337,6 +339,7 @@
         from:      milFrom.trim(),
         to:        milTo.trim(),
         purpose:   milPurpose.trim(),
+        driver:    milDriver.trim(),
         miles:     parseFloat(milMiles),
         roundTrip: milRoundTrip,
       };
@@ -362,6 +365,7 @@
         from:      milFrom.trim(),
         to:        milTo.trim(),
         purpose:   milPurpose.trim(),
+        driver:    milDriver.trim(),
         miles:     parseFloat(milMiles),
         roundTrip: milRoundTrip,
       });

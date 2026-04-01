@@ -26,6 +26,7 @@ export interface MileageFavorite {
   to: string;
   miles: number;
   purpose: string;
+  driver: string;
   roundTrip?: boolean;
 }
 
