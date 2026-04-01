@@ -3,8 +3,8 @@
   import Spinner from '../../../components/Spinner.svelte';
   import { get } from 'svelte/store';
   import { businesses, selectedBusiness, businessConfig, mileageFavorites } from '$lib/store.js';
-  import { setupBusiness, ensureYearFolder, discoverYearFolders } from '$lib/business.js';
-  import { createFolder } from '$lib/drive.js';
+  import { setupBusiness, ensureYearFolder, discoverYearFolders, normalizeConfig } from '$lib/business.js';
+  import { createFolder, findFile, downloadJson } from '$lib/drive.js';
   import { saveProfile } from '$lib/profile.js';
   import FolderBrowser from '../../../components/FolderBrowser.svelte';
 
@@ -33,21 +33,17 @@
   /** 'create' mode: optional parent folder (null = Drive root) */
   let parentFolder = $state(/** @type {{id:string,name:string}|null} */(null));
 
+  /** True when the selected folder contains an existing config.json */
+  let detectedImport = $state(false);
+
   function setMode(mode) {
     folderMode = mode;
     folder = null;
     newFolderName = '';
     parentFolder = null;
     error = null;
-    importMode = false;
+    detectedImport = false;
   }
-
-  // ---------------------------------------------------------------------------
-  // Import mode (uses 'pick' folder path + discoverYearFolders)
-  // ---------------------------------------------------------------------------
-
-  /** True when the user initiated an import (vs. a fresh add). */
-  let importMode = $state(false);
 
   // ---------------------------------------------------------------------------
   // Folder browser state
@@ -63,21 +59,28 @@
     error         = null;
   }
 
-  function handleFolderSelected(picked) {
+  async function handleFolderSelected(picked) {
     browserOpen = false;
     if (browserTarget === 'main') {
       folder = picked;
-      if (importMode && !name.trim()) name = picked.name;
+      detectedImport = false;
+
+      // Probe for existing config.json to detect a BizTrack business
+      try {
+        const configId = await findFile('config.json', picked.id);
+        if (configId) {
+          const config = await downloadJson(configId);
+          normalizeConfig(config, picked.name);
+          name = config.name;
+          detectedImport = true;
+        }
+      } catch (e) {
+        // Detection failed — treat as new folder
+        console.warn('[business] import detection:', e);
+      }
     } else {
       parentFolder = picked;
     }
-  }
-
-  function importBusiness() {
-    error      = null;
-    importMode = true;
-    folderMode = 'pick';
-    openBrowser('main');
   }
 
   // ---------------------------------------------------------------------------
@@ -107,7 +110,7 @@
       }
 
       const { business, config } = await setupBusiness(trimmedName, targetFolder.id);
-      const discovered = importMode ? await discoverYearFolders(business) : business;
+      const discovered = detectedImport ? await discoverYearFolders(business) : business;
       const withYear = await ensureYearFolder(discovered, year);
 
       businesses.update((list) => [...list, withYear]);
@@ -139,13 +142,8 @@
     (folderMode === 'pick' && !folder)
   );
 
-  let submitLabel  = $derived(importMode ? 'Import Business' : 'Add Business');
-  let spinnerLabel = $derived(importMode ? 'Importing…' : 'Setting up…');
-  let browserTitle = $derived(
-    browserTarget === 'parent' ? 'Select Parent Folder' :
-    importMode ? 'Select Business Folder' :
-    'Select Folder'
-  );
+  let submitLabel  = $derived(detectedImport ? 'Import Business' : 'Add Business');
+  let spinnerLabel = $derived(detectedImport ? 'Importing…' : 'Setting up…');
 </script>
 
 <div class="px-4 py-6 flex flex-col gap-5 max-w-lg mx-auto">
@@ -215,6 +213,10 @@
     </div>
 
     {#if folderMode === 'pick'}
+      <p class="text-xs px-1" style="color: var(--color-text-muted);">
+        Select an existing business folder to import it, or any folder to start fresh.
+      </p>
+
       <!-- Existing folder browser trigger -->
       <button
         onclick={() => openBrowser('main')}
@@ -236,13 +238,13 @@
           <span style="color: var(--color-text-muted);">Select Drive Folder…</span>
         {/if}
       </button>
-      {#if importMode}
+      {#if detectedImport}
         <p class="text-xs px-1" style="color: var(--color-primary);">
-          Existing data will be reconnected, not overwritten.
+          Existing BizTrack business detected — data will be reconnected, not overwritten.
         </p>
-      {:else}
+      {:else if folder}
         <p class="text-xs px-1" style="color: var(--color-text-muted);">
-          Choose an existing folder in your Google Drive. Expenses and receipts will be stored inside it.
+          New business — expenses and receipts will be stored in this folder.
         </p>
       {/if}
 
@@ -326,34 +328,12 @@
     {/if}
   </button>
 
-  <!-- Divider -->
-  <div class="flex items-center gap-3">
-    <hr class="flex-1" style="border-color: var(--color-border);" />
-    <span class="text-xs" style="color: var(--color-text-muted);">or</span>
-    <hr class="flex-1" style="border-color: var(--color-border);" />
-  </div>
-
-  <!-- Import existing business -->
-  <button
-    onclick={importBusiness}
-    disabled={loading}
-    class="rounded-xl px-4 font-semibold text-base transition-opacity hover:opacity-70 disabled:opacity-40"
-    style="
-      min-height: 48px;
-      background-color: var(--color-surface-2);
-      color: var(--color-text);
-      border: 1px solid var(--color-border);
-    "
-  >
-    Import Business
-  </button>
-
 </div>
 
 <!-- Folder browser modal — rendered outside the form flow -->
 <FolderBrowser
   open={browserOpen}
-  title={browserTitle}
+  title={browserTarget === 'parent' ? 'Select Parent Folder' : 'Select Folder'}
   onselect={handleFolderSelected}
   oncancel={() => { browserOpen = false; }}
 />
