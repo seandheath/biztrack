@@ -40,7 +40,11 @@
   let isExpense = $derived($page.url.pathname === '/expense');
   let isMileage = $derived($page.url.pathname === '/mileage');
   let isEntryForm = $derived(isExpense || isMileage);
-  let backHref = $derived(isSettingsSub ? '/settings' : '/');
+  let backHref = $derived(
+    isSettingsSub ? '/settings'
+    : isEntryForm ? ($page.url.searchParams.get('returnTo') || '/')
+    : '/'
+  );
 
   // Public routes bypass the auth guard entirely — needed for OAuth consent screen URLs
   const PUBLIC_ROUTES = ['/privacy', '/terms'];

@@ -261,7 +261,13 @@
           submittedBy:    shareSubmittedBy,
         };
         try {
-          await updateByUUID(spreadsheetId, 'Expenses', updatedRow);
+          if (spreadsheetId !== shareSheetId) {
+            // Date changed to a different year — move row between sheets
+            await deleteByUUID(shareSheetId, 'Expenses', shareTxnId);
+            await pushTransactions(spreadsheetId, 'Expenses', [updatedRow]);
+          } else {
+            await updateByUUID(spreadsheetId, 'Expenses', updatedRow);
+          }
         } catch (err) {
           if (!navigator.onLine) {
             enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'update', row: updatedRow });

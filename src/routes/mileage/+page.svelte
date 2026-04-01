@@ -20,7 +20,7 @@
     destinationCache,
     originCache,
   } from '$lib/store.js';
-  import { pushTransactions, updateByUUID, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
+  import { pushTransactions, updateByUUID, deleteByUUID, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.svelte.js';
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
@@ -208,7 +208,13 @@
           savedBy: $userEmail ?? '',
         };
         try {
-          await updateByUUID(spreadsheetId, 'Mileage', updatedRow);
+          if (spreadsheetId !== editSheetId) {
+            // Date changed to a different year — move row between sheets
+            await deleteByUUID(editSheetId, 'Mileage', editTxnId);
+            await pushTransactions(spreadsheetId, 'Mileage', [updatedRow]);
+          } else {
+            await updateByUUID(spreadsheetId, 'Mileage', updatedRow);
+          }
         } catch (err) {
           if (!navigator.onLine) {
             enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'update', row: updatedRow });
