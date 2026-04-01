@@ -29,9 +29,7 @@
   import { ensureYearFolder, saveMileageFavorite, updateMileageFavorite, loadBusinessData as _loadBusinessData } from '$lib/business.js';
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
   import FavoriteRouteList from '../../components/FavoriteRouteList.svelte';
-  import DestinationAutocomplete from '../../components/DestinationAutocomplete.svelte';
-  import OriginAutocomplete from '../../components/OriginAutocomplete.svelte';
-  import DriverAutocomplete from '../../components/DriverAutocomplete.svelte';
+  import Autocomplete from '../../components/Autocomplete.svelte';
   import Toast from '../../components/Toast.svelte';
 
   // ---------------------------------------------------------------------------
@@ -490,7 +488,7 @@
       <!-- To (destination — autocomplete from history) -->
       <div class="flex flex-col gap-1">
         <label for="mil-to" class="text-sm font-medium" style="color: var(--color-text-muted);">To</label>
-        <DestinationAutocomplete id="mil-to" bind:value={milTo} placeholder="Destination" onpick={handleDestinationPick} />
+        <Autocomplete items={$destinationCache} displayFn={(e) => e.to} id="mil-to" bind:value={milTo} placeholder="Destination" onpick={handleDestinationPick} listboxPrefix="destination" />
         {#if milErrors.to}
           <span class="text-xs" style="color: var(--color-error);">{milErrors.to}</span>
         {/if}
@@ -499,7 +497,7 @@
       <!-- From (origin — autocomplete from history) -->
       <div class="flex flex-col gap-1">
         <label for="mil-from" class="text-sm font-medium" style="color: var(--color-text-muted);">From</label>
-        <OriginAutocomplete id="mil-from" bind:value={milFrom} placeholder="Starting address or city" />
+        <Autocomplete items={$originCache} id="mil-from" bind:value={milFrom} placeholder="Starting address or city" listboxPrefix="origin" />
         {#if milErrors.from}
           <span class="text-xs" style="color: var(--color-error);">{milErrors.from}</span>
         {/if}
@@ -546,7 +544,7 @@
         <label for="mil-driver" class="text-sm font-medium" style="color: var(--color-text-muted);">
           Driver <span style="font-weight: normal;">(optional)</span>
         </label>
-        <DriverAutocomplete id="mil-driver" bind:value={milDriver} placeholder="Driver name" />
+        <Autocomplete items={$driverCache} id="mil-driver" bind:value={milDriver} placeholder="Driver name" listboxPrefix="driver" />
       </div>
 
       <!-- Save / Update Favorite -->

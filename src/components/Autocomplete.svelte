@@ -1,20 +1,29 @@
 <!--
-  Destination text input with autocomplete dropdown from destinationCache.
+  Generic text input with autocomplete dropdown.
+
+  Performs case-insensitive substring matching against a list of items,
+  displaying up to 5 suggestions. Works with any item type — use displayFn
+  to extract the text to match and display.
 
   Props:
-    value       {string}   — bindable text value
-    inputEl     {Element}  — bindable ref to the underlying <input>
+    items       {T[]}              — suggestion source array
+    displayFn   {(item: T) => str} — extracts display text (default: identity)
+    value       {string}           — bindable text value
+    inputEl     {Element}          — bindable ref to the underlying <input>
     placeholder {string}
-    onpick      {function} — called with the DestinationEntry when a suggestion is selected
+    id          {string}
+    listboxPrefix {string}         — fallback prefix for listbox id
+    onpick      {(item: T) => void}
 -->
 <script>
-  import { destinationCache } from '$lib/store.js';
-
   let {
+    items = [],
+    displayFn = (x) => x,
     value = $bindable(''),
     inputEl = $bindable(null),
-    placeholder = 'Destination',
+    placeholder = '',
     id = undefined,
+    listboxPrefix = 'autocomplete',
     onpick = undefined,
   } = $props();
 
@@ -22,20 +31,20 @@
   let activeIdx = $state(-1);
 
   /** Derived id for the listbox element, referenced by aria-controls. */
-  let listboxId = $derived(id ? `${id}-listbox` : 'destination-listbox');
+  let listboxId = $derived(id ? `${id}-listbox` : `${listboxPrefix}-listbox`);
 
-  /** Top 5 cache entries whose destination includes the current query (case-insensitive). */
+  /** Top 5 items whose display text includes the current query (case-insensitive). */
   let suggestions = $derived(
     value.trim().length > 0
-      ? $destinationCache
-          .filter((e) => e.to.toLowerCase().includes(value.toLowerCase()))
+      ? items
+          .filter((item) => displayFn(item).toLowerCase().includes(value.toLowerCase()))
           .slice(0, 5)
       : []
   );
 
-  function pick(entry) {
-    value = entry.to;
-    onpick?.(entry);
+  function pick(item) {
+    value = displayFn(item);
+    onpick?.(item);
     open = false;
     activeIdx = -1;
   }
@@ -107,7 +116,7 @@
       "
       role="listbox"
     >
-      {#each suggestions as entry, i (entry.to)}
+      {#each suggestions as item, i (displayFn(item))}
         <li role="option" aria-selected={i === activeIdx}>
           <button
             type="button"
@@ -117,9 +126,9 @@
               color: var(--color-text);
               {i === activeIdx ? 'background-color: var(--color-surface-3);' : ''}
             "
-            onpointerdown={(e) => { e.preventDefault(); pick(entry); }}
+            onpointerdown={(e) => { e.preventDefault(); pick(item); }}
           >
-            {entry.to}
+            {displayFn(item)}
           </button>
         </li>
       {/each}

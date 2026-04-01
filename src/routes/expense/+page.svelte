@@ -38,7 +38,7 @@
 
   let categories = $derived($businessConfig?.categories ?? DEFAULT_CATEGORIES);
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
-  import VendorAutocomplete from '../../components/VendorAutocomplete.svelte';
+  import Autocomplete from '../../components/Autocomplete.svelte';
   import ReceiptPicker from '../../components/ReceiptPicker.svelte';
   import Toast from '../../components/Toast.svelte';
 
@@ -649,7 +649,7 @@
       <!-- Vendor -->
       <div class="flex flex-col gap-1">
         <label for="exp-vendor" class="text-sm font-medium" style="color: var(--color-text-muted);">Vendor / Payee</label>
-        <VendorAutocomplete id="exp-vendor" bind:value={expVendor} bind:inputEl={vendorInputEl} onpick={handleVendorPick} />
+        <Autocomplete items={$vendorCache} id="exp-vendor" bind:value={expVendor} bind:inputEl={vendorInputEl} onpick={handleVendorPick} placeholder="Vendor/Payee" listboxPrefix="vendor" />
         {#if expErrors.vendor}
           <span class="text-xs" style="color: var(--color-error);">{expErrors.vendor}</span>
         {/if}
