@@ -16,8 +16,65 @@ import { findFile, downloadJson, uploadJson, updateJson, createFolder, moveFile,
 import { initSpreadsheet } from './services/sheets.js';
 import { DEFAULT_PAYMENT_METHODS, DEFAULT_CATEGORIES } from './constants.js';
 import { get } from 'svelte/store';
-import { businessConfig, businesses, selectedBusiness, mileageFavorites } from './store.js';
+import { businessConfig, businesses, selectedBusiness, mileageFavorites, updateBusiness } from './store.js';
 import { ensureBizTrackFolder, saveProfile } from './profile.js';
+
+/**
+ * Ensures a config object has all required fields with sensible defaults.
+ * Centralizes the backfill logic that was previously scattered across
+ * setupBusiness(), loadConfig(), and inline in page components.
+ *
+ * @param {Object} cfg - Config object from Drive config.json
+ * @param {string} [businessName=''] - Fallback name if config.name is missing
+ * @returns {Object} The same cfg object, mutated in place
+ */
+export function normalizeConfig(cfg, businessName = '') {
+  if (typeof cfg.name !== 'string' || !cfg.name) cfg.name = businessName;
+  if (!Array.isArray(cfg.payment_accounts))                            cfg.payment_accounts = [...DEFAULT_PAYMENT_METHODS];
+  if (!Array.isArray(cfg.categories) || cfg.categories.length === 0)   cfg.categories       = [...DEFAULT_CATEGORIES];
+  return cfg;
+}
+
+/**
+ * Loads config + ensures the current year folder for a business.
+ * Shared between expense and mileage pages — eliminates the duplicated
+ * loadBusinessData() that each page previously had inline.
+ *
+ * Returns the (possibly updated) business object. Callers can add
+ * page-specific work after this returns (e.g. vendor cache sync).
+ *
+ * @param {Object} business
+ * @returns {Promise<Object>} Updated business object
+ */
+export async function loadBusinessData(business) {
+  if (!business) {
+    businessConfig.set(null);
+    return business;
+  }
+
+  // Resolve configFileId lazily for businesses added before Phase 8
+  let biz = business;
+  if (!biz.configFileId) {
+    const configId = await findFile('config.json', biz.folderId);
+    if (configId) {
+      biz = { ...biz, configFileId: configId };
+      updateBusiness(biz);
+    }
+  }
+
+  // Load and normalize config
+  await loadConfig(biz);
+
+  // Ensure current year folder exists
+  const year = new Date().getFullYear();
+  const updated = await ensureYearFolder(biz, year);
+  if (updated !== biz) {
+    updateBusiness(updated);
+    biz = updated;
+  }
+
+  return biz;
+}
 
 /** Strip characters that are invalid in Drive/Sheets file names: / \ : * ? " < > | */
 function driveFileName(name) {
@@ -58,11 +115,8 @@ export async function setupBusiness(name, folderId) {
   if (configId) {
     config = await downloadJson(configId);
     configFileId = configId;
-    // Guard against malformed config missing required keys
-    if (typeof config.name !== 'string' || !config.name) config.name = name;
-    if (!Array.isArray(config.payment_accounts))                            config.payment_accounts = [...DEFAULT_PAYMENT_METHODS];
-    if (!Array.isArray(config.mileage_favorites))                           config.mileage_favorites = [];
-    if (!Array.isArray(config.categories) || config.categories.length === 0) config.categories = [...DEFAULT_CATEGORIES];
+    normalizeConfig(config, name);
+    if (!Array.isArray(config.mileage_favorites)) config.mileage_favorites = [];
   } else {
     const { id } = await uploadJson('config.json', defaultConfig, folderId);
     configFileId = id;
@@ -102,11 +156,7 @@ export async function setupBusiness(name, folderId) {
 export async function loadConfig(business) {
   if (!business?.configFileId) return null;
   const cfg = await downloadJson(business.configFileId);
-  // Backfill name for configs written before this field was added
-  if (typeof cfg.name !== 'string' || !cfg.name) cfg.name = business.name ?? '';
-  if (!Array.isArray(cfg.payment_accounts))                          cfg.payment_accounts  = [...DEFAULT_PAYMENT_METHODS];
-  // mileage_favorites are user-owned and live in profile.json, not config.json
-  if (!Array.isArray(cfg.categories) || cfg.categories.length === 0) cfg.categories        = [...DEFAULT_CATEGORIES];
+  normalizeConfig(cfg, business.name ?? '');
   // Backfill business ID — generate and persist if missing, then update store
   if (!cfg.id) {
     cfg.id = crypto.randomUUID();

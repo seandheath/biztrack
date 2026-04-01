@@ -25,13 +25,13 @@
     userEmail,
     updateBusiness,
   } from '$lib/store.js';
-  import { downloadJson, findFile, listFileNames, uploadFile } from '$lib/drive.js';
+  import { listFileNames, uploadFile } from '$lib/drive.js';
   import { pushTransactions, updateByUUID, deleteByUUID, batchSetCategory, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.js';
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
   import { syncStatus, cacheTransactions } from '$lib/sync.js';
-  import { ensureYearFolder } from '$lib/business.js';
+  import { ensureYearFolder, loadBusinessData as _loadBusinessData } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
   import { DEFAULT_CATEGORIES } from '$lib/constants.js';
 
@@ -125,50 +125,24 @@
   // ---------------------------------------------------------------------------
 
   /**
-   * Loads config.json and syncs vendor cache for a given business.
-   * Also ensures the current year folder exists (fast-path if already cached).
+   * Loads config + year folder via shared helper, then syncs expense-specific
+   * vendor cache and sets the default payment method.
    *
    * @param {Object} business
    */
   async function loadBusinessData(business) {
-    if (!business) {
-      businessConfig.set(null);
-      return;
-    }
-
     configLoading = true;
     try {
-      // Resolve configFileId lazily for businesses added before Phase 8
-      let configId = business.configFileId;
-      if (!configId) {
-        configId = await findFile('config.json', business.folderId);
-        if (configId) {
-          const updated = { ...business, configFileId: configId };
-          updateBusiness(updated);
-          business = updated;
-        }
-      }
+      const biz = await _loadBusinessData(business);
+      if (!biz) return;
 
-      // Load config
-      if (configId) {
-        const cfg = await downloadJson(configId);
-        if (!Array.isArray(cfg.payment_accounts))  cfg.payment_accounts  = ['Cash'];
-        if (!Array.isArray(cfg.mileage_favorites)) cfg.mileage_favorites = [];
-        businessConfig.set(cfg);
-        // Default payment method for a fresh load
-        if (!expPayment) expPayment = cfg.payment_accounts[0] ?? '';
-      }
-
-      // Ensure current year folder exists (creates Drive structure if needed)
-      const year = new Date().getFullYear();
-      const updated = await ensureYearFolder(business, year);
-      if (updated !== business) {
-        updateBusiness(updated);
-        business = updated;
-      }
+      // Default payment method for a fresh load
+      const cfg = $businessConfig;
+      if (cfg && !expPayment) expPayment = cfg.payment_accounts?.[0] ?? '';
 
       // Sync vendor autocomplete cache from this year's sheet
-      const sheetId = business.sheetIds?.[year];
+      const year = new Date().getFullYear();
+      const sheetId = biz.sheetIds?.[year];
       if (sheetId) {
         const expenseRows = await pullTransactions(sheetId, 'Expenses');
         const unique = [...new Set(expenseRows.map((r) => r.vendor).filter(Boolean))];

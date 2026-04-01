@@ -17,13 +17,12 @@
     userEmail,
     updateBusiness,
   } from '$lib/store.js';
-  import { downloadJson, findFile } from '$lib/drive.js';
   import { pushTransactions, updateByUUID, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.js';
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
   import { syncStatus, cacheTransactions } from '$lib/sync.js';
-  import { ensureYearFolder, saveMileageFavorite, updateMileageFavorite } from '$lib/business.js';
+  import { ensureYearFolder, saveMileageFavorite, updateMileageFavorite, loadBusinessData as _loadBusinessData } from '$lib/business.js';
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
   import FavoriteRouteList from '../../components/FavoriteRouteList.svelte';
   import Toast from '../../components/Toast.svelte';
@@ -114,40 +113,13 @@
   // ---------------------------------------------------------------------------
 
   /**
-   * Loads config.json and ensures the current year folder exists.
-   *
+   * Loads config + year folder via shared helper.
    * @param {Object} business
    */
   async function loadBusinessData(business) {
-    if (!business) {
-      businessConfig.set(null);
-      return;
-    }
-
     configLoading = true;
     try {
-      let configId = business.configFileId;
-      if (!configId) {
-        configId = await findFile('config.json', business.folderId);
-        if (configId) {
-          const updated = { ...business, configFileId: configId };
-          updateBusiness(updated);
-          business = updated;
-        }
-      }
-
-      if (configId) {
-        const cfg = await downloadJson(configId);
-        if (!Array.isArray(cfg.payment_accounts))  cfg.payment_accounts  = ['Cash'];
-        if (!Array.isArray(cfg.mileage_favorites)) cfg.mileage_favorites = [];
-        businessConfig.set(cfg);
-      }
-
-      const year = new Date().getFullYear();
-      const updated = await ensureYearFolder(business, year);
-      if (updated !== business) {
-        updateBusiness(updated);
-      }
+      await _loadBusinessData(business);
     } catch (err) {
       console.error('[mileage] loadBusinessData:', err);
     } finally {
