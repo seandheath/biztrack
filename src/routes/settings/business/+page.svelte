@@ -4,7 +4,7 @@
   import { get } from 'svelte/store';
   import { businesses, selectedBusiness, businessConfig, mileageFavorites } from '$lib/store.js';
   import { setupBusiness, ensureYearFolder, discoverYearFolders, normalizeConfig } from '$lib/business.js';
-  import { createFolder, findFile, downloadJson } from '$lib/drive.js';
+  import { findFile, downloadJson } from '$lib/drive.js';
   import { saveProfile } from '$lib/profile.js';
   import FolderBrowser from '../../../components/FolderBrowser.svelte';
 
@@ -17,69 +17,41 @@
   /** @type {string|null} */
   let error = $state(null);
 
-  // ---------------------------------------------------------------------------
-  // Folder mode: 'pick' (existing) | 'create' (new)
-  // ---------------------------------------------------------------------------
-
-  /** @type {'pick'|'create'} */
-  let folderMode = $state('pick');
-
-  /** 'pick' mode: the folder selected via browser */
+  /** The folder selected via browser */
   let folder = $state(/** @type {{id:string,name:string}|null} */(null));
-
-  /** 'create' mode: name of the folder to create (falls back to business name) */
-  let newFolderName = $state('');
-
-  /** 'create' mode: optional parent folder (null = Drive root) */
-  let parentFolder = $state(/** @type {{id:string,name:string}|null} */(null));
 
   /** True when the selected folder contains an existing config.json */
   let detectedImport = $state(false);
 
-  function setMode(mode) {
-    folderMode = mode;
-    folder = null;
-    newFolderName = '';
-    parentFolder = null;
-    error = null;
-    detectedImport = false;
-  }
-
   // ---------------------------------------------------------------------------
-  // Folder browser state
+  // Folder browser
   // ---------------------------------------------------------------------------
 
-  let browserOpen   = $state(false);
-  /** Which slot the browser selection will fill: 'main' | 'parent' */
-  let browserTarget = $state(/** @type {'main'|'parent'} */('main'));
+  let browserOpen = $state(false);
 
-  function openBrowser(target) {
-    browserTarget = target;
-    browserOpen   = true;
-    error         = null;
+  function openBrowser() {
+    browserOpen = true;
+    error       = null;
   }
 
   async function handleFolderSelected(picked) {
     browserOpen = false;
-    if (browserTarget === 'main') {
-      folder = picked;
-      detectedImport = false;
+    folder = picked;
+    detectedImport = false;
+    name = '';
 
-      // Probe for existing config.json to detect a BizTrack business
-      try {
-        const configId = await findFile('config.json', picked.id);
-        if (configId) {
-          const config = await downloadJson(configId);
-          normalizeConfig(config, picked.name);
-          name = config.name;
-          detectedImport = true;
-        }
-      } catch (e) {
-        // Detection failed — treat as new folder
-        console.warn('[business] import detection:', e);
+    // Probe for existing config.json to detect a BizTrack business
+    try {
+      const configId = await findFile('config.json', picked.id);
+      if (configId) {
+        const config = await downloadJson(configId);
+        normalizeConfig(config, picked.name);
+        name = config.name;
+        detectedImport = true;
       }
-    } else {
-      parentFolder = picked;
+    } catch (e) {
+      // Detection failed — treat as new folder
+      console.warn('[business] import detection:', e);
     }
   }
 
@@ -92,7 +64,7 @@
     const trimmedName = name.trim();
 
     if (!trimmedName) { error = 'Business name is required.'; return; }
-    if (folderMode === 'pick' && !folder) { error = 'Select a Drive folder first.'; return; }
+    if (!folder) { error = 'Select a Drive folder first.'; return; }
     if ($businesses.some((b) => b.name === trimmedName)) {
       error = `"${trimmedName}" is already added.`;
       return;
@@ -102,14 +74,7 @@
     try {
       const year = new Date().getFullYear();
 
-      let targetFolder = folder;
-      if (folderMode === 'create') {
-        const fname = newFolderName.trim() || trimmedName;
-        const parentId = parentFolder?.id ?? 'root';
-        targetFolder = await createFolder(fname, parentId);
-      }
-
-      const { business, config } = await setupBusiness(trimmedName, targetFolder.id);
+      const { business, config } = await setupBusiness(trimmedName, folder.id);
       const discovered = detectedImport ? await discoverYearFolders(business) : business;
       const withYear = await ensureYearFolder(discovered, year);
 
@@ -136,12 +101,7 @@
   // Derived
   // ---------------------------------------------------------------------------
 
-  let submitDisabled = $derived(
-    loading ||
-    !name.trim() ||
-    (folderMode === 'pick' && !folder)
-  );
-
+  let submitDisabled = $derived(loading || !name.trim() || !folder);
   let submitLabel  = $derived(detectedImport ? 'Import Business' : 'Add Business');
   let spinnerLabel = $derived(detectedImport ? 'Importing…' : 'Setting up…');
 </script>
@@ -149,6 +109,46 @@
 <div class="px-4 py-6 flex flex-col gap-5 max-w-lg mx-auto">
 
   <h2 class="text-xl font-semibold" style="color: var(--color-text);">Add Business</h2>
+
+  <!-- Drive folder section -->
+  <div class="flex flex-col gap-3">
+    <span class="text-sm font-medium" style="color: var(--color-text-muted);">Drive Folder</span>
+
+    <p class="text-xs px-1" style="color: var(--color-text-muted);">
+      Select an existing business folder to import it, or any folder to start fresh.
+    </p>
+
+    <button
+      onclick={openBrowser}
+      disabled={loading}
+      class="rounded-xl border px-4 text-base text-left flex items-center gap-3 hover:opacity-70 transition-opacity disabled:opacity-50"
+      style="
+        min-height: 48px;
+        background-color: var(--color-surface-2);
+        border-color: var(--color-border);
+        color: var(--color-text);
+      "
+    >
+      <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-text-muted);">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+      </svg>
+      {#if folder}
+        <span>{folder.name}</span>
+      {:else}
+        <span style="color: var(--color-text-muted);">Select Drive Folder…</span>
+      {/if}
+    </button>
+
+    {#if detectedImport}
+      <p class="text-xs px-1" style="color: var(--color-primary);">
+        Existing BizTrack business detected — data will be reconnected, not overwritten.
+      </p>
+    {:else if folder}
+      <p class="text-xs px-1" style="color: var(--color-text-muted);">
+        New business — expenses and receipts will be stored in this folder.
+      </p>
+    {/if}
+  </div>
 
   <!-- Business name -->
   <div class="flex flex-col gap-1">
@@ -164,7 +164,7 @@
       type="text"
       bind:value={name}
       placeholder="e.g. Acme LLC"
-      disabled={loading}
+      disabled={loading || detectedImport}
       class="rounded-xl border px-4 text-base outline-none focus:ring-2"
       style="
         min-height: 48px;
@@ -174,130 +174,6 @@
         --tw-ring-color: var(--color-primary);
       "
     />
-  </div>
-
-  <!-- Drive folder section -->
-  <div class="flex flex-col gap-3">
-    <span class="text-sm font-medium" style="color: var(--color-text-muted);">Drive Folder</span>
-
-    <!-- Mode toggle -->
-    <div
-      class="flex rounded-xl overflow-hidden border"
-      style="border-color: var(--color-border);"
-    >
-      <button
-        type="button"
-        onclick={() => setMode('pick')}
-        disabled={loading}
-        class="flex-1 text-sm font-medium py-2 transition-colors"
-        style="
-          background-color: {folderMode === 'pick' ? 'var(--color-primary)' : 'var(--color-surface-2)'};
-          color: {folderMode === 'pick' ? 'var(--color-primary-text)' : 'var(--color-text-muted)'};
-        "
-      >
-        Select Existing
-      </button>
-      <button
-        type="button"
-        onclick={() => setMode('create')}
-        disabled={loading}
-        class="flex-1 text-sm font-medium py-2 transition-colors border-l"
-        style="
-          border-color: var(--color-border);
-          background-color: {folderMode === 'create' ? 'var(--color-primary)' : 'var(--color-surface-2)'};
-          color: {folderMode === 'create' ? 'var(--color-primary-text)' : 'var(--color-text-muted)'};
-        "
-      >
-        Create New
-      </button>
-    </div>
-
-    {#if folderMode === 'pick'}
-      <p class="text-xs px-1" style="color: var(--color-text-muted);">
-        Select an existing business folder to import it, or any folder to start fresh.
-      </p>
-
-      <!-- Existing folder browser trigger -->
-      <button
-        onclick={() => openBrowser('main')}
-        disabled={loading}
-        class="rounded-xl border px-4 text-base text-left flex items-center gap-3 hover:opacity-70 transition-opacity disabled:opacity-50"
-        style="
-          min-height: 48px;
-          background-color: var(--color-surface-2);
-          border-color: var(--color-border);
-          color: var(--color-text);
-        "
-      >
-        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-text-muted);">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
-        </svg>
-        {#if folder}
-          <span>{folder.name}</span>
-        {:else}
-          <span style="color: var(--color-text-muted);">Select Drive Folder…</span>
-        {/if}
-      </button>
-      {#if detectedImport}
-        <p class="text-xs px-1" style="color: var(--color-primary);">
-          Existing BizTrack business detected — data will be reconnected, not overwritten.
-        </p>
-      {:else if folder}
-        <p class="text-xs px-1" style="color: var(--color-text-muted);">
-          New business — expenses and receipts will be stored in this folder.
-        </p>
-      {/if}
-
-    {:else}
-      <!-- New folder name -->
-      <div class="flex flex-col gap-1">
-        <label for="new-folder-name" class="text-xs" style="color: var(--color-text-muted);">Folder Name</label>
-        <input
-          id="new-folder-name"
-          type="text"
-          bind:value={newFolderName}
-          placeholder={name.trim() || 'e.g. Acme LLC'}
-          disabled={loading}
-          class="rounded-xl border px-4 text-base outline-none focus:ring-2"
-          style="
-            min-height: 48px;
-            background-color: var(--color-surface-2);
-            border-color: var(--color-border);
-            color: var(--color-text);
-            --tw-ring-color: var(--color-primary);
-          "
-        />
-      </div>
-
-      <!-- Optional parent folder -->
-      <div class="flex flex-col gap-1">
-        <span class="text-xs" style="color: var(--color-text-muted);">Store Inside (optional)</span>
-        <button
-          onclick={() => openBrowser('parent')}
-          disabled={loading}
-          class="rounded-xl border px-4 text-base text-left flex items-center gap-3 hover:opacity-70 transition-opacity disabled:opacity-50"
-          style="
-            min-height: 48px;
-            background-color: var(--color-surface-2);
-            border-color: var(--color-border);
-            color: var(--color-text);
-          "
-        >
-          <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-text-muted);">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
-          </svg>
-          {#if parentFolder}
-            <span>{parentFolder.name}</span>
-          {:else}
-            <span style="color: var(--color-text-muted);">Drive root (default)</span>
-          {/if}
-        </button>
-      </div>
-
-      <p class="text-xs px-1" style="color: var(--color-text-muted);">
-        A new folder will be created in your Google Drive.
-      </p>
-    {/if}
   </div>
 
   <!-- Error -->
@@ -330,10 +206,10 @@
 
 </div>
 
-<!-- Folder browser modal — rendered outside the form flow -->
+<!-- Folder browser modal -->
 <FolderBrowser
   open={browserOpen}
-  title={browserTarget === 'parent' ? 'Select Parent Folder' : 'Select Folder'}
+  title="Select Folder"
   onselect={handleFolderSelected}
   oncancel={() => { browserOpen = false; }}
 />
