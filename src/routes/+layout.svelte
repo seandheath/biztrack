@@ -20,6 +20,7 @@
   import { findFile, downloadJson } from '$lib/drive.js';
   import * as storage from '$lib/storage.js';
   import { drainQueue } from '$lib/services/offline-queue.js';
+  import { syncStatus, loadCache, writeCache, clearCache } from '$lib/sync.js';
 
   /** @type {{ children: import('svelte').Snippet }} */
   let { children } = $props();
@@ -161,9 +162,23 @@
       if (email) userEmail.set(email);
       if (token && !driveInitialized) {
         driveInitialized = true;
-        appLoading = true;
+
+        // Load cache immediately — app becomes usable without waiting for Drive
+        const hadCache = loadCache();
+        appLoading = !hadCache;
+
+        // Background sync from Drive
+        syncStatus.set('yellow');
         initFromDrive()
-          .then(() => drainQueue().catch(console.warn))
+          .then(() => {
+            writeCache();
+            syncStatus.set('green');
+            return drainQueue().catch(console.warn);
+          })
+          .catch((err) => {
+            console.warn('[sync] Drive init failed:', err);
+            syncStatus.set('red');
+          })
           .finally(() => { appLoading = false; });
       }
     });
@@ -267,6 +282,7 @@
 
   /** Called by Settings → Account sign-out button */
   export function handleSignOut() {
+    clearCache();
     revokeToken();
     // _onTokenUpdate fires → authToken.set(null) → sign-in screen shows
   }
@@ -481,13 +497,21 @@
         <div class="w-8" aria-hidden="true"></div>
       {/if}
 
-      <!-- App title -->
+      <!-- App title with sync indicator -->
       <a
         href="/"
-        class="flex-1 text-center text-lg font-semibold tracking-tight px-2 hover:opacity-70 transition-opacity"
+        class="flex-1 flex items-center justify-center gap-1.5 text-lg font-semibold tracking-tight px-2 hover:opacity-70 transition-opacity"
         style="color: var(--color-text);"
       >
         BizTrack
+        <span
+          class="inline-block w-2 h-2 rounded-full flex-shrink-0"
+          style="background-color: {$syncStatus === 'green' ? '#22c55e' :
+                                     $syncStatus === 'yellow' ? '#eab308' : '#ef4444'};"
+          role="status"
+          aria-label="Sync status: {$syncStatus === 'green' ? 'synced' :
+                                     $syncStatus === 'yellow' ? 'syncing' : 'sync error'}"
+        ></span>
       </a>
 
       <!-- Gear / close icon (hidden on entry form pages) -->

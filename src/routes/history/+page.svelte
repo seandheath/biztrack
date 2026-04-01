@@ -8,6 +8,7 @@
 
   import { selectedBusiness } from '$lib/store.js';
   import { pullTransactions } from '$lib/services/sheets.js';
+  import { syncStatus, getCachedTransactions, cacheTransactions } from '$lib/sync.js';
 
   // ---------------------------------------------------------------------------
   // Tab / year state
@@ -55,10 +56,26 @@
     if (!sid) { rows = []; return; }
     const sheetName = tab === 'mileage' ? 'Mileage' : 'Expenses';
 
-    loading = true;
+    // Load cached rows for instant render
+    const cached = getCachedTransactions(sid, sheetName);
+    if (cached) {
+      rows = cached.sort((a, b) => b.date.localeCompare(a.date));
+    }
+
+    // Background pull from Sheets
+    loading = !cached;
+    syncStatus.set('yellow');
     pullTransactions(sid, sheetName)
-      .then((pulled) => { rows = pulled.sort((a, b) => b.date.localeCompare(a.date)); })
-      .catch((err) => { console.error('[history] pull:', err); rows = []; })
+      .then((pulled) => {
+        rows = pulled.sort((a, b) => b.date.localeCompare(a.date));
+        syncStatus.set('green');
+        cacheTransactions(sid, sheetName, pulled);
+      })
+      .catch((err) => {
+        console.error('[history] pull:', err);
+        syncStatus.set('red');
+        if (!cached) rows = [];
+      })
       .finally(() => { loading = false; });
   });
 

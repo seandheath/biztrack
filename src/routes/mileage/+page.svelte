@@ -18,8 +18,9 @@
   } from '$lib/store.js';
   import { downloadJson, findFile } from '$lib/drive.js';
   import { readRow, findRowByTxnId } from '$lib/sheets.js';
-  import { pushTransactions, updateByUUID } from '$lib/services/sheets.js';
+  import { pushTransactions, updateByUUID, pullTransactions } from '$lib/services/sheets.js';
   import { enqueue } from '$lib/services/offline-queue.js';
+  import { syncStatus, cacheTransactions } from '$lib/sync.js';
   import { ensureYearFolder, saveMileageFavorite, updateMileageFavorite } from '$lib/business.js';
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
   import FavoriteRouteList from '../../components/FavoriteRouteList.svelte';
@@ -275,6 +276,15 @@
       saveFavName = '';
 
       showToast('Mileage saved!', 'success');
+
+      // Background re-pull to update cache
+      syncStatus.set('yellow');
+      pullTransactions(spreadsheetId, 'Mileage')
+        .then((pulled) => {
+          syncStatus.set('green');
+          cacheTransactions(spreadsheetId, 'Mileage', pulled);
+        })
+        .catch(() => syncStatus.set('red'));
     } catch (err) {
       console.error('[mileage] submit:', err);
       showToast(friendlyError(err), 'error');

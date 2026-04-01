@@ -11,7 +11,8 @@
   import { goto } from '$app/navigation';
   import { businesses, selectedBusiness } from '$lib/store.js';
   import { findRowByTxnId, readRow } from '$lib/sheets.js';
-  import { deleteByUUID } from '$lib/services/sheets.js';
+  import { deleteByUUID, pullTransactions } from '$lib/services/sheets.js';
+  import { syncStatus, cacheTransactions } from '$lib/sync.js';
   import Toast from '../../components/Toast.svelte';
 
   // ---------------------------------------------------------------------------
@@ -103,6 +104,16 @@
     try {
       const sheetName = type === 'mileage' ? 'Mileage' : 'Expenses';
       await deleteByUUID(spreadsheetId, sheetName, txnId);
+
+      // Background re-pull to update cache
+      syncStatus.set('yellow');
+      pullTransactions(spreadsheetId, sheetName)
+        .then((pulled) => {
+          syncStatus.set('green');
+          cacheTransactions(spreadsheetId, sheetName, pulled);
+        })
+        .catch(() => syncStatus.set('red'));
+
       goto('/');
     } catch (err) {
       console.error('[transaction] delete:', err);

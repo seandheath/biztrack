@@ -28,6 +28,7 @@
   import { appendRow, readColumn, updateRow, readRow, findRowByTxnId } from '$lib/sheets.js';
   import { pushTransactions, updateByUUID, deleteByUUID, batchSetCategory, pullTransactions } from '$lib/services/sheets.js';
   import { enqueue } from '$lib/services/offline-queue.js';
+  import { syncStatus, cacheTransactions } from '$lib/sync.js';
   import { ensureYearFolder } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
   import { DEFAULT_CATEGORIES } from '$lib/constants.js';
@@ -390,6 +391,15 @@
         }
 
         showToast(splitMode ? `${splits.filter((s) => s.amount && s.category).length} expenses saved!` : 'Expense saved!', 'success');
+
+        // Background re-pull to update cache
+        syncStatus.set('yellow');
+        pullTransactions(spreadsheetId, 'Expenses')
+          .then((pulled) => {
+            syncStatus.set('green');
+            cacheTransactions(spreadsheetId, 'Expenses', pulled);
+          })
+          .catch(() => syncStatus.set('red'));
 
         // Clear fields — preserve date, category, payment for rapid entry
         expVendor   = '';

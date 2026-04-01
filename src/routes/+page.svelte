@@ -13,6 +13,7 @@
   import { goto } from '$app/navigation';
   import { businesses, selectedBusiness, pendingReceipt } from '$lib/store.js';
   import { pullTransactions } from '$lib/services/sheets.js';
+  import { syncStatus, getCachedTransactions, cacheTransactions } from '$lib/sync.js';
   import BusinessDropdown from '../components/BusinessDropdown.svelte';
 
   // ---------------------------------------------------------------------------
@@ -33,14 +34,31 @@
     const spreadsheetId = biz.sheetIds?.[new Date().getFullYear()];
     if (!spreadsheetId) { rows = []; return; }
 
-    loading = true;
+    // Load cached rows immediately — no spinner, no "No expenses" flash
+    const cached = getCachedTransactions(spreadsheetId, 'Expenses');
+    if (cached) {
+      const sorted = cached.sort((a, b) => b.date.localeCompare(a.date));
+      rows = sorted;
+      uncategorizedCount = sorted.filter((r) => !r.category || r.category === 'Uncategorized').length;
+    }
+
+    // Background pull from Sheets (replaces cached rows on success)
+    loading = !cached;
+    syncStatus.set('yellow');
     pullTransactions(spreadsheetId, 'Expenses')
       .then((pulled) => {
         const sorted = pulled.sort((a, b) => b.date.localeCompare(a.date));
         rows = sorted;
         uncategorizedCount = sorted.filter((r) => !r.category || r.category === 'Uncategorized').length;
+        syncStatus.set('green');
+        cacheTransactions(spreadsheetId, 'Expenses', pulled);
       })
-      .catch((err) => { console.error('[home] pull:', err); rows = []; })
+      .catch((err) => {
+        console.error('[home] pull:', err);
+        syncStatus.set('red');
+        // Keep cached rows visible — don't clear on error
+        if (!cached) rows = [];
+      })
       .finally(() => { loading = false; });
   });
 
