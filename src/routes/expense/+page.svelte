@@ -31,7 +31,7 @@
   import { toast, showToast } from '$lib/toast.svelte.js';
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
-  import { syncStatus, cacheTransactions } from '$lib/sync.js';
+  import { syncStatus, cacheTransactions, invalidatePull } from '$lib/sync.js';
   import { ensureYearFolder, loadBusinessData as _loadBusinessData, addPaymentMethod } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
   import { DEFAULT_CATEGORIES } from '$lib/constants.js';
@@ -284,6 +284,13 @@
             throw err;
           }
           showToast(`Split into ${validLines.length} expenses!`, 'success');
+          // Sync cache before navigating so destination page has fresh data
+          invalidatePull(spreadsheetId);
+          if (shareSheetId !== spreadsheetId) invalidatePull(shareSheetId);
+          try {
+            const pulled = await pullTransactions(spreadsheetId, 'Expenses');
+            cacheTransactions(spreadsheetId, 'Expenses', pulled);
+          } catch (err) { console.warn('[expense] post-split cache sync:', err); }
           if (returnTo) { goto(returnTo); return; }
           shareMode = false;
         } else {
@@ -314,6 +321,13 @@
             throw err;
           }
           showToast('Details saved!', 'success');
+          // Sync cache before navigating so destination page has fresh data
+          invalidatePull(spreadsheetId);
+          if (shareSheetId !== spreadsheetId) invalidatePull(shareSheetId);
+          try {
+            const pulled = await pullTransactions(spreadsheetId, 'Expenses');
+            cacheTransactions(spreadsheetId, 'Expenses', pulled);
+          } catch (err) { console.warn('[expense] post-edit cache sync:', err); }
           if (returnTo) {
             if (applyToAll && expVendor && expCategory) {
               const biz = $selectedBusiness;
@@ -400,6 +414,7 @@
         showToast(splitMode ? `${splits.filter((s) => s.amount && s.category).length} expenses saved!` : 'Expense saved!', 'success');
 
         // Background re-pull to update cache
+        invalidatePull(spreadsheetId);
         syncStatus.set('yellow');
         pullTransactions(spreadsheetId, 'Expenses')
           .then((pulled) => {

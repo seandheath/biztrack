@@ -24,7 +24,7 @@
   import { toast, showToast } from '$lib/toast.svelte.js';
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
-  import { syncStatus, cacheTransactions, getCachedTransactions } from '$lib/sync.js';
+  import { syncStatus, cacheTransactions, getCachedTransactions, invalidatePull } from '$lib/sync.js';
   import { ensureYearFolder, saveMileageFavorite, updateMileageFavorite, loadBusinessData as _loadBusinessData } from '$lib/business.js';
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
   import FavoriteRouteList from '../../components/FavoriteRouteList.svelte';
@@ -283,6 +283,7 @@
       showToast('Mileage saved!', 'success');
 
       // Background re-pull to update cache
+      invalidatePull(spreadsheetId);
       syncStatus.set('yellow');
       pullTransactions(spreadsheetId, 'Mileage')
         .then((pulled) => {
