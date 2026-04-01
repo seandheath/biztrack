@@ -175,25 +175,6 @@ export function refreshToken(loginHint) {
   });
 }
 
-/**
- * Attempts silent re-authentication on app open.
- * If Google's session cookie is alive, this resolves with no UI shown.
- * If the Google session has also expired, it rejects — caller should then
- * show the normal sign-in screen.
- *
- * Requires initTokenClient() to have been called first.
- *
- * @param {string} loginHint - Email stored in localStorage from a prior session
- * @returns {Promise<void>}
- */
-export function attemptSilentAuth(loginHint) {
-  return new Promise((resolve, reject) => {
-    _pendingResolve = resolve;
-    _pendingReject = reject;
-    _tokenClient.requestAccessToken({ prompt: '', login_hint: loginHint });
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Private GIS callbacks
 // ---------------------------------------------------------------------------
