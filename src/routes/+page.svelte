@@ -13,7 +13,7 @@
   import { goto } from '$app/navigation';
   import { businesses, selectedBusiness, pendingReceipt } from '$lib/store.js';
   import { pullTransactions } from '$lib/services/sheets.js';
-  import { syncStatus, getCachedTransactions, cacheTransactions } from '$lib/sync.js';
+  import { syncStatus, getCachedTransactions, cacheTransactions, shouldPull, markPullStarted, markPullComplete, markPullFailed } from '$lib/sync.js';
   import BusinessDropdown from '../components/BusinessDropdown.svelte';
 
   // ---------------------------------------------------------------------------
@@ -41,8 +41,13 @@
     return tagged.sort((a, b) => b.date.localeCompare(a.date));
   }
 
+  // Generation counter for stale-pull detection — when the $effect re-runs
+  // (e.g. selectedBusiness changes), previous in-flight results are discarded.
+  let pullGen = 0;
+
   $effect(() => {
     const biz = $selectedBusiness;
+    const gen = ++pullGen;
     if (!biz) { rows = []; uncategorizedCount = 0; return; }
     const spreadsheetId = biz.sheetIds?.[new Date().getFullYear()];
     if (!spreadsheetId) { rows = []; return; }
@@ -57,26 +62,36 @@
       uncategorizedCount = (cachedExp ?? []).filter((r) => !r.category || r.category === 'Uncategorized').length;
     }
 
+    // Skip network pull if one is already in-flight or cooldown hasn't expired.
+    // On full page reload modules reinitialize so shouldPull() returns true.
+    // On in-app navigation the cooldown (60 s) prevents redundant fetches.
+    if (!shouldPull(spreadsheetId)) return;
+
     // Background pull from both sheets in parallel
     loading = !hasCached;
     syncStatus.set('yellow');
+    markPullStarted(spreadsheetId);
     Promise.all([
       pullTransactions(spreadsheetId, 'Expenses'),
       pullTransactions(spreadsheetId, 'Mileage'),
     ])
       .then(([pulledExp, pulledMil]) => {
+        if (gen !== pullGen) return; // stale — effect re-ran, discard
         rows = mergeAndSort(pulledExp, pulledMil);
         uncategorizedCount = pulledExp.filter((r) => !r.category || r.category === 'Uncategorized').length;
         syncStatus.set('green');
+        markPullComplete(spreadsheetId);
         cacheTransactions(spreadsheetId, 'Expenses', pulledExp);
         cacheTransactions(spreadsheetId, 'Mileage', pulledMil);
       })
       .catch((err) => {
+        if (gen !== pullGen) return;
         console.error('[home] pull:', err);
         syncStatus.set('red');
+        markPullFailed(spreadsheetId);
         if (!hasCached) rows = [];
       })
-      .finally(() => { loading = false; });
+      .finally(() => { if (gen === pullGen) loading = false; });
   });
 
   // ---------------------------------------------------------------------------

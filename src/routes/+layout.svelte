@@ -24,7 +24,7 @@
   import { findFile, downloadJson } from '$lib/drive.js';
   import * as storage from '$lib/storage.js';
   import { drainQueue } from '$lib/services/offline-queue.js';
-  import { syncStatus, loadCache, writeCache, clearCache } from '$lib/sync.js';
+  import { syncStatus, loadCache, writeCache, clearCache, getCachedBusinesses } from '$lib/sync.js';
 
   /** @type {{ children: import('svelte').Snippet }} */
   let { children } = $props();
@@ -90,11 +90,23 @@
    * finds config.json (→ id) and scans year subfolders (→ sheetIds etc.).
    * Populates the businesses store from scratch — no localStorage cache.
    */
+  /**
+   * Discovers business structure from Drive on every session start.
+   * Returns true if all businesses hydrated successfully, false if any
+   * fell back to cached data (caller should set sync status accordingly).
+   */
   async function initFromDrive() {
+    let usedFallback = false;
     try {
       const rootFolderId = await ensureBizTrackFolder();
       const profile = await loadProfile(rootFolderId);
-      if (!profile?.businesses?.length) return;
+      if (!profile?.businesses?.length) return usedFallback;
+
+      // Build lookup of cached businesses so we can fall back on hydration failure
+      // instead of caching a broken skeleton with empty sheetIds.
+      const cachedByFolder = new Map(
+        getCachedBusinesses().map((b) => [b.folderId, b]),
+      );
 
       const currentYear = new Date().getFullYear();
       const hydrated = await Promise.all(
@@ -112,6 +124,12 @@
             return await ensureYearFolder(discovered, currentYear);
           } catch (err) {
             console.warn(`[init] failed to hydrate "${name}":`, err);
+            // Fall back to cached version to preserve sheetIds and transaction access
+            const cached = cachedByFolder.get(folderId);
+            if (cached) {
+              usedFallback = true;
+              return cached;
+            }
             return { name, folderId, configFileId: null, id: null, yearFolders: {}, sheetIds: {}, receiptFolderIds: {} };
           }
         })
@@ -126,6 +144,7 @@
     } catch (err) {
       console.warn('[init] Drive discovery failed:', err);
     }
+    return usedFallback;
   }
 
   const IOS_PROMPT_KEY = 'biztrack_ios_prompt_dismissed';
@@ -174,9 +193,9 @@
         // Background sync from Drive
         syncStatus.set('yellow');
         initFromDrive()
-          .then(() => {
+          .then((usedFallback) => {
             writeCache();
-            syncStatus.set('green');
+            syncStatus.set(usedFallback ? 'yellow' : 'green');
             return drainQueue().catch(console.warn);
           })
           .catch((err) => {

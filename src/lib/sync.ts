@@ -14,10 +14,55 @@ import { writable, get } from 'svelte/store';
 import type { Writable } from 'svelte/store';
 import * as storage from './storage.js';
 import { businesses, selectedBusiness, mileageFavorites, businessConfig } from './store.js';
-import type { SyncCache, SyncStatus } from './types.js';
+import type { Business, SyncCache, SyncStatus } from './types.js';
 import type { TransactionRow } from './services/sheets.js';
 
 type SheetName = 'Expenses' | 'Mileage';
+
+// ---------------------------------------------------------------------------
+// Pull gate — controls when network pulls are allowed
+// ---------------------------------------------------------------------------
+// Module-level state: resets on full page reload (modules reinitialize),
+// persists across client-side navigations (SvelteKit keeps modules alive).
+
+const PULL_COOLDOWN_MS = 60_000;
+const _lastPull = new Map<string, number>();
+const _pullInFlight = new Set<string>();
+
+/**
+ * Returns true when a network pull should be initiated for this spreadsheet.
+ * False when a pull is already in-flight or the cooldown hasn't expired.
+ */
+export function shouldPull(spreadsheetId: string): boolean {
+  if (_pullInFlight.has(spreadsheetId)) return false;
+  const ts = _lastPull.get(spreadsheetId);
+  return !ts || (Date.now() - ts >= PULL_COOLDOWN_MS);
+}
+
+/** Mark a pull as started — prevents duplicate pulls for the same spreadsheet. */
+export function markPullStarted(spreadsheetId: string): void {
+  _pullInFlight.add(spreadsheetId);
+}
+
+/** Mark a pull as successfully completed — starts the cooldown timer. */
+export function markPullComplete(spreadsheetId: string): void {
+  _pullInFlight.delete(spreadsheetId);
+  _lastPull.set(spreadsheetId, Date.now());
+}
+
+/** Mark a pull as failed — clears in-flight without starting cooldown (allows retry). */
+export function markPullFailed(spreadsheetId: string): void {
+  _pullInFlight.delete(spreadsheetId);
+}
+
+/**
+ * Invalidates the pull cooldown for a spreadsheet (or all if none specified).
+ * Call after writes so the next navigation triggers a fresh pull.
+ */
+export function invalidatePull(spreadsheetId?: string): void {
+  if (spreadsheetId) _lastPull.delete(spreadsheetId);
+  else _lastPull.clear();
+}
 
 const CACHE_KEY = 'bt_cache';
 
@@ -47,6 +92,14 @@ function _readCache(): SyncCache | null {
 /** Writes the full cache object. */
 function _writeCache(data: SyncCache): void {
   storage.set(CACHE_KEY, data);
+}
+
+/**
+ * Returns cached business objects from localStorage.
+ * Used by initFromDrive() to fall back to cached data when hydration fails.
+ */
+export function getCachedBusinesses(): Business[] {
+  return _readCache()?.businesses ?? [];
 }
 
 /**
@@ -83,8 +136,23 @@ export function loadCache(): boolean {
  */
 export function writeCache(): void {
   const existing = _readCache();
+
+  // Guard: don't overwrite a cached business that has populated sheetIds
+  // with a store version that has empty sheetIds (broken skeleton from
+  // a failed hydration).
+  const cachedByFolder = new Map(
+    (existing?.businesses ?? []).map((b) => [b.folderId, b]),
+  );
+  const safeBiz = get(businesses).map((b) => {
+    if (Object.keys(b.sheetIds ?? {}).length === 0) {
+      const cached = cachedByFolder.get(b.folderId);
+      if (cached && Object.keys(cached.sheetIds ?? {}).length > 0) return cached;
+    }
+    return b;
+  });
+
   const data: SyncCache = {
-    businesses: get(businesses),
+    businesses: safeBiz,
     mileageFavorites: get(mileageFavorites),
     businessConfigs: existing?.businessConfigs ?? {},
     transactions: existing?.transactions ?? {},

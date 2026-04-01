@@ -9,7 +9,7 @@
 
   import { selectedBusiness } from '$lib/store.js';
   import { pullTransactions } from '$lib/services/sheets.js';
-  import { syncStatus, getCachedTransactions, cacheTransactions } from '$lib/sync.js';
+  import { syncStatus, getCachedTransactions, cacheTransactions, shouldPull, markPullStarted, markPullComplete, markPullFailed } from '$lib/sync.js';
 
   // ---------------------------------------------------------------------------
   // Year state
@@ -61,8 +61,12 @@
     return tagged.sort((a, b) => b.date.localeCompare(a.date));
   }
 
+  // Generation counter for stale-pull detection
+  let pullGen = 0;
+
   $effect(() => {
     const sid = spreadsheetId;
+    const gen = ++pullGen;
     if (!sid) { rows = []; return; }
 
     // Load cached rows for instant render
@@ -73,25 +77,33 @@
       rows = mergeAndSort(cachedExp ?? [], cachedMil ?? []);
     }
 
+    // Skip network pull if one is already in-flight or cooldown hasn't expired
+    if (!shouldPull(sid)) return;
+
     // Background pull from both sheets in parallel
     loading = !hasCached;
     syncStatus.set('yellow');
+    markPullStarted(sid);
     Promise.all([
       pullTransactions(sid, 'Expenses'),
       pullTransactions(sid, 'Mileage'),
     ])
       .then(([pulledExp, pulledMil]) => {
+        if (gen !== pullGen) return; // stale — effect re-ran, discard
         rows = mergeAndSort(pulledExp, pulledMil);
         syncStatus.set('green');
+        markPullComplete(sid);
         cacheTransactions(sid, 'Expenses', pulledExp);
         cacheTransactions(sid, 'Mileage', pulledMil);
       })
       .catch((err) => {
+        if (gen !== pullGen) return;
         console.error('[history] pull:', err);
         syncStatus.set('red');
+        markPullFailed(sid);
         if (!hasCached) rows = [];
       })
-      .finally(() => { loading = false; });
+      .finally(() => { if (gen === pullGen) loading = false; });
   });
 
   // ---------------------------------------------------------------------------
