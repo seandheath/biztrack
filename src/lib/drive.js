@@ -12,7 +12,11 @@ import { throwApiError } from './api-error.js';
 
 const FILES_URL = 'https://www.googleapis.com/drive/v3/files';
 const UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files';
+const DRIVES_URL = 'https://www.googleapis.com/drive/v3/drives';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
+
+// Shared/Team Drive support — append to any files endpoint URL.
+const ALL_DRIVES = 'supportsAllDrives=true&includeItemsFromAllDrives=true';
 
 /** @param {Response} r @param {string} ctx */
 async function _throwDriveError(r, ctx) { return throwApiError(r, `Drive ${ctx}`); }
@@ -29,7 +33,7 @@ async function _throwDriveError(r, ctx) { return throwApiError(r, `Drive ${ctx}`
  * @returns {Promise<{id: string, name: string}>}
  */
 export async function createFolder(name, parentId) {
-  const response = await apiFetch(FILES_URL, {
+  const response = await apiFetch(`${FILES_URL}?${ALL_DRIVES}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -56,7 +60,7 @@ export async function listFileNames(parentId) {
   const allFiles = [];
   let pageToken = '';
   do {
-    const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(name),nextPageToken&pageSize=1000`
+    const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(name),nextPageToken&pageSize=1000&${ALL_DRIVES}`
       + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
     const response = await apiFetch(url);
     if (!response.ok) await _throwDriveError(response, 'listFileNames');
@@ -78,10 +82,51 @@ export async function listFolders(parentId) {
   const allFiles = [];
   let pageToken = '';
   do {
-    const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id,name),nextPageToken&pageSize=1000`
+    const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id,name),nextPageToken&pageSize=1000&${ALL_DRIVES}`
       + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
     const response = await apiFetch(url);
     if (!response.ok) await _throwDriveError(response, 'listFolders');
+    const data = await response.json();
+    allFiles.push(...(data.files ?? []));
+    pageToken = data.nextPageToken ?? '';
+  } while (pageToken);
+  return allFiles;
+}
+
+/**
+ * Lists all Shared Drives (Team Drives) the user has access to.
+ *
+ * @returns {Promise<Array<{id: string, name: string}>>}
+ */
+export async function listSharedDrives() {
+  const allDrives = [];
+  let pageToken = '';
+  do {
+    const url = `${DRIVES_URL}?fields=drives(id,name),nextPageToken&pageSize=100`
+      + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
+    const response = await apiFetch(url);
+    if (!response.ok) await _throwDriveError(response, 'listSharedDrives');
+    const data = await response.json();
+    allDrives.push(...(data.drives ?? []));
+    pageToken = data.nextPageToken ?? '';
+  } while (pageToken);
+  return allDrives;
+}
+
+/**
+ * Lists all non-trashed folders that have been shared with the current user.
+ *
+ * @returns {Promise<Array<{id: string, name: string}>>}
+ */
+export async function listSharedFolders() {
+  const q = `sharedWithMe=true and mimeType='${FOLDER_MIME}' and trashed=false`;
+  const allFiles = [];
+  let pageToken = '';
+  do {
+    const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id,name),nextPageToken&pageSize=1000&${ALL_DRIVES}`
+      + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
+    const response = await apiFetch(url);
+    if (!response.ok) await _throwDriveError(response, 'listSharedFolders');
     const data = await response.json();
     allFiles.push(...(data.files ?? []));
     pageToken = data.nextPageToken ?? '';
@@ -100,7 +145,7 @@ export async function findFile(name, parentId) {
   // Escape single quotes in the name for Drive query syntax
   const safeName = name.replace(/'/g, "\\'");
   const q = `name='${safeName}' and '${parentId}' in parents and trashed=false`;
-  const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=10`;
+  const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=10&${ALL_DRIVES}`;
 
   const response = await apiFetch(url);
   if (!response.ok) await _throwDriveError(response, 'findFile');
@@ -115,7 +160,7 @@ export async function findFile(name, parentId) {
  * @returns {Promise<{id: string, name: string, parents: string[]}>}
  */
 export async function getFileMeta(fileId) {
-  const url = `${FILES_URL}/${encodeURIComponent(fileId)}?fields=id,name,parents`;
+  const url = `${FILES_URL}/${encodeURIComponent(fileId)}?fields=id,name,parents&${ALL_DRIVES}`;
   const response = await apiFetch(url);
   if (!response.ok) await _throwDriveError(response, 'getFileMeta');
   return response.json();
@@ -143,7 +188,7 @@ export async function uploadFile(filename, blob, mimeType, parentId) {
   form.append('metadata', new Blob([metadata], { type: 'application/json' }));
   form.append('file', blob);
 
-  const response = await apiFetch(`${UPLOAD_URL}?uploadType=multipart&fields=id,name`, {
+  const response = await apiFetch(`${UPLOAD_URL}?uploadType=multipart&fields=id,name&${ALL_DRIVES}`, {
     method: 'POST',
     body: form,
     // Do NOT set Content-Type — browser sets it with the correct boundary
@@ -161,7 +206,7 @@ export async function uploadFile(filename, blob, mimeType, parentId) {
  * @returns {Promise<Object>} Parsed JSON content
  */
 export async function downloadJson(fileId) {
-  const url = `${FILES_URL}/${encodeURIComponent(fileId)}?alt=media`;
+  const url = `${FILES_URL}/${encodeURIComponent(fileId)}?alt=media&${ALL_DRIVES}`;
   const response = await apiFetch(url);
   if (!response.ok) await _throwDriveError(response, 'downloadJson');
   return response.json();
@@ -189,7 +234,7 @@ export async function uploadJson(filename, data, parentId) {
  * @returns {Promise<{id: string}>}
  */
 export async function updateJson(fileId, data) {
-  const url = `${UPLOAD_URL}/${encodeURIComponent(fileId)}?uploadType=media&fields=id`;
+  const url = `${UPLOAD_URL}/${encodeURIComponent(fileId)}?uploadType=media&fields=id&${ALL_DRIVES}`;
   const response = await apiFetch(url, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -212,7 +257,7 @@ export async function moveFile(fileId, newParentId, oldParentId) {
     `${FILES_URL}/${encodeURIComponent(fileId)}` +
     `?addParents=${encodeURIComponent(newParentId)}` +
     `&removeParents=${encodeURIComponent(oldParentId)}` +
-    `&fields=id,parents`;
+    `&fields=id,parents&${ALL_DRIVES}`;
 
   const response = await apiFetch(url, {
     method: 'PATCH',

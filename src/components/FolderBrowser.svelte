@@ -12,37 +12,80 @@
     oncancel  {()=>void}                         — called on close / cancel
 -->
 <script>
-  import { listFolders } from '$lib/drive.js';
+  import { listFolders, listSharedDrives, listSharedFolders } from '$lib/drive.js';
   import Spinner from './Spinner.svelte';
+
+  // Sentinel IDs for virtual navigation nodes (not real Drive folder IDs).
+  const VIRTUAL_ROOT    = '__vroot__';
+  const SHARED_WITH_ME  = '__shared_with_me__';
 
   let { open, title = 'Select Folder', onselect, oncancel } = $props();
 
   // Navigation stack — last item is the folder currently being viewed.
-  // Starts at Drive root; navigating into a sub-folder pushes onto the stack.
-  let stack   = $state([{ id: 'root', name: 'My Drive' }]);
+  // Starts at a virtual root that lists drive locations.
+  let stack   = $state([{ id: VIRTUAL_ROOT, name: 'Drive' }]);
   let folders = $state([]);
   let loading = $state(false);
   let error   = $state(null);
 
   let current   = $derived(stack[stack.length - 1]);
-  // Selecting is only allowed once the user has navigated into at least one folder.
-  let canSelect = $derived(stack.length > 1);
+  // Selecting is only allowed on a real Drive folder (not a virtual node).
+  let canSelect = $derived(
+    stack.length > 1 &&
+    current.id !== VIRTUAL_ROOT &&
+    current.id !== SHARED_WITH_ME
+  );
 
-  // Reset and load root whenever the modal opens.
+  // Reset and load virtual root whenever the modal opens.
   $effect(() => {
     if (open) {
-      stack   = [{ id: 'root', name: 'My Drive' }];
-      error   = null;
-      loadFolders('root');
+      stack = [{ id: VIRTUAL_ROOT, name: 'Drive' }];
+      error = null;
+      loadVirtualRoot();
     }
   });
+
+  /** Shows the top-level location picker: My Drive, Shared with me, Shared Drives. */
+  async function loadVirtualRoot() {
+    loading = true;
+    error   = null;
+    try {
+      const drives = await listSharedDrives();
+      folders = [
+        { id: 'root', name: 'My Drive' },
+        { id: SHARED_WITH_ME, name: 'Shared with me' },
+        ...drives.sort((a, b) => a.name.localeCompare(b.name)),
+      ];
+    } catch (err) {
+      console.error('[FolderBrowser] loadVirtualRoot:', err);
+      error = 'Could not load drives. Check your connection and try again.';
+      folders = [];
+    } finally {
+      loading = false;
+    }
+  }
+
+  /** Lists folders shared with the user (flat list, not hierarchical). */
+  async function loadSharedWithMe() {
+    loading = true;
+    error   = null;
+    try {
+      folders = await listSharedFolders();
+      folders = [...folders].sort((a, b) => a.name.localeCompare(b.name));
+    } catch (err) {
+      console.error('[FolderBrowser] loadSharedWithMe:', err);
+      error = 'Could not load shared folders.';
+      folders = [];
+    } finally {
+      loading = false;
+    }
+  }
 
   async function loadFolders(parentId) {
     loading = true;
     error   = null;
     try {
       folders = await listFolders(parentId);
-      // Sort alphabetically for consistent presentation
       folders = [...folders].sort((a, b) => a.name.localeCompare(b.name));
     } catch (err) {
       console.error('[FolderBrowser] loadFolders:', err);
@@ -53,25 +96,32 @@
     }
   }
 
+  /** Dispatches to the correct loader based on the target node. */
+  function loadNode(id) {
+    if (id === VIRTUAL_ROOT)   return loadVirtualRoot();
+    if (id === SHARED_WITH_ME) return loadSharedWithMe();
+    return loadFolders(id);
+  }
+
   function navigate(folder) {
     stack = [...stack, { id: folder.id, name: folder.name }];
-    loadFolders(folder.id);
+    loadNode(folder.id);
   }
 
   function navigateTo(index) {
     stack = stack.slice(0, index + 1);
-    loadFolders(stack[stack.length - 1].id);
+    loadNode(stack[stack.length - 1].id);
   }
 
   function handleSelect() {
     const picked = current;
-    stack   = [{ id: 'root', name: 'My Drive' }];
+    stack   = [{ id: VIRTUAL_ROOT, name: 'Drive' }];
     folders = [];
     onselect(picked);
   }
 
   function handleCancel() {
-    stack   = [{ id: 'root', name: 'My Drive' }];
+    stack   = [{ id: VIRTUAL_ROOT, name: 'Drive' }];
     folders = [];
     oncancel();
   }
