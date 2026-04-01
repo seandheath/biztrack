@@ -72,6 +72,11 @@
   /** Editable name for the currently matched favorite (update flow). */
   let milUpdateFavName = $state('');
 
+  // Delete state — edit mode only
+  let confirmDelete = $state(false);
+  let deleting      = $state(false);
+  let deleteError   = $state('');
+
   /** Whether to double entered miles (round trip). */
   let milRoundTrip = $state(false);
 
@@ -187,6 +192,24 @@
     if (!milDriver.trim())          errs.driver = 'Required';
     milErrors = errs;
     return Object.keys(errs).length === 0;
+  }
+
+  async function handleDelete() {
+    if (!confirmDelete) { confirmDelete = true; return; }
+    deleting = true;
+    deleteError = '';
+    try {
+      const year = new Date(milDate + 'T00:00:00').getFullYear();
+      const spreadsheetId = $selectedBusiness?.sheetIds?.[year] ?? editSheetId;
+      await deleteByUUID(spreadsheetId, 'Mileage', editTxnId);
+      goto(returnTo || '/');
+    } catch (err) {
+      console.error('[mileage] delete:', err);
+      deleteError = 'Delete failed. Try again.';
+      confirmDelete = false;
+    } finally {
+      deleting = false;
+    }
   }
 
   async function submitMileage() {
@@ -649,6 +672,25 @@
           {editMode ? 'Save Changes' : 'Save Mileage'}
         {/if}
       </button>
+
+      <!-- Delete — only in edit mode -->
+      {#if returnTo}
+        {#if deleteError}
+          <p class="text-xs text-center" style="color: var(--color-error);">{deleteError}</p>
+        {/if}
+        <button
+          type="button"
+          onclick={handleDelete}
+          disabled={deleting}
+          class="text-sm hover:opacity-70 transition-all disabled:opacity-50 px-2 py-2 self-center rounded-lg"
+          style="
+            color: {confirmDelete ? '#ffffff' : 'var(--color-error)'};
+            background-color: {confirmDelete ? 'var(--color-error)' : 'transparent'};
+          "
+        >
+          {#if deleting}Deleting…{:else if confirmDelete}Confirm delete?{:else}Delete{/if}
+        </button>
+      {/if}
 
     </form>
   {/if}
