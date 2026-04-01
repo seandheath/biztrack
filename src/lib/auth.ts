@@ -26,6 +26,7 @@
 // ---------------------------------------------------------------------------
 
 import { GOOGLE_CLIENT_ID, DRIVE_SCOPE } from './constants.js';
+import type { TokenUpdate } from './types.js';
 
 // localStorage keys for token persistence across tab closes
 const _LS_TOKEN  = 'bt_at';
@@ -43,14 +44,14 @@ export { GOOGLE_API_KEY, GOOGLE_APP_ID } from './constants.js';
 // Private module state
 // ---------------------------------------------------------------------------
 
-/** @type {string|null} Current OAuth access token */
-let _token = null;
+/** Current OAuth access token */
+let _token: string | null = null;
 
-/** @type {Date|null} Expiry timestamp of the current token */
-let _tokenExpiry = null;
+/** Expiry timestamp of the current token */
+let _tokenExpiry: Date | null = null;
 
-/** @type {string|null} Signed-in user's email address */
-let _userEmail = null;
+/** Signed-in user's email address */
+let _userEmail: string | null = null;
 
 // Restore a still-valid token from localStorage.
 // Tokens expire after ~1 hour; localStorage lets the app skip re-auth on tab reopen.
@@ -72,28 +73,21 @@ try {
   }
 } catch { /* localStorage unavailable */ }
 
-/** @type {Object|null} GIS TokenClient instance */
-let _tokenClient = null;
+/** GIS TokenClient instance */
+let _tokenClient: google.accounts.oauth2.TokenClient | null = null;
 
-/**
- * Deduplicates concurrent loadGisScript() calls.
- * @type {Promise<void>|null}
- */
-let _scriptPromise = null;
+/** Deduplicates concurrent loadGisScript() calls. */
+let _scriptPromise: Promise<void> | null = null;
 
 // Callbacks registered by +layout.svelte
-/** @type {((update: {token: string|null, expiry: Date|null, email: string|null}) => void)|null} */
-let _onTokenUpdate = null;
+let _onTokenUpdate: ((update: TokenUpdate) => void) | null = null;
 
-/** @type {(() => void)|null} Fired on 401 or missing token to trigger sign-in screen */
-let _onAuthRequired = null;
+/** Fired on 401 or missing token to trigger sign-in screen */
+let _onAuthRequired: (() => void) | null = null;
 
 // One-shot resolve/reject for requestToken() / refreshToken() promises
-/** @type {(() => void)|null} */
-let _pendingResolve = null;
-
-/** @type {((reason: unknown) => void)|null} */
-let _pendingReject = null;
+let _pendingResolve: (() => void) | null = null;
+let _pendingReject: ((reason: unknown) => void) | null = null;
 
 // ---------------------------------------------------------------------------
 // Script loading
@@ -102,10 +96,8 @@ let _pendingReject = null;
 /**
  * Dynamically loads the Google Identity Services script.
  * Safe to call multiple times — concurrent callers share the same promise.
- *
- * @returns {Promise<void>}
  */
-export function loadGisScript() {
+export function loadGisScript(): Promise<void> {
   if (_scriptPromise) return _scriptPromise;
   _scriptPromise = new Promise((resolve, reject) => {
     const script = document.createElement('script');
@@ -131,7 +123,7 @@ export function loadGisScript() {
  * Must be called after loadGisScript() resolves.
  * GIS supports only one initTokenClient() call per page load.
  */
-export function initTokenClient() {
+export function initTokenClient(): void {
   if (_tokenClient) return;
   _tokenClient = window.google.accounts.oauth2.initTokenClient({
     client_id: GOOGLE_CLIENT_ID,
@@ -148,14 +140,12 @@ export function initTokenClient() {
 /**
  * Triggers the GIS sign-in popup and requests an access token.
  * Shows the full account chooser and consent screen.
- *
- * @returns {Promise<void>} Resolves when token is received and stored.
  */
-export function requestToken() {
+export function requestToken(): Promise<void> {
   return new Promise((resolve, reject) => {
     _pendingResolve = resolve;
     _pendingReject = reject;
-    _tokenClient.requestAccessToken({ prompt: 'select_account' });
+    _tokenClient!.requestAccessToken({ prompt: 'select_account' });
   });
 }
 
@@ -163,15 +153,12 @@ export function requestToken() {
  * Silently refreshes the access token using a saved login hint.
  * Shows minimal UI — at most an account picker, no re-consent.
  * Used for the "Session expiring" banner flow (spec §4.2).
- *
- * @param {string} loginHint - The signed-in user's email address
- * @returns {Promise<void>}
  */
-export function refreshToken(loginHint) {
+export function refreshToken(loginHint: string): Promise<void> {
   return new Promise((resolve, reject) => {
     _pendingResolve = resolve;
     _pendingReject = reject;
-    _tokenClient.requestAccessToken({ prompt: '', login_hint: loginHint });
+    _tokenClient!.requestAccessToken({ prompt: '', login_hint: loginHint });
   });
 }
 
@@ -181,9 +168,8 @@ export function refreshToken(loginHint) {
 
 /**
  * GIS token response callback. Fires on both success and error.
- * @param {Object} tokenResponse
  */
-function _handleTokenResponse(tokenResponse) {
+function _handleTokenResponse(tokenResponse: google.accounts.oauth2.TokenResponse): void {
   if (tokenResponse.error) {
     const err = tokenResponse.error;
     const resolve = _pendingResolve;
@@ -192,9 +178,9 @@ function _handleTokenResponse(tokenResponse) {
     _pendingReject = null;
     // popup_closed_by_user is not an error — user intentionally dismissed
     if (err === 'popup_closed_by_user' || err === 'access_denied') {
-      reject(err);
+      reject?.(err);
     } else {
-      reject(new Error(`Auth error: ${err}`));
+      reject?.(new Error(`Auth error: ${err}`));
     }
     return;
   }
@@ -224,9 +210,8 @@ function _handleTokenResponse(tokenResponse) {
 
 /**
  * GIS error_callback — fires for non-consent errors (popup blocked, etc.)
- * @param {Object} error
  */
-function _handleTokenError(error) {
+function _handleTokenError(error: unknown): void {
   const reject = _pendingReject;
   _pendingResolve = null;
   _pendingReject = null;
@@ -238,7 +223,7 @@ function _handleTokenError(error) {
  * The GIS token model does not return email in the token response.
  * Fires a second _onTokenUpdate when the email is available.
  */
-async function _fetchUserEmail() {
+async function _fetchUserEmail(): Promise<void> {
   try {
     // Use Drive About API (drive.file scope is sufficient) instead of the
     // userinfo endpoint, which requires the 'email'/'openid' scope.
@@ -261,36 +246,26 @@ async function _fetchUserEmail() {
 // Token inspection
 // ---------------------------------------------------------------------------
 
-/**
- * Returns the current access token, or null if not signed in.
- * @returns {string|null}
- */
-export function getToken() {
+/** Returns the current access token, or null if not signed in. */
+export function getToken(): string | null {
   return _token;
 }
 
-/**
- * Returns the signed-in user's email, or null if unknown.
- * @returns {string|null}
- */
-export function getEmail() {
+/** Returns the signed-in user's email, or null if unknown. */
+export function getEmail(): string | null {
   return _userEmail;
 }
 
-/**
- * Returns true if a token exists and has not expired.
- * @returns {boolean}
- */
-export function isTokenValid() {
+/** Returns true if a token exists and has not expired. */
+export function isTokenValid(): boolean {
   return !!_token && !!_tokenExpiry && _tokenExpiry > new Date();
 }
 
 /**
  * Returns seconds until the token expires, or 0 if no token / already expired.
  * Used by the session expiry banner check (< 300s → show banner).
- * @returns {number}
  */
-export function getTokenSecondsRemaining() {
+export function getTokenSecondsRemaining(): number {
   if (!_token || !_tokenExpiry) return 0;
   return Math.max(0, (_tokenExpiry.getTime() - Date.now()) / 1000);
 }
@@ -303,7 +278,7 @@ export function getTokenSecondsRemaining() {
  * Revokes the current token and clears all auth state.
  * Notifies registered callbacks so Svelte stores reset to unauthenticated.
  */
-export async function revokeToken() {
+export async function revokeToken(): Promise<void> {
   if (_token) {
     // Fire-and-forget revocation — no need to await
     window.google.accounts.oauth2.revoke(_token, () => {});
@@ -337,10 +312,8 @@ export async function revokeToken() {
 /**
  * Registers a callback to be called whenever token state changes.
  * Called by +layout.svelte to bridge auth events into Svelte stores.
- *
- * @param {(update: {token: string|null, expiry: Date|null, email: string|null}) => void} callback
  */
-export function onTokenUpdate(callback) {
+export function onTokenUpdate(callback: (update: TokenUpdate) => void): void {
   _onTokenUpdate = callback;
   // If a token was restored from localStorage before this callback was
   // registered, notify immediately so the authToken store transitions to
@@ -360,10 +333,8 @@ export function onTokenUpdate(callback) {
  * Registers a callback to be called when re-authentication is required
  * (401 response or missing token on an API call).
  * Called by +layout.svelte to show the sign-in screen.
- *
- * @param {() => void} callback
  */
-export function onAuthRequired(callback) {
+export function onAuthRequired(callback: () => void): void {
   _onAuthRequired = callback;
 }
 
@@ -380,12 +351,8 @@ export function onAuthRequired(callback) {
  * - Returns the raw Response — callers handle .json() and response.ok
  *
  * Used by drive.js (Phase 3) and sheets.js (Phase 4).
- *
- * @param {string} url
- * @param {RequestInit} [options]
- * @returns {Promise<Response>}
  */
-export async function apiFetch(url, options = {}) {
+export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
   if (!isTokenValid()) {
     _onAuthRequired?.();
     throw new Error('Not authenticated');
@@ -396,11 +363,11 @@ export async function apiFetch(url, options = {}) {
     Authorization: `Bearer ${_token}`,
   };
 
-  let response;
+  let response: Response;
   try {
     response = await fetch(url, { ...options, headers });
   } catch (err) {
-    throw new Error(`Network error: ${err.message}`);
+    throw new Error(`Network error: ${(err as Error).message}`);
   }
 
   if (response.status === 401) {

@@ -9,6 +9,7 @@
 
 import { apiFetch } from './auth.js';
 import { throwApiError } from './api-error.js';
+import type { DriveFile, DriveFileMeta } from './types.js';
 
 const FILES_URL = 'https://www.googleapis.com/drive/v3/files';
 const UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files';
@@ -18,8 +19,7 @@ const FOLDER_MIME = 'application/vnd.google-apps.folder';
 // Shared/Team Drive support — append to any files endpoint URL.
 const ALL_DRIVES = 'supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives';
 
-/** @param {Response} r @param {string} ctx */
-async function _throwDriveError(r, ctx) { return throwApiError(r, `Drive ${ctx}`); }
+async function _throwDriveError(r: Response, ctx: string): Promise<never> { return throwApiError(r, `Drive ${ctx}`); }
 
 // ---------------------------------------------------------------------------
 // Folder operations
@@ -28,11 +28,10 @@ async function _throwDriveError(r, ctx) { return throwApiError(r, `Drive ${ctx}`
 /**
  * Creates a Drive folder inside a parent folder.
  *
- * @param {string} name - Folder name
- * @param {string} parentId - Parent folder ID (use 'root' for Drive root)
- * @returns {Promise<{id: string, name: string}>}
+ * @param name - Folder name
+ * @param parentId - Parent folder ID (use 'root' for Drive root)
  */
-export async function createFolder(name, parentId) {
+export async function createFolder(name: string, parentId: string): Promise<DriveFile> {
   const response = await apiFetch(`${FILES_URL}?${ALL_DRIVES}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -52,12 +51,11 @@ export async function createFolder(name, parentId) {
  * Lists names of all non-trashed files (non-folder) directly inside a folder.
  * Used to enumerate existing receipt filenames for increment generation.
  *
- * @param {string} parentId - Parent folder ID
- * @returns {Promise<string[]>} Array of file names
+ * @param parentId - Parent folder ID
  */
-export async function listFileNames(parentId) {
+export async function listFileNames(parentId: string): Promise<string[]> {
   const q = `'${parentId}' in parents and mimeType!='${FOLDER_MIME}' and trashed=false`;
-  const allFiles = [];
+  const allFiles: Array<{ name: string }> = [];
   let pageToken = '';
   do {
     const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(name),nextPageToken&pageSize=1000&${ALL_DRIVES}`
@@ -74,12 +72,11 @@ export async function listFileNames(parentId) {
 /**
  * Lists all non-trashed folders directly inside a parent folder.
  *
- * @param {string} parentId - Parent folder ID
- * @returns {Promise<Array<{id: string, name: string}>>}
+ * @param parentId - Parent folder ID
  */
-export async function listFolders(parentId) {
+export async function listFolders(parentId: string): Promise<DriveFile[]> {
   const q = `'${parentId}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`;
-  const allFiles = [];
+  const allFiles: DriveFile[] = [];
   let pageToken = '';
   do {
     const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id,name),nextPageToken&pageSize=1000&${ALL_DRIVES}`
@@ -95,11 +92,9 @@ export async function listFolders(parentId) {
 
 /**
  * Lists all Shared Drives (Team Drives) the user has access to.
- *
- * @returns {Promise<Array<{id: string, name: string}>>}
  */
-export async function listSharedDrives() {
-  const allDrives = [];
+export async function listSharedDrives(): Promise<DriveFile[]> {
+  const allDrives: DriveFile[] = [];
   let pageToken = '';
   do {
     const url = `${DRIVES_URL}?fields=drives(id,name),nextPageToken&pageSize=100`
@@ -115,12 +110,10 @@ export async function listSharedDrives() {
 
 /**
  * Lists all non-trashed folders that have been shared with the current user.
- *
- * @returns {Promise<Array<{id: string, name: string}>>}
  */
-export async function listSharedFolders() {
+export async function listSharedFolders(): Promise<DriveFile[]> {
   const q = `sharedWithMe=true and mimeType='${FOLDER_MIME}' and trashed=false`;
-  const allFiles = [];
+  const allFiles: DriveFile[] = [];
   let pageToken = '';
   do {
     const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id,name),nextPageToken&pageSize=1000&${ALL_DRIVES}`
@@ -137,11 +130,11 @@ export async function listSharedFolders() {
 /**
  * Finds a file or folder by exact name within a parent folder.
  *
- * @param {string} name - Exact filename or folder name to search for
- * @param {string} parentId - Parent folder ID
- * @returns {Promise<string|null>} File ID, or null if not found
+ * @param name - Exact filename or folder name to search for
+ * @param parentId - Parent folder ID
+ * @returns File ID, or null if not found
  */
-export async function findFile(name, parentId) {
+export async function findFile(name: string, parentId: string): Promise<string | null> {
   // Escape single quotes in the name for Drive query syntax
   const safeName = name.replace(/'/g, "\\'");
   const q = `name='${safeName}' and '${parentId}' in parents and trashed=false`;
@@ -155,11 +148,8 @@ export async function findFile(name, parentId) {
 
 /**
  * Returns metadata for a specific file or folder.
- *
- * @param {string} fileId
- * @returns {Promise<{id: string, name: string, parents: string[]}>}
  */
-export async function getFileMeta(fileId) {
+export async function getFileMeta(fileId: string): Promise<DriveFileMeta> {
   const url = `${FILES_URL}/${encodeURIComponent(fileId)}?fields=id,name,parents&${ALL_DRIVES}`;
   const response = await apiFetch(url);
   if (!response.ok) await _throwDriveError(response, 'getFileMeta');
@@ -173,13 +163,12 @@ export async function getFileMeta(fileId) {
 /**
  * Uploads a file to Drive using multipart upload (supports up to 5MB).
  *
- * @param {string} filename
- * @param {Blob} blob - File content
- * @param {string} mimeType - MIME type of the file content
- * @param {string} parentId - Destination folder ID
- * @returns {Promise<{id: string, name: string}>}
+ * @param filename
+ * @param blob - File content
+ * @param mimeType - MIME type of the file content
+ * @param parentId - Destination folder ID
  */
-export async function uploadFile(filename, blob, mimeType, parentId) {
+export async function uploadFile(filename: string, blob: Blob, mimeType: string, parentId: string): Promise<DriveFile> {
   const metadata = JSON.stringify({ name: filename, parents: [parentId], mimeType });
 
   // Drive multipart upload: boundary-delimited metadata + file content.
@@ -201,11 +190,8 @@ export async function uploadFile(filename, blob, mimeType, parentId) {
 
 /**
  * Downloads and parses a JSON file from Drive.
- *
- * @param {string} fileId
- * @returns {Promise<Object>} Parsed JSON content
  */
-export async function downloadJson(fileId) {
+export async function downloadJson<T = unknown>(fileId: string): Promise<T> {
   const url = `${FILES_URL}/${encodeURIComponent(fileId)}?alt=media&${ALL_DRIVES}`;
   const response = await apiFetch(url);
   if (!response.ok) await _throwDriveError(response, 'downloadJson');
@@ -215,12 +201,11 @@ export async function downloadJson(fileId) {
 /**
  * Creates a new JSON file in Drive.
  *
- * @param {string} filename
- * @param {Object} data - Data to serialize as JSON
- * @param {string} parentId - Destination folder ID
- * @returns {Promise<{id: string, name: string}>}
+ * @param filename
+ * @param data - Data to serialize as JSON
+ * @param parentId - Destination folder ID
  */
-export async function uploadJson(filename, data, parentId) {
+export async function uploadJson(filename: string, data: unknown, parentId: string): Promise<DriveFile> {
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   return uploadFile(filename, blob, 'application/json', parentId);
 }
@@ -228,12 +213,8 @@ export async function uploadJson(filename, data, parentId) {
 /**
  * Overwrites an existing Drive file with new JSON content.
  * Uses media upload (metadata unchanged — name/parents are not updated).
- *
- * @param {string} fileId
- * @param {Object} data - New data to serialize as JSON
- * @returns {Promise<{id: string}>}
  */
-export async function updateJson(fileId, data) {
+export async function updateJson(fileId: string, data: unknown): Promise<{ id: string }> {
   const url = `${UPLOAD_URL}/${encodeURIComponent(fileId)}?uploadType=media&fields=id&${ALL_DRIVES}`;
   const response = await apiFetch(url, {
     method: 'PATCH',
@@ -247,12 +228,11 @@ export async function updateJson(fileId, data) {
 /**
  * Moves a file from one folder to another.
  *
- * @param {string} fileId
- * @param {string} newParentId - Destination folder ID
- * @param {string} oldParentId - Current parent folder ID (required to remove it)
- * @returns {Promise<{id: string}>}
+ * @param fileId
+ * @param newParentId - Destination folder ID
+ * @param oldParentId - Current parent folder ID (required to remove it)
  */
-export async function moveFile(fileId, newParentId, oldParentId) {
+export async function moveFile(fileId: string, newParentId: string, oldParentId: string): Promise<{ id: string }> {
   const url =
     `${FILES_URL}/${encodeURIComponent(fileId)}` +
     `?addParents=${encodeURIComponent(newParentId)}` +
