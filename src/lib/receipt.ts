@@ -13,10 +13,8 @@
 
 /**
  * Returns true if the file is an image type.
- * @param {File} file
- * @returns {boolean}
  */
-export function isImage(file) {
+export function isImage(file: File): boolean {
   return file.type.startsWith('image/');
 }
 
@@ -25,12 +23,11 @@ export function isImage(file) {
  * Returns a JPEG Blob at the specified quality (default 70%).
  * Downscales the image if either dimension exceeds maxWidth.
  *
- * @param {File} file          - Source image file (JPEG, PNG, HEIC, etc.)
- * @param {number} quality     - JPEG quality, 0–1 (default 0.7)
- * @param {number} maxWidth    - Max dimension in pixels (default 1920)
- * @returns {Promise<Blob>}    - Compressed JPEG blob
+ * @param file - Source image file (JPEG, PNG, HEIC, etc.)
+ * @param quality - JPEG quality, 0–1 (default 0.7)
+ * @param maxWidth - Max dimension in pixels (default 1920)
  */
-export function compressReceipt(file, quality = 0.7, maxWidth = 1920) {
+export function compressReceipt(file: File, quality = 0.7, maxWidth = 1920): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -53,7 +50,7 @@ export function compressReceipt(file, quality = 0.7, maxWidth = 1920) {
       const canvas = document.createElement('canvas');
       canvas.width  = w;
       canvas.height = h;
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d')!;
       ctx.drawImage(img, 0, 0, w, h);
 
       canvas.toBlob(
@@ -78,10 +75,8 @@ export function compressReceipt(file, quality = 0.7, maxWidth = 1920) {
 /**
  * Processes a receipt file — compresses images, passes PDFs through.
  *
- * @param {File} file
- * @returns {Promise<{blob: Blob, ext: string}>}
  */
-export async function processReceipt(file) {
+export async function processReceipt(file: File): Promise<{ blob: Blob; ext: string }> {
   if (isImage(file)) {
     const blob = await compressReceipt(file);
     return { blob, ext: 'jpg' };
@@ -94,13 +89,12 @@ export async function processReceipt(file) {
  * Generates a unique filename for a receipt.
  * Format: YYYY-MM-DD_VENDOR_N.ext
  *
- * @param {string} vendor             - Vendor name (will be sanitized)
- * @param {string} date               - ISO date string, e.g. "2026-03-27"
- * @param {string} ext                - File extension without dot, e.g. "jpg"
- * @param {string[]} existingNames    - Filenames already in the receipts folder
- * @returns {string}
+ * @param vendor - Vendor name (will be sanitized)
+ * @param date - ISO date string, e.g. "2026-03-27"
+ * @param ext - File extension without dot, e.g. "jpg"
+ * @param existingNames - Filenames already in the receipts folder
  */
-export function generateFilename(vendor, date, ext, existingNames = []) {
+export function generateFilename(vendor: string, date: string, ext: string, existingNames: string[] = []): string {
   // Sanitize vendor: replace spaces with underscores, strip non-alphanumeric, truncate
   const safeVendor = vendor
     .trim()

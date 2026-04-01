@@ -10,21 +10,19 @@
 // Google credentials
 // ---------------------------------------------------------------------------
 
-/** @type {string} OAuth 2.0 client ID from Google Cloud Console */
-export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+/** OAuth 2.0 client ID from Google Cloud Console */
+export const GOOGLE_CLIENT_ID: string = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 /**
  * API key restricted to Google Picker API.
  * Public by design (spec §9.3) — kept out of source control via .env.
- * @type {string}
  */
-export const GOOGLE_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY;
+export const GOOGLE_API_KEY: string = import.meta.env.VITE_GOOGLE_API_KEY;
 
 /**
  * Google Cloud project number (numeric string), required by the Picker API.
- * @type {string}
  */
-export const GOOGLE_APP_ID = import.meta.env.VITE_GOOGLE_APP_ID;
+export const GOOGLE_APP_ID: string = import.meta.env.VITE_GOOGLE_APP_ID;
 
 /**
  * Drive OAuth scope:
@@ -34,14 +32,14 @@ export const GOOGLE_APP_ID = import.meta.env.VITE_GOOGLE_APP_ID;
  * users or app instances. Narrower scopes (drive.file, drive.metadata.readonly)
  * cannot read or write those files, blocking import and multi-user workflows.
  */
-export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
+export const DRIVE_SCOPE: string = 'https://www.googleapis.com/auth/drive';
 
 // ---------------------------------------------------------------------------
 // Payment methods
 // ---------------------------------------------------------------------------
 
 /** Default payment method — always present, cannot be deleted */
-export const DEFAULT_PAYMENT_METHODS = ['Cash'];
+export const DEFAULT_PAYMENT_METHODS: readonly string[] = ['Cash'] as const;
 
 // ---------------------------------------------------------------------------
 // IRS standard mileage rates
@@ -50,9 +48,8 @@ export const DEFAULT_PAYMENT_METHODS = ['Cash'];
 /**
  * IRS standard mileage rates by year (USD per mile).
  * Update 2026 when the IRS announces the rate.
- * @type {Record<number, number>}
  */
-export const IRS_RATES = {
+export const IRS_RATES: Record<number, number> = {
   2024: 0.67,
   2025: 0.70,
   2026: 0.70,
@@ -66,9 +63,8 @@ export const IRS_RATES = {
  * Default category set for new businesses covering both Schedule C (sole
  * proprietor / LLC) and Schedule E (rental / royalty) IRS line items.
  * Saved to config.json and user-editable via Settings → Expense Categories.
- * @type {string[]}
  */
-export const DEFAULT_CATEGORIES = [
+export const DEFAULT_CATEGORIES: readonly string[] = [
   'Uncategorized',
 
   // Income (Schedule E)
@@ -100,4 +96,4 @@ export const DEFAULT_CATEGORIES = [
   'Utilities',                     // Sch C line 25 / Sch E line 17
   'Wages',                         // Sch C line 26
   'Other Expenses',
-];
+] as const;

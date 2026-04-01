@@ -5,11 +5,10 @@
  * from non-ok responses. This utility centralizes the pattern so each layer
  * doesn't duplicate the JSON-body-parsing logic.
  *
- * @param {Response} response - The non-ok fetch Response
- * @param {string} context - Short label for the failing operation (e.g. 'listFolders')
- * @returns {Promise<never>}
+ * @param response - The non-ok fetch Response
+ * @param context - Short label for the failing operation (e.g. 'listFolders')
  */
-export async function throwApiError(response, context) {
+export async function throwApiError(response: Response, context: string): Promise<never> {
   let message = `${context} failed (HTTP ${response.status})`;
   try {
     const body = await response.json();
