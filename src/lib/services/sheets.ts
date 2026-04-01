@@ -8,7 +8,7 @@
  *
  * Expense column order (A–J):
  *   A=date  B=vendor  C=description  D=amount  E=category
- *   F=paymentMethod  G=receiptDriveId  H=notes  I=submittedBy  J=id (UUID)
+ *   F=paymentMethod  G=receipt  H=notes  I=submittedBy  J=id (UUID)
  *
  * Mileage column order (A–G):
  *   A=date  B=from  C=to  D=purpose  E=miles  F=savedBy  G=id (UUID)
@@ -33,7 +33,7 @@ export interface TransactionRow {
   amount?: string;
   category?: string;
   paymentMethod?: string;
-  receiptDriveId?: string;
+  receipt?: string;
   notes?: string;
   submittedBy?: string;
   // Mileage fields
@@ -144,7 +144,7 @@ function _rowToValues(row: TransactionRow, sheetName: SheetName): (string | numb
       row.amount       ?? '',
       row.category     ?? '',
       row.paymentMethod ?? '',
-      row.receiptDriveId ?? '',
+      row.receipt ?? '',
       row.notes        ?? '',
       row.submittedBy  ?? '',
       row.id,
@@ -174,7 +174,7 @@ function _valuesToRow(values: string[], sheetName: SheetName): TransactionRow {
       amount:         s(values[3]),
       category:       s(values[4]),
       paymentMethod:  s(values[5]),
-      receiptDriveId: s(values[6]),
+      receipt: s(values[6]),
       notes:          s(values[7]),
       submittedBy:    s(values[8]),
       id:             s(values[9]),

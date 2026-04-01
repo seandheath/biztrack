@@ -205,7 +205,7 @@
           amount:        String(row.amount),
           category:      row.category,
           paymentMethod,
-          receiptDriveId: '',
+          receipt: '',
           notes:         '',
           submittedBy:   $userEmail ?? '',
         });

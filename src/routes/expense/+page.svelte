@@ -234,13 +234,13 @@
       const amount = parseFloat(expAmount);
 
       // Upload receipt to Drive if one is attached (requires network)
-      let receiptDriveId = '';
+      let receiptFilename = '';
       if (expReceipt && receiptFolderId) {
         const { blob, ext }  = await processReceipt(expReceipt);
         const existingNames  = await listFileNames(receiptFolderId);
         const filename       = generateFilename(expVendor.trim(), expDate, ext, existingNames);
-        const uploaded       = await uploadFile(filename, blob, blob.type || 'application/octet-stream', receiptFolderId);
-        receiptDriveId       = uploaded.id;
+        await uploadFile(filename, blob, blob.type || 'application/octet-stream', receiptFolderId);
+        receiptFilename      = filename;
       }
 
       const spreadsheetId = biz.sheetIds?.[year];
@@ -256,7 +256,7 @@
           amount:         String(amount),
           category:       expCategory,
           paymentMethod:  expPayment,
-          receiptDriveId: receiptDriveId || '',
+          receipt: receiptFilename || '',
           notes:          expNotes.trim(),
           submittedBy:    shareSubmittedBy,
         };
@@ -300,7 +300,7 @@
           date:           expDate,
           vendor:         expVendor.trim(),
           paymentMethod:  expPayment,
-          receiptDriveId: receiptDriveId || '',
+          receipt: receiptFilename || '',
           notes:          expNotes.trim(),
           submittedBy:    $userEmail ?? '',
         };

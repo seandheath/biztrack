@@ -100,11 +100,11 @@
 
   function transactionUrl(row) {
     const year = new Date(row.date + 'T00:00:00').getFullYear();
-    const u = new URL('/transaction', window.location.origin);
+    const route = row._type === 'mileage' ? '/mileage' : '/expense';
+    const u = new URL(route, window.location.origin);
     u.searchParams.set('biz',  $selectedBusiness.id ?? $selectedBusiness.folderId);
     u.searchParams.set('year', String(year));
     u.searchParams.set('txn',  row.id);
-    if (row._type === 'mileage') u.searchParams.set('type', 'mileage');
     return u.toString();
   }
 
@@ -215,7 +215,7 @@
                   <span class="text-xs" style="color: var(--color-text-muted);">{row.date}{row.category ? ' · ' + row.category : ''}</span>
                 </div>
                 <div class="flex items-center gap-1.5 flex-shrink-0">
-                  {#if row.receiptDriveId}
+                  {#if row.receipt}
                     <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"
                          aria-label="Receipt attached" style="color: var(--color-text-muted);">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
