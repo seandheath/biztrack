@@ -198,7 +198,7 @@
             <a
               href={transactionUrl(row)}
               class="w-full flex items-center justify-between px-4 hover:opacity-80 transition-opacity"
-              style="min-height: 52px; display: flex;"
+              style="min-height: 52px; display: flex; background-color: var(--color-surface-3);"
               aria-label="View entry from {row.date}"
             >
               <div class="flex flex-col gap-0.5 min-w-0 flex-1 pr-3">

@@ -177,7 +177,7 @@
               <a
                 href={transactionUrl(row)}
                 class="w-full flex items-center px-4 text-left hover:opacity-80 transition-opacity"
-                style="min-height: 64px; display: flex;"
+                style="min-height: 64px; display: flex; background-color: var(--color-surface-3);"
                 aria-label="View mileage: {row.from} to {row.to}, {row.date}"
               >
                 <div class="flex flex-col gap-0.5 flex-1 min-w-0 pr-3">
