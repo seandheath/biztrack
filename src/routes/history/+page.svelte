@@ -116,6 +116,7 @@
     u.searchParams.set('year', selectedYear);
     u.searchParams.set('txn',  row.id);
     if (row._type === 'mileage') u.searchParams.set('type', 'mileage');
+    u.searchParams.set('returnTo', '/history');
     return u.toString();
   }
 

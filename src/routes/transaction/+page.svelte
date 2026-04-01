@@ -35,6 +35,8 @@
   let txnId = $state('');
   /** 'expense' or 'mileage' */
   let type  = $state('expense');
+  /** Route to navigate back to (e.g. '/history'). */
+  let returnTo = $state('');
 
   /** 1-based row number in the sheet (for delete). */
   let rowNum        = $state(/** @type {number|null} */(null));
@@ -50,6 +52,7 @@
     u.searchParams.set('biz',  bizId);
     u.searchParams.set('year', String(year));
     u.searchParams.set('txn',  txnId);
+    if (returnTo) u.searchParams.set('returnTo', returnTo);
     return u.toString();
   }
 
@@ -98,7 +101,7 @@
         })
         .catch(() => syncStatus.set('red'));
 
-      goto('/');
+      goto(returnTo || '/');
     } catch (err) {
       console.error('[transaction] delete:', err);
       deleteError = 'Delete failed. Try again.';
@@ -118,6 +121,7 @@
     year  = parseInt(sp.get('year') ?? '0', 10);
     txnId = sp.get('txn') ?? '';
     type  = sp.get('type') ?? 'expense';
+    returnTo = sp.get('returnTo') ?? '';
 
     if (!bizId || !year || !txnId) {
       loadError = 'Invalid link.';
@@ -298,7 +302,7 @@
     <!-- Action row -->
     <div class="flex gap-3 flex-wrap">
       <a
-        href="/"
+        href={returnTo || '/'}
         class="rounded-xl text-sm px-4 flex-shrink-0 flex items-center justify-center transition-opacity hover:opacity-70"
         style="min-height: 44px; background-color: var(--color-surface-2); color: var(--color-text-muted); border: 1px solid var(--color-border);"
       >

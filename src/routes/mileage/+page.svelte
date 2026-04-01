@@ -60,6 +60,8 @@
   let editRowNum    = $state(/** @type {number|null} */(null));
   let editSheetId   = $state('');
   let editTxnId     = $state('');
+  /** Route to navigate to after a successful edit-mode save (e.g. '/history'). */
+  let returnTo      = $state('');
 
   /** True when the "save as favorite" name input is visible */
   let saveFavOpen    = $state(false);
@@ -211,13 +213,13 @@
           if (!navigator.onLine) {
             enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'update', row: updatedRow });
             showToast('Saved offline — will sync when back online', 'success');
-            goto('/');
+            goto(returnTo || '/');
             return;
           }
           throw err;
         }
         showToast('Mileage updated!', 'success');
-        goto('/');
+        goto(returnTo || '/');
         return;
       }
 
@@ -375,6 +377,7 @@
     const bizId  = sp.get('biz');
     const yearStr = sp.get('year');
     const txnId  = sp.get('txn');
+    returnTo = sp.get('returnTo') ?? '';
 
     if (bizId && yearStr && txnId) {
       editLoading = true;
