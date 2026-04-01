@@ -131,7 +131,7 @@ export async function setupBusiness(name, folderId) {
 
   const business = {
     id: config.id,
-    name,
+    name: config.name,
     folderId,
     configFileId,
     yearFolders: {},
