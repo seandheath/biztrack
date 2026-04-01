@@ -25,7 +25,7 @@ const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
 /** Column values as they appear in (or come from) the spreadsheet. */
 export interface TransactionRow {
-  id: string;             // UUID — Expenses col J, Mileage col H
+  id: string;             // UUID — Expenses col J, Mileage col G
   date: string;
   // Expense fields
   vendor?: string;
@@ -454,4 +454,49 @@ export async function pullTransactions(
       return _valuesToRow(padded, sheetName);
     })
     .filter((row) => Boolean(row.id));
+}
+
+/**
+ * Reads a single data row by 1-based row number and returns a typed TransactionRow.
+ *
+ * @param spreadsheetId - Google Sheets spreadsheet ID
+ * @param sheetName - "Expenses" or "Mileage"
+ * @param rowNum - 1-based sheet row number (row 1 is the header)
+ */
+export async function readRow(
+  spreadsheetId: string,
+  sheetName: SheetName,
+  rowNum: number,
+): Promise<TransactionRow> {
+  const endCol = sheetName === 'Expenses' ? 'J' : 'G';
+  const range = encodeURIComponent(`${sheetName}!A${rowNum}:${endCol}${rowNum}`);
+  const url = `${SHEETS_BASE}/${spreadsheetId}/values/${range}`;
+
+  const response = await apiFetch(url);
+  if (!response.ok) return _throwSheetsError(response, 'readRow');
+
+  const data = await response.json();
+  const row: string[] = data.values?.[0] ?? [];
+  const colCount = sheetName === 'Expenses' ? 10 : 7;
+  const padded = Array.from({ length: colCount }, (_, i) => String(row[i] ?? ''));
+  return _valuesToRow(padded, sheetName);
+}
+
+/**
+ * Scans the UUID column for a transaction ID and returns its 1-based row number.
+ * Returns null if the UUID is not found.
+ *
+ * @param spreadsheetId - Google Sheets spreadsheet ID
+ * @param txnId - UUID to search for
+ * @param sheetName - "Expenses" or "Mileage" (defaults to "Expenses")
+ */
+export async function findRowByTxnId(
+  spreadsheetId: string,
+  txnId: string,
+  sheetName: SheetName = 'Expenses',
+): Promise<number | null> {
+  const ids = await _readIdColumn(spreadsheetId, sheetName);
+  const idx = ids.findIndex((v) => v === txnId);
+  if (idx === -1) return null;
+  return idx + 2; // row 1 is header; data index 0 → sheet row 2
 }

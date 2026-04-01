@@ -13,7 +13,7 @@
  */
 
 import { findFile, downloadJson, uploadJson, updateJson, createFolder, moveFile, listFolders } from './drive.js';
-import { createExpenseSheet } from './sheets.js';
+import { initSpreadsheet } from './services/sheets.js';
 import { DEFAULT_PAYMENT_METHODS, DEFAULT_CATEGORIES } from './constants.js';
 import { get } from 'svelte/store';
 import { businessConfig, businesses, selectedBusiness, mileageFavorites } from './store.js';
@@ -344,7 +344,7 @@ async function _doEnsureYearFolder(business, year) {
 
     // Sheet missing (was deleted) and no cached ID — create a fresh one
     if (!existingSheetId && !business.sheetIds?.[year]) {
-      const { spreadsheetId } = await createExpenseSheet(`${year}_${safeName}_expenses`);
+      const { spreadsheetId } = await initSpreadsheet(`${year}_${safeName}_expenses`);
       await moveFile(spreadsheetId, existingFolderId, 'root');
       existingSheetId = spreadsheetId;
     }
@@ -368,7 +368,7 @@ async function _doEnsureYearFolder(business, year) {
 
   // Create the expense sheet — lands in Drive root, must be moved immediately
   const safeName = driveFileName(business.name);
-  const { spreadsheetId } = await createExpenseSheet(`${year}_${safeName}_expenses`);
+  const { spreadsheetId } = await initSpreadsheet(`${year}_${safeName}_expenses`);
 
   // Move sheet from Drive root into the year folder
   await moveFile(spreadsheetId, yearFolderId, 'root');

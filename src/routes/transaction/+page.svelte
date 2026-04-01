@@ -10,8 +10,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { businesses, selectedBusiness } from '$lib/store.js';
-  import { findRowByTxnId, readRow } from '$lib/sheets.js';
-  import { deleteByUUID, pullTransactions } from '$lib/services/sheets.js';
+  import { deleteByUUID, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.js';
   import { syncStatus, cacheTransactions } from '$lib/sync.js';
   import Toast from '../../components/Toast.svelte';
@@ -135,33 +134,33 @@
       spreadsheetId = sheetId;
 
       if (type === 'mileage') {
-        const rn = await findRowByTxnId(sheetId, txnId, 'Mileage', 'G');
+        const rn = await findRowByTxnId(sheetId, txnId, 'Mileage');
         if (rn === null) throw new Error('Mileage entry not found.');
         rowNum = rn;
-        const raw = await readRow(sheetId, 'Mileage', rowNum);
+        const row = await readRow(sheetId, 'Mileage', rowNum);
         fields = {
-          date:    raw[0] ?? '',
-          from:    raw[1] ?? '',
-          to:      raw[2] ?? '',
-          purpose: raw[3] ?? '',
-          miles:   raw[4] ?? '',
-          savedBy: raw[5] ?? '',
+          date:    row.date    ?? '',
+          from:    row.from    ?? '',
+          to:      row.to      ?? '',
+          purpose: row.purpose ?? '',
+          miles:   row.miles   ?? '',
+          savedBy: row.savedBy ?? '',
         };
       } else {
         const rn = await findRowByTxnId(sheetId, txnId);
         if (rn === null) throw new Error('Transaction not found.');
         rowNum = rn;
-        const raw = await readRow(sheetId, 'Expenses', rowNum);
+        const row = await readRow(sheetId, 'Expenses', rowNum);
         fields = {
-          date:        raw[0] ?? '',
-          vendor:      raw[1] ?? '',
-          desc:        raw[2] ?? '',
-          amount:      raw[3] ?? '',
-          category:    raw[4] ?? '',
-          payment:     raw[5] ?? '',
-          receipt:     raw[6] ?? '',
-          notes:       raw[7] ?? '',
-          submittedBy: raw[8] ?? '',
+          date:        row.date           ?? '',
+          vendor:      row.vendor         ?? '',
+          desc:        row.description    ?? '',
+          amount:      row.amount         ?? '',
+          category:    row.category       ?? '',
+          payment:     row.paymentMethod  ?? '',
+          receipt:     row.receiptDriveId ?? '',
+          notes:       row.notes          ?? '',
+          submittedBy: row.submittedBy    ?? '',
         };
       }
     } catch (err) {

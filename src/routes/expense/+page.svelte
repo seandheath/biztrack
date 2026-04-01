@@ -26,8 +26,7 @@
     updateBusiness,
   } from '$lib/store.js';
   import { downloadJson, findFile, listFileNames, uploadFile } from '$lib/drive.js';
-  import { readRow, findRowByTxnId } from '$lib/sheets.js';
-  import { pushTransactions, updateByUUID, deleteByUUID, batchSetCategory, pullTransactions } from '$lib/services/sheets.js';
+  import { pushTransactions, updateByUUID, deleteByUUID, batchSetCategory, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.js';
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
@@ -538,16 +537,16 @@
         if (rowNum === null) throw new Error('Transaction not found.');
         shareRowNum = rowNum;
 
-        const raw = await readRow(sheetId, 'Expenses', rowNum);
-        expDate          = raw[0] || todayISO();
-        expVendor        = raw[1] || '';
-        expDesc          = raw[2] || '';
-        expAmount        = raw[3] || '';
-        expCategory      = raw[4] || '';
-        expPayment       = raw[5] || '';
-        expNotes         = raw[7] || '';
-        shareSubmittedBy = raw[8] || '';
-        shareTxnId       = raw[9] || txnId;
+        const row = await readRow(sheetId, 'Expenses', rowNum);
+        expDate          = row.date          || todayISO();
+        expVendor        = row.vendor        || '';
+        expDesc          = row.description   || '';
+        expAmount        = row.amount        || '';
+        expCategory      = row.category      || '';
+        expPayment       = row.paymentMethod || '';
+        expNotes         = row.notes         || '';
+        shareSubmittedBy = row.submittedBy   || '';
+        shareTxnId       = row.id            || txnId;
       } catch (err) {
         console.error('[expense] share load:', err);
         shareLoadError = err.message;

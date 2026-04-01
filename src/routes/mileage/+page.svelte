@@ -18,8 +18,7 @@
     updateBusiness,
   } from '$lib/store.js';
   import { downloadJson, findFile } from '$lib/drive.js';
-  import { readRow, findRowByTxnId } from '$lib/sheets.js';
-  import { pushTransactions, updateByUUID, pullTransactions } from '$lib/services/sheets.js';
+  import { pushTransactions, updateByUUID, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.js';
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
@@ -360,17 +359,17 @@
         if (!sheetId) throw new Error(`No mileage sheet found for ${yr}.`);
         editSheetId = sheetId;
 
-        const rowNum = await findRowByTxnId(sheetId, txnId, 'Mileage', 'G');
+        const rowNum = await findRowByTxnId(sheetId, txnId, 'Mileage');
         if (rowNum === null) throw new Error('Mileage entry not found.');
         editRowNum = rowNum;
 
-        const raw = await readRow(sheetId, 'Mileage', rowNum);
-        milDate    = raw[0] || todayISO();
-        milFrom    = raw[1] || '';
-        milTo      = raw[2] || '';
-        milPurpose = raw[3] || '';
-        milMiles   = raw[4] || '';
-        editTxnId  = raw[6] || txnId;
+        const row = await readRow(sheetId, 'Mileage', rowNum);
+        milDate    = row.date    || todayISO();
+        milFrom    = row.from    || '';
+        milTo      = row.to      || '';
+        milPurpose = row.purpose || '';
+        milMiles   = row.miles   || '';
+        editTxnId  = row.id      || txnId;
         editMode   = true;
       } catch (err) {
         console.error('[mileage] edit load:', err);
