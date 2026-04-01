@@ -18,17 +18,18 @@ import { DEFAULT_PAYMENT_METHODS, DEFAULT_CATEGORIES } from './constants.js';
 import { get } from 'svelte/store';
 import { businessConfig, businesses, selectedBusiness, mileageFavorites, updateBusiness } from './store.js';
 import { ensureBizTrackFolder, saveProfile } from './profile.js';
+import type { Business, BusinessConfig, MileageFavorite } from './types.js';
 
 /**
  * Ensures a config object has all required fields with sensible defaults.
  * Centralizes the backfill logic that was previously scattered across
  * setupBusiness(), loadConfig(), and inline in page components.
  *
- * @param {Object} cfg - Config object from Drive config.json
- * @param {string} [businessName=''] - Fallback name if config.name is missing
- * @returns {Object} The same cfg object, mutated in place
+ * @param cfg - Config object from Drive config.json
+ * @param businessName - Fallback name if config.name is missing
+ * @returns The same cfg object, mutated in place
  */
-export function normalizeConfig(cfg, businessName = '') {
+export function normalizeConfig(cfg: BusinessConfig, businessName = ''): BusinessConfig {
   if (typeof cfg.name !== 'string' || !cfg.name) cfg.name = businessName;
   if (!Array.isArray(cfg.payment_accounts))                            cfg.payment_accounts = [...DEFAULT_PAYMENT_METHODS];
   if (!Array.isArray(cfg.categories) || cfg.categories.length === 0)   cfg.categories       = [...DEFAULT_CATEGORIES];
@@ -42,11 +43,8 @@ export function normalizeConfig(cfg, businessName = '') {
  *
  * Returns the (possibly updated) business object. Callers can add
  * page-specific work after this returns (e.g. vendor cache sync).
- *
- * @param {Object} business
- * @returns {Promise<Object>} Updated business object
  */
-export async function loadBusinessData(business) {
+export async function loadBusinessData(business: Business | null): Promise<Business | null> {
   if (!business) {
     businessConfig.set(null);
     return business;
@@ -77,13 +75,13 @@ export async function loadBusinessData(business) {
 }
 
 /** Strip characters that are invalid in Drive/Sheets file names: / \ : * ? " < > | */
-function driveFileName(name) {
+function driveFileName(name: string): string {
   return name.replace(/[/\\:*?"<>|]/g, '');
 }
 
 // Deduplicates concurrent ensureYearFolder calls for the same business+year.
 // Key: `${folderId}_${year}` — folderId is stable across reloads.
-const _yearFolderInFlight = new Map();
+const _yearFolderInFlight = new Map<string, Promise<Business>>();
 
 /**
  * Initializes a business against a user-selected Drive folder.
@@ -94,14 +92,14 @@ const _yearFolderInFlight = new Map();
  *
  * Does NOT create year folders — call ensureYearFolder() after this.
  *
- * @param {string} name - User-defined business display name
- * @param {string} folderId - Drive folder ID selected via the Picker
- * @returns {Promise<{business: Object, config: Object}>}
- *   business: { name, folderId, yearFolders: {}, sheetIds: {}, receiptFolderIds: {} }
- *   config:   { payment_accounts: string[], mileage_favorites: Array }
+ * @param name - User-defined business display name
+ * @param folderId - Drive folder ID selected via the Picker
  */
-export async function setupBusiness(name, folderId) {
-  const defaultConfig = {
+export async function setupBusiness(
+  name: string,
+  folderId: string,
+): Promise<{ business: Business; config: BusinessConfig }> {
+  const defaultConfig: BusinessConfig = {
     name,
     payment_accounts: [...DEFAULT_PAYMENT_METHODS],
     mileage_favorites: [],
@@ -110,10 +108,10 @@ export async function setupBusiness(name, folderId) {
 
   const configId = await findFile('config.json', folderId);
 
-  let config;
-  let configFileId;
+  let config: BusinessConfig;
+  let configFileId: string;
   if (configId) {
-    config = await downloadJson(configId);
+    config = await downloadJson<BusinessConfig>(configId);
     configFileId = configId;
     normalizeConfig(config, name);
     if (!Array.isArray(config.mileage_favorites)) config.mileage_favorites = [];
@@ -129,8 +127,8 @@ export async function setupBusiness(name, folderId) {
     await updateJson(configFileId, config);
   }
 
-  const business = {
-    id: config.id,
+  const business: Business = {
+    id: config.id!,
     name: config.name,
     folderId,
     configFileId,
@@ -149,13 +147,10 @@ export async function setupBusiness(name, folderId) {
 /**
  * Downloads config.json from Drive and updates the businessConfig store.
  * Safe to call even if configFileId is missing (returns null).
- *
- * @param {Object} business
- * @returns {Promise<Object|null>} Loaded config, or null if unavailable
  */
-export async function loadConfig(business) {
+export async function loadConfig(business: Business): Promise<BusinessConfig | null> {
   if (!business?.configFileId) return null;
-  const cfg = await downloadJson(business.configFileId);
+  const cfg = await downloadJson<BusinessConfig>(business.configFileId);
   normalizeConfig(cfg, business.name ?? '');
   // Backfill business ID — generate and persist if missing, then update store
   if (!cfg.id) {
@@ -173,12 +168,8 @@ export async function loadConfig(business) {
 
 /**
  * Writes config back to Drive and updates the businessConfig store.
- *
- * @param {Object} business
- * @param {Object} config - New config to persist
- * @returns {Promise<void>}
  */
-export async function saveConfig(business, config) {
+export async function saveConfig(business: Business, config: BusinessConfig): Promise<void> {
   if (!business?.configFileId) throw new Error('business.configFileId is missing');
   await updateJson(business.configFileId, config);
   businessConfig.set(config);
@@ -187,13 +178,8 @@ export async function saveConfig(business, config) {
 /**
  * Adds a payment method to a business config and saves to Drive.
  * No-op if the method already exists.
- *
- * @param {Object} business
- * @param {Object} config - Current config
- * @param {string} method - Method label to add
- * @returns {Promise<Object>} Updated config
  */
-export async function addPaymentMethod(business, config, method) {
+export async function addPaymentMethod(business: Business, config: BusinessConfig, method: string): Promise<BusinessConfig> {
   const trimmed = method.trim();
   if (!trimmed || config.payment_accounts.includes(trimmed)) return config;
   const updated = { ...config, payment_accounts: [...config.payment_accounts, trimmed] };
@@ -204,13 +190,8 @@ export async function addPaymentMethod(business, config, method) {
 /**
  * Removes a payment method from a business config and saves to Drive.
  * Refuses to remove 'Cash' (required default).
- *
- * @param {Object} business
- * @param {Object} config - Current config
- * @param {string} method - Method label to remove
- * @returns {Promise<Object>} Updated config
  */
-export async function removePaymentMethod(business, config, method) {
+export async function removePaymentMethod(business: Business, config: BusinessConfig, method: string): Promise<BusinessConfig> {
   if (method === 'Cash') return config;
   const updated = {
     ...config,
@@ -223,12 +204,8 @@ export async function removePaymentMethod(business, config, method) {
 /**
  * Saves a new mileage favorite to the user's profile.json.
  * Favorites are user-owned and keyed by business folderId — independent of config.json.
- *
- * @param {Object} business
- * @param {Object} _cfg - Unused (kept for call-site compatibility)
- * @param {{name:string, from:string, to:string, miles:number, purpose:string}} favorite
  */
-export async function saveMileageFavorite(business, _cfg, favorite) {
+export async function saveMileageFavorite(business: Business, _cfg: unknown, favorite: MileageFavorite): Promise<void> {
   const folderId = business.folderId;
   mileageFavorites.update((all) => {
     const current = Array.isArray(all[folderId]) ? all[folderId] : [];
@@ -241,13 +218,8 @@ export async function saveMileageFavorite(business, _cfg, favorite) {
 /**
  * Updates an existing mileage favorite in-place (matched by originalName) in the user's profile.json.
  * Supports renaming: pass the old name as originalName and the new name inside favorite.
- *
- * @param {Object} business
- * @param {Object} _cfg - Unused (kept for call-site compatibility)
- * @param {string} originalName - Current name used to locate the entry
- * @param {{name:string, from:string, to:string, miles:number, purpose:string, roundTrip?:boolean}} favorite
  */
-export async function updateMileageFavorite(business, _cfg, originalName, favorite) {
+export async function updateMileageFavorite(business: Business, _cfg: unknown, originalName: string, favorite: MileageFavorite): Promise<void> {
   const folderId = business.folderId;
   mileageFavorites.update((all) => {
     const current = Array.isArray(all[folderId]) ? all[folderId] : [];
@@ -259,12 +231,8 @@ export async function updateMileageFavorite(business, _cfg, originalName, favori
 
 /**
  * Deletes a mileage favorite by name from the user's profile.json.
- *
- * @param {Object} business
- * @param {Object} _cfg - Unused (kept for call-site compatibility)
- * @param {string} name - Favorite name to remove
  */
-export async function deleteMileageFavorite(business, _cfg, name) {
+export async function deleteMileageFavorite(business: Business, _cfg: unknown, name: string): Promise<void> {
   const folderId = business.folderId;
   mileageFavorites.update((all) => {
     const current = Array.isArray(all[folderId]) ? all[folderId] : [];
@@ -277,13 +245,8 @@ export async function deleteMileageFavorite(business, _cfg, name) {
 /**
  * Adds an expense category to a business config and saves to Drive.
  * No-op if the category already exists.
- *
- * @param {Object} business
- * @param {Object} config - Current config
- * @param {string} category - Category label to add
- * @returns {Promise<Object>} Updated config
  */
-export async function addCategory(business, config, category) {
+export async function addCategory(business: Business, config: BusinessConfig, category: string): Promise<BusinessConfig> {
   const trimmed = category.trim();
   if (!trimmed || (config.categories ?? []).includes(trimmed)) return config;
   const updated = { ...config, categories: [...(config.categories ?? []), trimmed] };
@@ -294,13 +257,8 @@ export async function addCategory(business, config, category) {
 /**
  * Removes an expense category from a business config and saves to Drive.
  * Refuses to remove 'Uncategorized' (required default).
- *
- * @param {Object} business
- * @param {Object} config - Current config
- * @param {string} category - Category label to remove
- * @returns {Promise<Object>} Updated config
  */
-export async function removeCategory(business, config, category) {
+export async function removeCategory(business: Business, config: BusinessConfig, category: string): Promise<BusinessConfig> {
   if (category === 'Uncategorized') return config;
   const updated = {
     ...config,
@@ -320,15 +278,12 @@ export async function removeCategory(business, config, category) {
  * For each year folder found, looks up:
  *   - {year}_expenses  (Google Sheet → sheetId)
  *   - {year}_Receipts  (subfolder → receiptFolderId)
- *
- * @param {Object} business - Business object from setupBusiness
- * @returns {Promise<Object>} Updated business with all discovered year IDs
  */
-export async function discoverYearFolders(business) {
+export async function discoverYearFolders(business: Business): Promise<Business> {
   const subfolders = await listFolders(business.folderId);
-  const yearFolders = {};
-  const sheetIds = {};
-  const receiptFolderIds = {};
+  const yearFolders: Record<number, string> = {};
+  const sheetIds: Record<number, string> = {};
+  const receiptFolderIds: Record<number, string> = {};
 
   for (const folder of subfolders) {
     if (!/^\d{4}$/.test(folder.name)) continue;
@@ -358,12 +313,8 @@ export async function discoverYearFolders(business) {
  *   - Business add (current year)
  *   - App launch (current year, to catch year rollovers)
  *   - When user enters an expense dated in a different year
- *
- * @param {Object} business - Business object from setupBusiness or the store
- * @param {number} year - e.g. 2026
- * @returns {Promise<Object>} Updated business object with year IDs populated
  */
-export async function ensureYearFolder(business, year) {
+export async function ensureYearFolder(business: Business, year: number): Promise<Business> {
   // Fast path: both folder and sheet IDs are cached locally.
   // Require sheetIds[year] as well — if it was cleared (e.g. by 404 recovery in
   // the sync engine), we need to go through the Drive check to rediscover it.
@@ -372,7 +323,7 @@ export async function ensureYearFolder(business, year) {
   // Deduplicate concurrent calls for the same business+year (e.g. prefetch on
   // date change races with loadBusinessData on mount after a SW-triggered reload).
   const key = `${business.folderId}_${year}`;
-  if (_yearFolderInFlight.has(key)) return _yearFolderInFlight.get(key);
+  if (_yearFolderInFlight.has(key)) return _yearFolderInFlight.get(key)!;
 
   const promise = _doEnsureYearFolder(business, year);
   _yearFolderInFlight.set(key, promise);
@@ -380,7 +331,7 @@ export async function ensureYearFolder(business, year) {
   return promise;
 }
 
-async function _doEnsureYearFolder(business, year) {
+async function _doEnsureYearFolder(business: Business, year: number): Promise<Business> {
   // Check Drive for an existing year folder before creating one.
   // Handles stale local cache after page reload (e.g. SW controllerchange reload).
   const existingFolderId = await findFile(String(year), business.folderId);

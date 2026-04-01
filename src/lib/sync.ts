@@ -11,8 +11,13 @@
  */
 
 import { writable, get } from 'svelte/store';
+import type { Writable } from 'svelte/store';
 import * as storage from './storage.js';
 import { businesses, selectedBusiness, mileageFavorites, businessConfig } from './store.js';
+import type { SyncCache, SyncStatus } from './types.js';
+import type { TransactionRow } from './services/sheets.js';
+
+type SheetName = 'Expenses' | 'Mileage';
 
 const CACHE_KEY = 'bt_cache';
 
@@ -27,22 +32,20 @@ const CACHE_KEY = 'bt_cache';
  *   'green'   — last sync succeeded, data is fresh
  *   'yellow'  — sync in progress
  *   'red'     — last sync failed (cached data may be stale)
- *
- * @type {import('svelte/store').Writable<'green'|'yellow'|'red'>}
  */
-export const syncStatus = writable('yellow');
+export const syncStatus: Writable<SyncStatus> = writable('yellow');
 
 // ---------------------------------------------------------------------------
 // Cache operations
 // ---------------------------------------------------------------------------
 
 /** Returns the raw cache object, or null. */
-function _readCache() {
-  return storage.get(CACHE_KEY, null);
+function _readCache(): SyncCache | null {
+  return storage.get<SyncCache | null>(CACHE_KEY, null);
 }
 
 /** Writes the full cache object. */
-function _writeCache(data) {
+function _writeCache(data: SyncCache): void {
   storage.set(CACHE_KEY, data);
 }
 
@@ -52,7 +55,7 @@ function _writeCache(data) {
  *
  * Called ONCE on app load, before initFromDrive() starts.
  */
-export function loadCache() {
+export function loadCache(): boolean {
   const cached = _readCache();
   if (!cached?.businesses?.length) return false;
 
@@ -78,9 +81,9 @@ export function loadCache() {
  * Preserves existing cached transactions — only updates business/config data.
  * Called after every successful initFromDrive() or config change.
  */
-export function writeCache() {
+export function writeCache(): void {
   const existing = _readCache();
-  const data = {
+  const data: SyncCache = {
     businesses: get(businesses),
     mileageFavorites: get(mileageFavorites),
     businessConfigs: existing?.businessConfigs ?? {},
@@ -102,12 +105,8 @@ export function writeCache() {
 /**
  * Returns cached transaction rows for a given spreadsheet + sheet tab.
  * Returns null if no cache exists for this key.
- *
- * @param {string} spreadsheetId
- * @param {'Expenses'|'Mileage'} sheetName
- * @returns {import('./services/sheets.js').TransactionRow[] | null}
  */
-export function getCachedTransactions(spreadsheetId, sheetName) {
+export function getCachedTransactions(spreadsheetId: string, sheetName: SheetName): TransactionRow[] | null {
   const cached = _readCache();
   const key = `${spreadsheetId}::${sheetName}`;
   return cached?.transactions?.[key] ?? null;
@@ -116,12 +115,8 @@ export function getCachedTransactions(spreadsheetId, sheetName) {
 /**
  * Writes transaction rows for a given spreadsheet + sheet tab to cache.
  * Merges into the existing cache without disturbing other keys.
- *
- * @param {string} spreadsheetId
- * @param {'Expenses'|'Mileage'} sheetName
- * @param {import('./services/sheets.js').TransactionRow[]} rows
  */
-export function cacheTransactions(spreadsheetId, sheetName, rows) {
+export function cacheTransactions(spreadsheetId: string, sheetName: SheetName, rows: TransactionRow[]): void {
   const existing = _readCache() ?? {
     businesses: get(businesses),
     mileageFavorites: get(mileageFavorites),
@@ -139,7 +134,7 @@ export function cacheTransactions(spreadsheetId, sheetName, rows) {
 /**
  * Clears the sync cache. Called on sign-out.
  */
-export function clearCache() {
+export function clearCache(): void {
   storage.remove(CACHE_KEY);
   syncStatus.set('yellow');
 }
