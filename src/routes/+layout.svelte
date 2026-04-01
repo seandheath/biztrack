@@ -120,7 +120,7 @@
       businesses.set(hydrated);
       mileageFavorites.set(profile.mileage_favorites ?? {});
 
-      const savedName = localStorage.getItem('biztrack_selected_name');
+      const savedName = storage.get<string | null>('biztrack_selected_name', null);
       const toSelect = (savedName && hydrated.find((b) => b.name === savedName)) ?? hydrated[0] ?? null;
       if (toSelect) selectedBusiness.set(toSelect);
     } catch (err) {

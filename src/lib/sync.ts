@@ -63,7 +63,7 @@ export function loadCache(): boolean {
   mileageFavorites.set(cached.mileageFavorites ?? {});
 
   // Restore selected business
-  const savedName = localStorage.getItem('biztrack_selected_name');
+  const savedName = storage.get<string | null>('biztrack_selected_name', null);
   const toSelect = (savedName && cached.businesses.find(b => b.name === savedName))
                    ?? cached.businesses[0] ?? null;
   if (toSelect) selectedBusiness.set(toSelect);
