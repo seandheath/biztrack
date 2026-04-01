@@ -182,6 +182,7 @@
     if (!milFrom.trim())        errs.from  = 'Required';
     if (!milTo.trim())          errs.to    = 'Required';
     if (!milMiles || isNaN(parseFloat(milMiles))) errs.miles = 'Valid miles required';
+    if (!milDriver.trim())          errs.driver = 'Required';
     milErrors = errs;
     return Object.keys(errs).length === 0;
   }
@@ -541,10 +542,11 @@
 
       <!-- Driver (autocomplete from history) -->
       <div class="flex flex-col gap-1">
-        <label for="mil-driver" class="text-sm font-medium" style="color: var(--color-text-muted);">
-          Driver <span style="font-weight: normal;">(optional)</span>
-        </label>
+        <label for="mil-driver" class="text-sm font-medium" style="color: var(--color-text-muted);">Driver</label>
         <Autocomplete items={$driverCache} id="mil-driver" bind:value={milDriver} placeholder="Driver name" listboxPrefix="driver" />
+        {#if milErrors.driver}
+          <span class="text-xs" style="color: var(--color-error);">{milErrors.driver}</span>
+        {/if}
       </div>
 
       <!-- Save / Update Favorite -->
