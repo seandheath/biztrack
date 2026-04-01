@@ -32,7 +32,7 @@
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
   import { syncStatus, cacheTransactions } from '$lib/sync.js';
-  import { ensureYearFolder, loadBusinessData as _loadBusinessData } from '$lib/business.js';
+  import { ensureYearFolder, loadBusinessData as _loadBusinessData, addPaymentMethod } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
   import { DEFAULT_CATEGORIES } from '$lib/constants.js';
 
@@ -62,6 +62,11 @@
   let expReceipt   = $state(/** @type {File|null} */(null));
   let expErrors    = $state(/** @type {Record<string,string>} */({}));
   let expSubmitting = $state(false);
+
+  // Inline "add payment method" state
+  let addingPayment  = $state(false);
+  let newPaymentName = $state('');
+  let savingPayment  = $state(false);
   /** Only active in review mode — apply chosen category to all uncategorized rows for this vendor. */
   let applyToAll    = $state(false);
 
@@ -69,6 +74,24 @@
   let confirmDelete = $state(false);
   let deleting      = $state(false);
   let deleteError   = $state('');
+
+  // Save a new payment method inline without leaving the form.
+  async function handleAddPayment() {
+    const name = newPaymentName.trim();
+    if (!name || !$selectedBusiness || !$businessConfig) return;
+    savingPayment = true;
+    try {
+      await addPaymentMethod($selectedBusiness, $businessConfig, name);
+      expPayment = name;
+      addingPayment = false;
+      newPaymentName = '';
+    } catch (err) {
+      console.error('[expense] add payment method:', err);
+      showToast('Failed to add payment method.', 'error');
+    } finally {
+      savingPayment = false;
+    }
+  }
 
   async function handleDelete() {
     if (!confirmDelete) { confirmDelete = true; return; }
@@ -729,12 +752,45 @@
       <!-- Payment Method -->
       <div class="flex flex-col gap-1">
         <label for="exp-payment" class="text-sm font-medium" style="color: var(--color-text-muted);">Payment Method</label>
-        {#if $businessConfig?.payment_accounts?.length}
+        {#if addingPayment}
+          <div class="flex items-center gap-2">
+            <input
+              type="text"
+              bind:value={newPaymentName}
+              placeholder="e.g. Chase Visa x4521"
+              onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddPayment(); } }}
+              class="flex-1 text-sm rounded-lg border px-3"
+              style="min-height: 40px; border-color: var(--color-border); background: var(--color-surface-2); color: var(--color-text);"
+            />
+            <button
+              type="button"
+              onclick={handleAddPayment}
+              disabled={savingPayment || !newPaymentName.trim()}
+              class="rounded-lg text-sm font-medium px-3 flex-shrink-0 disabled:opacity-50"
+              style="min-height: 40px; background-color: var(--color-primary); color: var(--color-primary-text);"
+            >
+              {savingPayment ? '…' : 'Save'}
+            </button>
+            <button
+              type="button"
+              onclick={() => { addingPayment = false; newPaymentName = ''; }}
+              class="rounded-lg text-sm px-2 flex-shrink-0"
+              style="min-height: 40px; background: transparent; color: var(--color-text-muted);"
+              aria-label="Cancel"
+            >
+              ✕
+            </button>
+          </div>
+        {:else if $businessConfig?.payment_accounts?.length}
           <select
             id="exp-payment"
             value={expPayment}
             onchange={(e) => {
-              if (e.target.value === '__add_payment__') { goto('/settings/payments'); return; }
+              if (e.target.value === '__add_payment__') {
+                e.target.value = expPayment; // reset select to previous value
+                addingPayment = true;
+                return;
+              }
               expPayment = e.target.value;
             }}
             required
