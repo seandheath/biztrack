@@ -114,7 +114,7 @@
       businessConfig.set(config);
 
       // Update profile.json so other devices discover the new business
-      const rootFolderId = sessionStorage.getItem('bt_biz_folder');
+      const rootFolderId = localStorage.getItem('bt_biz_folder');
       if (rootFolderId) {
         await saveProfile(rootFolderId, get(businesses), get(mileageFavorites)).catch((e) => console.warn('[business] profile save:', e));
       }

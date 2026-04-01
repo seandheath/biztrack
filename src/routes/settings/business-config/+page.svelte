@@ -40,7 +40,7 @@
       selectedBusiness.set(remaining[0] ?? null);
     }
     // Update profile.json so other devices stop discovering the removed business
-    const rootFolderId = sessionStorage.getItem('bt_biz_folder');
+    const rootFolderId = localStorage.getItem('bt_biz_folder');
     if (rootFolderId) {
       await saveProfile(rootFolderId, remaining, get(mileageFavorites)).catch((e) => console.warn('[business-config] profile save:', e));
     }

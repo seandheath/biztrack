@@ -1,9 +1,10 @@
 /**
  * Google Identity Services (GIS) token model authentication.
  *
- * Token state is persisted to sessionStorage so navigations within the same
- * tab survive page reloads without re-authentication. sessionStorage is
- * cleared when the tab closes — appropriate for a 1-hour GIS access token.
+ * Token state is persisted to localStorage so the app can skip re-auth when
+ * reopened within the ~1-hour token lifetime. The token auto-expires
+ * regardless of storage location, and only grants drive.file scope (files the
+ * app created), so the exposure window increase over sessionStorage is minimal.
  *
  * This module is intentionally framework-agnostic. It knows nothing about
  * Svelte stores. The layout component registers callbacks via onTokenUpdate()
@@ -26,9 +27,9 @@
 
 import { GOOGLE_CLIENT_ID, DRIVE_SCOPE } from './constants.js';
 
-// sessionStorage keys — short names to reduce XSS exposure window
-const _SS_TOKEN  = 'bt_at';
-const _SS_EXPIRY = 'bt_exp';
+// localStorage keys for token persistence across tab closes
+const _LS_TOKEN  = 'bt_at';
+const _LS_EXPIRY = 'bt_exp';
 
 // Email hint in localStorage (non-sensitive) — persists across tab closes so
 // silent re-auth can be attempted on next app open without showing a popup.
@@ -51,26 +52,25 @@ let _tokenExpiry = null;
 /** @type {string|null} Signed-in user's email address */
 let _userEmail = null;
 
-// Restore a still-valid token from the current tab's sessionStorage.
-// sessionStorage is cleared when the tab closes; tokens expire after ~1 hour.
-// try/catch guards against browsers with sessionStorage disabled (e.g. private mode).
+// Restore a still-valid token from localStorage.
+// Tokens expire after ~1 hour; localStorage lets the app skip re-auth on tab reopen.
+// try/catch guards against browsers with localStorage disabled (e.g. private mode).
 try {
-  const storedToken  = sessionStorage.getItem(_SS_TOKEN);
-  const storedExpiry = sessionStorage.getItem(_SS_EXPIRY);
+  const storedToken  = localStorage.getItem(_LS_TOKEN);
+  const storedExpiry = localStorage.getItem(_LS_EXPIRY);
   if (storedToken && storedExpiry) {
     const expiry = new Date(storedExpiry);
     if (expiry > new Date()) {
       _token       = storedToken;
       _tokenExpiry = expiry;
-      // Email hint is now in localStorage — read it there
       _userEmail   = localStorage.getItem(_LS_EMAIL_HINT) ?? null;
     } else {
-      // Expired — remove stale session entries (email hint stays in localStorage)
-      sessionStorage.removeItem(_SS_TOKEN);
-      sessionStorage.removeItem(_SS_EXPIRY);
+      // Expired — remove stale entries (email hint stays for "Continue as" flow)
+      localStorage.removeItem(_LS_TOKEN);
+      localStorage.removeItem(_LS_EXPIRY);
     }
   }
-} catch { /* sessionStorage unavailable */ }
+} catch { /* localStorage unavailable */ }
 
 /** @type {Object|null} GIS TokenClient instance */
 let _tokenClient = null;
@@ -223,9 +223,9 @@ function _handleTokenResponse(tokenResponse) {
   _tokenExpiry = new Date(Date.now() + (tokenResponse.expires_in - 30) * 1000);
 
   try {
-    sessionStorage.setItem(_SS_TOKEN,  _token);
-    sessionStorage.setItem(_SS_EXPIRY, _tokenExpiry.toISOString());
-  } catch { /* sessionStorage unavailable */ }
+    localStorage.setItem(_LS_TOKEN,  _token);
+    localStorage.setItem(_LS_EXPIRY, _tokenExpiry.toISOString());
+  } catch { /* localStorage unavailable */ }
   // Email hint written to localStorage so silent re-auth works across tab opens
 
   // Notify stores immediately — isAuthenticated flips to true
@@ -331,9 +331,10 @@ export async function revokeToken() {
   _tokenExpiry = null;
   _userEmail = null;
   try {
-    sessionStorage.removeItem(_SS_TOKEN);
-    sessionStorage.removeItem(_SS_EXPIRY);
+    localStorage.removeItem(_LS_TOKEN);
+    localStorage.removeItem(_LS_EXPIRY);
     localStorage.removeItem(_LS_EMAIL_HINT);
+    localStorage.removeItem('bt_biz_folder');
   } catch {}
 
   try {
@@ -358,7 +359,7 @@ export async function revokeToken() {
  */
 export function onTokenUpdate(callback) {
   _onTokenUpdate = callback;
-  // If a token was restored from sessionStorage before this callback was
+  // If a token was restored from localStorage before this callback was
   // registered, notify immediately so the authToken store transitions to
   // authenticated without waiting for a new sign-in.
   if (_token && _tokenExpiry) {
@@ -424,8 +425,8 @@ export async function apiFetch(url, options = {}) {
     _token = null;
     _tokenExpiry = null;
     try {
-      sessionStorage.removeItem(_SS_TOKEN);
-      sessionStorage.removeItem(_SS_EXPIRY);
+      localStorage.removeItem(_LS_TOKEN);
+      localStorage.removeItem(_LS_EXPIRY);
     } catch {}
     _onAuthRequired?.();
     throw new Error('Session expired');

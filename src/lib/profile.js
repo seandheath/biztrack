@@ -7,15 +7,15 @@
  * business list without re-adding everything manually.
  *
  * Uses drive.file scope only (no extra permissions required).
- * The BizTrack folder ID is cached in sessionStorage to avoid a Drive
- * round-trip on every page navigation.
+ * The BizTrack folder ID is cached in localStorage to avoid a Drive
+ * round-trip on every page navigation or app reopen.
  */
 
 import { findFile, createFolder, downloadJson, uploadJson, updateJson } from './drive.js';
 
 const BIZTRACK_FOLDER_NAME = 'BizTrack';
 const PROFILE_FILENAME     = 'profile.json';
-const SS_FOLDER_KEY        = 'bt_biz_folder';
+const LS_FOLDER_KEY        = 'bt_biz_folder';
 
 // Deduplicates concurrent calls — prevents two callers from both running
 // findFile() before either has stored the result, causing both to create the folder.
@@ -23,7 +23,7 @@ let _ensureFolderInFlight = null;
 
 /**
  * Finds or creates the root BizTrack folder in the user's Drive root.
- * Result is cached in sessionStorage for the lifetime of the tab.
+ * Result is cached in localStorage across tab closes.
  *
  * Only app-created files are visible under drive.file scope, so findFile
  * will return the folder we previously created — no ambiguity with
@@ -33,9 +33,9 @@ let _ensureFolderInFlight = null;
  */
 export async function ensureBizTrackFolder() {
   try {
-    const cached = sessionStorage.getItem(SS_FOLDER_KEY);
+    const cached = localStorage.getItem(LS_FOLDER_KEY);
     if (cached) return cached;
-  } catch { /* sessionStorage unavailable */ }
+  } catch { /* localStorage unavailable */ }
 
   if (_ensureFolderInFlight) return _ensureFolderInFlight;
 
@@ -46,7 +46,7 @@ export async function ensureBizTrackFolder() {
         const { id } = await createFolder(BIZTRACK_FOLDER_NAME, 'root');
         folderId = id;
       }
-      try { sessionStorage.setItem(SS_FOLDER_KEY, folderId); } catch {}
+      try { localStorage.setItem(LS_FOLDER_KEY, folderId); } catch {}
       return folderId;
     } finally {
       // Clear on success OR error so subsequent calls can retry if needed
