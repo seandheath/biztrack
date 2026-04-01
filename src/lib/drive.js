@@ -16,7 +16,7 @@ const DRIVES_URL = 'https://www.googleapis.com/drive/v3/drives';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 // Shared/Team Drive support — append to any files endpoint URL.
-const ALL_DRIVES = 'supportsAllDrives=true&includeItemsFromAllDrives=true';
+const ALL_DRIVES = 'supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives';
 
 /** @param {Response} r @param {string} ctx */
 async function _throwDriveError(r, ctx) { return throwApiError(r, `Drive ${ctx}`); }
