@@ -315,6 +315,9 @@ export async function discoverYearFolders(business: Business): Promise<Business>
  *   - When user enters an expense dated in a different year
  */
 export async function ensureYearFolder(business: Business, year: number): Promise<Business> {
+  // Reject non-4-digit years (e.g. partial values from date input intermediate events)
+  if (year < 1000 || year > 9999) return business;
+
   // Fast path: both folder and sheet IDs are cached locally.
   // Require sheetIds[year] as well — if it was cleared (e.g. by 404 recovery in
   // the sync engine), we need to go through the Drive check to rediscover it.

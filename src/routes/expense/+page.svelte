@@ -448,29 +448,6 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Year-rollover helper
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Silently ensures the Drive year-folder exists for a given ISO date string.
-   * Called from the date field onchange handler to pre-warm the folder before submit.
-   *
-   * @param {string} isoDate
-   */
-  async function prefetchYearFolder(isoDate) {
-    const biz = $selectedBusiness;
-    if (!biz || !isoDate) return;
-    const year = new Date(isoDate + 'T00:00:00').getFullYear();
-    if (biz.yearFolders?.[year]) return;
-    try {
-      const updated = await ensureYearFolder(biz, year);
-      updateBusiness(updated);
-    } catch (err) {
-      console.warn('[expense] prefetchYearFolder failed:', err);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   // Share helpers
   // ---------------------------------------------------------------------------
 
@@ -611,7 +588,6 @@
           id="exp-date"
           type="date"
           bind:value={expDate}
-          onchange={() => prefetchYearFolder(expDate)}
           required
         />
         {#if expErrors.date}

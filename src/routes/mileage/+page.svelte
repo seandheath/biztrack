@@ -358,23 +358,6 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Year-rollover helper
-  // ---------------------------------------------------------------------------
-
-  async function prefetchYearFolder(isoDate) {
-    const biz = $selectedBusiness;
-    if (!biz || !isoDate) return;
-    const year = new Date(isoDate + 'T00:00:00').getFullYear();
-    if (biz.yearFolders?.[year]) return;
-    try {
-      const updated = await ensureYearFolder(biz, year);
-      updateBusiness(updated);
-    } catch (err) {
-      console.warn('[mileage] prefetchYearFolder failed:', err);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
 
@@ -478,7 +461,6 @@
           id="mil-date"
           type="date"
           bind:value={milDate}
-          onchange={() => prefetchYearFolder(milDate)}
           required
         />
         {#if milErrors.date}
