@@ -247,59 +247,95 @@
       if (!spreadsheetId) throw new Error(`No sheet found for ${year}.`);
 
       if (shareMode) {
-        // Editing a shared expense — update directly in Sheets
-        const updatedRow = {
-          id:             shareTxnId,
+        // Editing a shared expense
+        const common = {
           date:           expDate,
           vendor:         expVendor.trim(),
-          description:    expDesc.trim(),
-          amount:         String(amount),
-          category:       expCategory,
           paymentMethod:  expPayment,
           receipt: receiptFilename || '',
           notes:          expNotes.trim(),
           submittedBy:    shareSubmittedBy,
         };
-        try {
-          if (spreadsheetId !== shareSheetId) {
-            // Date changed to a different year — move row between sheets
+
+        if (splitMode) {
+          // Split: delete original row, push multiple new rows
+          const validLines = splits.filter((s) => s.amount && s.category);
+          const rows = validLines.map((split) => ({
+            ...common,
+            id:          crypto.randomUUID(),
+            description: split.description.trim(),
+            amount:      split.amount,
+            category:    split.category,
+          }));
+          try {
+            // Always delete original from its source sheet
             await deleteByUUID(shareSheetId, 'Expenses', shareTxnId);
-            await pushTransactions(spreadsheetId, 'Expenses', [updatedRow]);
-          } else {
-            await updateByUUID(spreadsheetId, 'Expenses', updatedRow);
+            await pushTransactions(spreadsheetId, 'Expenses', rows);
+          } catch (err) {
+            if (!navigator.onLine) {
+              enqueue({ spreadsheetId: shareSheetId, sheetName: 'Expenses', operation: 'delete', row: { id: shareTxnId } });
+              for (const row of rows)
+                enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'create', row });
+              showToast('Saved offline — will sync when back online', 'success');
+              if (returnTo) { goto(returnTo); return; }
+              shareMode = false;
+              return;
+            }
+            throw err;
           }
-        } catch (err) {
-          if (!navigator.onLine) {
-            enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'update', row: updatedRow });
-            showToast('Saved offline — will sync when back online', 'success');
-            if (returnTo) { goto(returnTo); return; }
-            shareMode = false;
+          showToast(`Split into ${validLines.length} expenses!`, 'success');
+          if (returnTo) { goto(returnTo); return; }
+          shareMode = false;
+        } else {
+          // Single-row update
+          const updatedRow = {
+            ...common,
+            id:             shareTxnId,
+            description:    expDesc.trim(),
+            amount:         String(amount),
+            category:       expCategory,
+          };
+          try {
+            if (spreadsheetId !== shareSheetId) {
+              // Date changed to a different year — move row between sheets
+              await deleteByUUID(shareSheetId, 'Expenses', shareTxnId);
+              await pushTransactions(spreadsheetId, 'Expenses', [updatedRow]);
+            } else {
+              await updateByUUID(spreadsheetId, 'Expenses', updatedRow);
+            }
+          } catch (err) {
+            if (!navigator.onLine) {
+              enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'update', row: updatedRow });
+              showToast('Saved offline — will sync when back online', 'success');
+              if (returnTo) { goto(returnTo); return; }
+              shareMode = false;
+              return;
+            }
+            throw err;
+          }
+          showToast('Details saved!', 'success');
+          if (returnTo) {
+            if (applyToAll && expVendor && expCategory) {
+              const biz = $selectedBusiness;
+              const currentYear = new Date().getFullYear();
+              for (let y = currentYear; y >= currentYear - 2; y--) {
+                const sid = biz.sheetIds?.[y];
+                if (!sid) continue;
+                try {
+                  const rows = await pullTransactions(sid, 'Expenses');
+                  const targets = rows
+                    .filter((r) => r.vendor === expVendor && r.id !== shareTxnId &&
+                                   (!r.category || r.category === 'Uncategorized'))
+                    .map((r) => r.id);
+                  if (targets.length) await batchSetCategory(sid, targets, expCategory);
+                } catch (err) { console.warn('[expense] batchSetCategory:', err); }
+              }
+            }
+            goto(returnTo);
             return;
           }
-          throw err;
+          shareMode = false;
         }
-        showToast('Details saved!', 'success');
-        if (returnTo) {
-          if (applyToAll && expVendor && expCategory) {
-            const biz = $selectedBusiness;
-            const currentYear = new Date().getFullYear();
-            for (let y = currentYear; y >= currentYear - 2; y--) {
-              const sid = biz.sheetIds?.[y];
-              if (!sid) continue;
-              try {
-                const rows = await pullTransactions(sid, 'Expenses');
-                const targets = rows
-                  .filter((r) => r.vendor === expVendor && r.id !== shareTxnId &&
-                                 (!r.category || r.category === 'Uncategorized'))
-                  .map((r) => r.id);
-                if (targets.length) await batchSetCategory(sid, targets, expCategory);
-              } catch (err) { console.warn('[expense] batchSetCategory:', err); }
-            }
-          }
-          goto(returnTo);
-          return;
-        }
-        shareMode = false;
       } else {
         // New expense — push directly to Sheets
         const common = {
