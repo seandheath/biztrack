@@ -28,7 +28,7 @@
   } from '$lib/store.js';
   import { listFileNames, uploadFile } from '$lib/drive.js';
   import { pushTransactions, updateByUUID, deleteByUUID, batchSetCategory, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
-  import { toast, showToast } from '$lib/toast.js';
+  import { toast, showToast } from '$lib/toast.svelte.js';
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
   import { syncStatus, cacheTransactions } from '$lib/sync.js';

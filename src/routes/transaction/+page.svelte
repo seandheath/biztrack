@@ -12,7 +12,7 @@
   import { goto } from '$app/navigation';
   import { businesses, selectedBusiness } from '$lib/store.js';
   import { deleteByUUID, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
-  import { toast, showToast } from '$lib/toast.js';
+  import { toast, showToast } from '$lib/toast.svelte.js';
   import { syncStatus, cacheTransactions } from '$lib/sync.js';
   import Toast from '../../components/Toast.svelte';
 

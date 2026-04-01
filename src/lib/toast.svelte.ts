@@ -6,32 +6,29 @@
  * 5-variable boilerplate that was previously in every page.
  *
  * Usage:
- *   import { toast, showToast } from '$lib/toast.js';
+ *   import { toast, showToast } from '$lib/toast.svelte.js';
  *   showToast('Saved!', 'success');
  *   <Toast message={toast.message} type={toast.type} visible={toast.visible} />
  */
 
+import type { ToastType } from './types.js';
+
 /** Reactive toast state — read by pages, written by showToast(). */
-export const toast = $state({
+export const toast: { message: string; type: ToastType; visible: boolean } = $state({
   message: '',
-  /** @type {'success'|'error'} */
-  type: 'success',
+  type: 'success' as ToastType,
   visible: false,
 });
 
-/** @type {ReturnType<typeof setTimeout>|null} */
-let _timer = null;
+let _timer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Show a toast notification that auto-dismisses after 3 seconds.
- *
- * @param {string} message
- * @param {'success'|'error'} [type='success']
  */
-export function showToast(message, type = 'success') {
+export function showToast(message: string, type: ToastType = 'success'): void {
   toast.message = message;
   toast.type    = type;
   toast.visible = true;
-  clearTimeout(_timer);
+  if (_timer) clearTimeout(_timer);
   _timer = setTimeout(() => { toast.visible = false; }, 3000);
 }
