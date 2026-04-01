@@ -53,12 +53,18 @@ export async function createFolder(name, parentId) {
  */
 export async function listFileNames(parentId) {
   const q = `'${parentId}' in parents and mimeType!='${FOLDER_MIME}' and trashed=false`;
-  const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(name)&pageSize=1000`;
-
-  const response = await apiFetch(url);
-  if (!response.ok) await _throwDriveError(response, 'listFileNames');
-  const data = await response.json();
-  return (data.files ?? []).map((f) => f.name);
+  const allFiles = [];
+  let pageToken = '';
+  do {
+    const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(name),nextPageToken&pageSize=1000`
+      + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
+    const response = await apiFetch(url);
+    if (!response.ok) await _throwDriveError(response, 'listFileNames');
+    const data = await response.json();
+    allFiles.push(...(data.files ?? []));
+    pageToken = data.nextPageToken ?? '';
+  } while (pageToken);
+  return allFiles.map((f) => f.name);
 }
 
 /**
@@ -68,14 +74,19 @@ export async function listFileNames(parentId) {
  * @returns {Promise<Array<{id: string, name: string}>>}
  */
 export async function listFolders(parentId) {
-  // Drive query syntax requires single-quoted IDs
   const q = `'${parentId}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`;
-  const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=1000`;
-
-  const response = await apiFetch(url);
-  if (!response.ok) await _throwDriveError(response, 'listFolders');
-  const data = await response.json();
-  return data.files ?? [];
+  const allFiles = [];
+  let pageToken = '';
+  do {
+    const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id,name),nextPageToken&pageSize=1000`
+      + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
+    const response = await apiFetch(url);
+    if (!response.ok) await _throwDriveError(response, 'listFolders');
+    const data = await response.json();
+    allFiles.push(...(data.files ?? []));
+    pageToken = data.nextPageToken ?? '';
+  } while (pageToken);
+  return allFiles;
 }
 
 /**

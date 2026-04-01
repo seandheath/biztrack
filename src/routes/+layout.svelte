@@ -1,5 +1,6 @@
 <script>
   import '../app.css';
+  import Spinner from '../components/Spinner.svelte';
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import {
@@ -337,10 +338,7 @@
           aria-busy={signingIn}
         >
           {#if signingIn}
-            <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"></path>
-            </svg>
+            <Spinner />
             <span>Signing in…</span>
           {:else}
             <span>Continue as {returningEmail}</span>
@@ -369,16 +367,7 @@
           aria-busy={signingIn}
         >
           {#if signingIn}
-            <!-- Spinner -->
-            <svg
-              class="w-5 h-5 animate-spin"
-              fill="none"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"></path>
-            </svg>
+            <Spinner />
             <span>Signing in…</span>
           {:else}
             <!-- Google "G" logo SVG -->
@@ -542,12 +531,7 @@
     <main class="flex-1 overflow-y-auto">
       {#if appLoading}
         <div class="flex items-center justify-center min-h-[60vh]">
-          <svg class="w-8 h-8 animate-spin" fill="none" viewBox="0 0 24 24" aria-label="Loading"
-               style="color: var(--color-primary);">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor"
-                  d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"></path>
-          </svg>
+          <span style="color: var(--color-primary);"><Spinner size="w-8 h-8" /></span>
         </div>
       {:else}
         {@render children()}

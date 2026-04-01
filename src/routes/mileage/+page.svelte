@@ -1,4 +1,5 @@
 <script>
+  import Spinner from '../../components/Spinner.svelte';
   /**
    * Mileage entry form.
    *
@@ -359,10 +360,7 @@
 
   {#if editLoading}
     <div class="flex items-center justify-center py-16 gap-3">
-      <svg class="w-5 h-5 animate-spin" style="color: var(--color-text-muted);" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
-      </svg>
+      <span style="color: var(--color-text-muted);"><Spinner /></span>
       <span class="text-sm" style="color: var(--color-text-muted);">Loading…</span>
     </div>
   {:else if editLoadError}
@@ -388,17 +386,7 @@
       <BusinessDropdown onchange={loadBusinessData} />
     </div>
     {#if configLoading}
-      <svg
-        class="w-5 h-5 animate-spin flex-shrink-0"
-        style="color: var(--color-text-muted);"
-        fill="none"
-        viewBox="0 0 24 24"
-        aria-label="Loading…"
-        aria-hidden="true"
-      >
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
-      </svg>
+      <span style="color: var(--color-text-muted);"><Spinner size="w-5 h-5 flex-shrink-0" /></span>
     {/if}
   </div>
 
@@ -576,10 +564,7 @@
         "
       >
         {#if milSubmitting}
-          <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
-          </svg>
+          <Spinner />
           Saving…
         {:else}
           {editMode ? 'Save Changes' : 'Save Mileage'}

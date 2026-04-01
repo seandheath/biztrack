@@ -13,6 +13,7 @@
 -->
 <script>
   import { listFolders } from '$lib/drive.js';
+  import Spinner from './Spinner.svelte';
 
   let { open, title = 'Select Folder', onselect, oncancel } = $props();
 
@@ -144,10 +145,7 @@
 
         {#if loading}
           <div class="flex items-center justify-center gap-3 py-10">
-            <svg class="w-5 h-5 animate-spin" style="color: var(--color-text-muted);" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
-            </svg>
+            <span style="color: var(--color-text-muted);"><Spinner /></span>
             <span class="text-sm" style="color: var(--color-text-muted);">Loading…</span>
           </div>
 

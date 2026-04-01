@@ -321,8 +321,10 @@ export async function revokeToken() {
   try {
     const { clearQueue } = await import('./services/offline-queue.js');
     const { clearTrashedCache } = await import('./services/sheets.js');
+    const { clearProfileCache } = await import('./profile.js');
     clearQueue();
     clearTrashedCache();
+    clearProfileCache();
   } catch {}
 
   _onTokenUpdate?.({ token: null, expiry: null, email: null });

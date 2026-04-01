@@ -1,4 +1,5 @@
 <script>
+  import Spinner from '../../../components/Spinner.svelte';
   /**
    * Payment Methods management screen.
    * Per-business list of payment accounts from config.json.
@@ -73,10 +74,7 @@
 
   {:else if !$businessConfig}
     <div class="flex items-center justify-center py-12 gap-3">
-      <svg class="w-5 h-5 animate-spin" style="color: var(--color-text-muted);" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
-      </svg>
+      <span style="color: var(--color-text-muted);"><Spinner /></span>
       <span class="text-sm" style="color: var(--color-text-muted);">Loading…</span>
     </div>
 
@@ -107,10 +105,7 @@
               style="color: var(--color-text-muted); min-width: 36px; min-height: 36px;"
             >
               {#if deletingMethod === method}
-                <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
-                </svg>
+                <Spinner size="w-4 h-4" />
               {:else}
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />

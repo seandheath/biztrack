@@ -11,6 +11,7 @@
  * round-trip on every page navigation or app reopen.
  */
 
+import { apiFetch } from './auth.js';
 import { findFile, createFolder, downloadJson, uploadJson, updateJson } from './drive.js';
 
 const BIZTRACK_FOLDER_NAME = 'BizTrack';
@@ -20,6 +21,9 @@ const LS_FOLDER_KEY        = 'bt_biz_folder';
 // Deduplicates concurrent calls — prevents two callers from both running
 // findFile() before either has stored the result, causing both to create the folder.
 let _ensureFolderInFlight = null;
+
+// Module-level cache of the profile.json file ID to avoid a findFile() on every save.
+let _profileFileId = null;
 
 /**
  * Finds or creates the root BizTrack folder in the user's Drive root.
@@ -34,7 +38,20 @@ let _ensureFolderInFlight = null;
 export async function ensureBizTrackFolder() {
   try {
     const cached = localStorage.getItem(LS_FOLDER_KEY);
-    if (cached) return cached;
+    if (cached) {
+      // Validate the cached folder still exists and isn't trashed
+      try {
+        const resp = await apiFetch(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(cached)}?fields=trashed`
+        );
+        if (resp.ok) {
+          const data = await resp.json();
+          if (!data.trashed) return cached;
+        }
+      } catch { /* Network/auth error — fall through to find-or-create */ }
+      // Cache is stale — clear and fall through
+      localStorage.removeItem(LS_FOLDER_KEY);
+    }
   } catch { /* localStorage unavailable */ }
 
   if (_ensureFolderInFlight) return _ensureFolderInFlight;
@@ -88,10 +105,21 @@ export async function saveProfile(folderId, bizList, mileageFavs = {}) {
   // discovered from Drive folder structure on each session start.
   const minimal = bizList.map(({ name, folderId: bFolderId }) => ({ name, folderId: bFolderId }));
   const payload = { businesses: minimal, mileage_favorites: mileageFavs };
-  const fileId = await findFile(PROFILE_FILENAME, folderId);
-  if (fileId) {
-    await updateJson(fileId, payload);
-  } else {
-    await uploadJson(PROFILE_FILENAME, payload, folderId);
+
+  // Use cached file ID to skip the findFile() lookup after the first save
+  if (!_profileFileId) {
+    _profileFileId = await findFile(PROFILE_FILENAME, folderId);
   }
+
+  if (_profileFileId) {
+    await updateJson(_profileFileId, payload);
+  } else {
+    const { id } = await uploadJson(PROFILE_FILENAME, payload, folderId);
+    _profileFileId = id;
+  }
+}
+
+/** Clears the cached profile file ID. Call on sign-out. */
+export function clearProfileCache() {
+  _profileFileId = null;
 }
