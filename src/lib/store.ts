@@ -63,6 +63,22 @@ export const businessConfig: Writable<BusinessConfig | null> = writable(null);
  */
 export const vendorCache: Writable<string[]> = writable([]);
 
+/** A destination paired with the "from" value from the most recent trip to it. */
+export interface DestinationEntry { to: string; lastFrom: string; }
+
+/**
+ * Mileage destination entries for autocomplete — deduplicated by destination,
+ * each carrying the most recent origin for that destination.
+ * NOT cached in localStorage — populated from Sheets on each page load.
+ */
+export const destinationCache: Writable<DestinationEntry[]> = writable([]);
+
+/**
+ * Mileage origin strings for autocomplete — unique "from" values.
+ * NOT cached in localStorage — populated from Sheets on each page load.
+ */
+export const originCache: Writable<string[]> = writable([]);
+
 /**
  * User-owned mileage favorites, keyed by business folderId.
  * Populated from profile.json at session start — NOT derived from config.json.

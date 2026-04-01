@@ -17,15 +17,19 @@
     mileageFavorites,
     userEmail,
     updateBusiness,
+    destinationCache,
+    originCache,
   } from '$lib/store.js';
   import { pushTransactions, updateByUUID, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.svelte.js';
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
-  import { syncStatus, cacheTransactions } from '$lib/sync.js';
+  import { syncStatus, cacheTransactions, getCachedTransactions } from '$lib/sync.js';
   import { ensureYearFolder, saveMileageFavorite, updateMileageFavorite, loadBusinessData as _loadBusinessData } from '$lib/business.js';
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
   import FavoriteRouteList from '../../components/FavoriteRouteList.svelte';
+  import DestinationAutocomplete from '../../components/DestinationAutocomplete.svelte';
+  import OriginAutocomplete from '../../components/OriginAutocomplete.svelte';
   import Toast from '../../components/Toast.svelte';
 
   // ---------------------------------------------------------------------------
@@ -121,6 +125,14 @@
     configLoading = true;
     try {
       await _loadBusinessData(business);
+      // Populate destination + origin autocomplete caches from mileage history
+      const year = new Date().getFullYear();
+      const sheetId = business.sheetIds?.[year];
+      if (sheetId) {
+        const rows = getCachedTransactions(sheetId, 'Mileage')
+          ?? await pullTransactions(sheetId, 'Mileage');
+        buildMileageCaches(rows);
+      }
     } catch (err) {
       console.error('[mileage] loadBusinessData:', err);
     } finally {
@@ -128,9 +140,34 @@
     }
   }
 
+  /**
+   * Build deduplicated destination and origin caches from mileage rows.
+   * For destinations, pairs each unique "to" with the "from" of the most recent trip.
+   */
+  function buildMileageCaches(rows) {
+    const sorted = [...rows].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
+    const destMap = new Map();
+    const origins = new Set();
+    for (const row of sorted) {
+      const to = (row.to ?? '').trim();
+      const from = (row.from ?? '').trim();
+      if (to && !destMap.has(to)) destMap.set(to, from);
+      if (from) origins.add(from);
+    }
+    destinationCache.set(Array.from(destMap.entries()).map(([to, lastFrom]) => ({ to, lastFrom })));
+    originCache.set([...origins]);
+  }
+
   // ---------------------------------------------------------------------------
   // Mileage form handlers
   // ---------------------------------------------------------------------------
+
+  /** Auto-fill the From field when a destination is picked (only if From is empty). */
+  function handleDestinationPick(entry) {
+    if (entry.lastFrom && !milFrom.trim()) {
+      milFrom = entry.lastFrom;
+    }
+  }
 
   function validateMileage() {
     const errs = {};
@@ -204,6 +241,26 @@
           return;
         }
         throw err;
+      }
+
+      // Update autocomplete caches with the just-submitted entry
+      const submittedTo = milTo.trim();
+      const submittedFrom = milFrom.trim();
+      if (submittedTo) {
+        destinationCache.update((cache) => {
+          const idx = cache.findIndex((e) => e.to === submittedTo);
+          if (idx >= 0) {
+            const updated = [...cache];
+            updated[idx] = { to: submittedTo, lastFrom: submittedFrom };
+            return updated;
+          }
+          return [...cache, { to: submittedTo, lastFrom: submittedFrom }];
+        });
+      }
+      if (submittedFrom) {
+        originCache.update((cache) =>
+          cache.includes(submittedFrom) ? cache : [...cache, submittedFrom]
+        );
       }
 
       // Clear fields — preserve date
@@ -420,21 +477,21 @@
         {/if}
       </div>
 
-      <!-- From -->
+      <!-- To (destination — autocomplete from history) -->
       <div class="flex flex-col gap-1">
-        <label for="mil-from" class="text-sm font-medium" style="color: var(--color-text-muted);">From</label>
-        <input id="mil-from" type="text" bind:value={milFrom} placeholder="Starting address or city" />
-        {#if milErrors.from}
-          <span class="text-xs" style="color: var(--color-error);">{milErrors.from}</span>
+        <label for="mil-to" class="text-sm font-medium" style="color: var(--color-text-muted);">To</label>
+        <DestinationAutocomplete id="mil-to" bind:value={milTo} placeholder="Destination" onpick={handleDestinationPick} />
+        {#if milErrors.to}
+          <span class="text-xs" style="color: var(--color-error);">{milErrors.to}</span>
         {/if}
       </div>
 
-      <!-- To -->
+      <!-- From (origin — autocomplete from history) -->
       <div class="flex flex-col gap-1">
-        <label for="mil-to" class="text-sm font-medium" style="color: var(--color-text-muted);">To</label>
-        <input id="mil-to" type="text" bind:value={milTo} placeholder="Destination" />
-        {#if milErrors.to}
-          <span class="text-xs" style="color: var(--color-error);">{milErrors.to}</span>
+        <label for="mil-from" class="text-sm font-medium" style="color: var(--color-text-muted);">From</label>
+        <OriginAutocomplete id="mil-from" bind:value={milFrom} placeholder="Starting address or city" />
+        {#if milErrors.from}
+          <span class="text-xs" style="color: var(--color-error);">{milErrors.from}</span>
         {/if}
       </div>
 
