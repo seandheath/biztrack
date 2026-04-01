@@ -8,27 +8,14 @@
  */
 
 import { apiFetch } from './auth.js';
+import { throwApiError } from './api-error.js';
 
 const FILES_URL = 'https://www.googleapis.com/drive/v3/files';
 const UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
-/**
- * Throws a descriptive error from a non-ok Drive API response.
- * @param {Response} response
- * @param {string} context - short label for the failing operation
- */
-async function _throwDriveError(response, context) {
-  let message = `Drive ${context} failed (HTTP ${response.status})`;
-  try {
-    const body = await response.json();
-    const err = body?.error;
-    if (err?.message) message = `Drive ${context}: ${err.message} (${response.status})`;
-  } catch {
-    // Body not JSON — use status-only message
-  }
-  throw new Error(message);
-}
+/** @param {Response} r @param {string} ctx */
+async function _throwDriveError(r, ctx) { return throwApiError(r, `Drive ${ctx}`); }
 
 // ---------------------------------------------------------------------------
 // Folder operations

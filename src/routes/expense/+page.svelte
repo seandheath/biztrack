@@ -23,10 +23,13 @@
     vendorCache,
     pendingReceipt,
     userEmail,
+    updateBusiness,
   } from '$lib/store.js';
   import { downloadJson, findFile, listFileNames, uploadFile } from '$lib/drive.js';
-  import { appendRow, readColumn, updateRow, readRow, findRowByTxnId } from '$lib/sheets.js';
+  import { readRow, findRowByTxnId } from '$lib/sheets.js';
   import { pushTransactions, updateByUUID, deleteByUUID, batchSetCategory, pullTransactions } from '$lib/services/sheets.js';
+  import { toast, showToast } from '$lib/toast.js';
+  import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
   import { syncStatus, cacheTransactions } from '$lib/sync.js';
   import { ensureYearFolder } from '$lib/business.js';
@@ -119,38 +122,6 @@
   let shareTxnId       = $state('');
 
   // ---------------------------------------------------------------------------
-  // Toast state
-  // ---------------------------------------------------------------------------
-
-  let toastMessage = $state('');
-  let toastType    = $state(/** @type {'success'|'error'} */('success'));
-  let toastVisible = $state(false);
-  let toastTimer   = null;
-
-  function showToast(message, type = 'success') {
-    toastMessage = message;
-    toastType    = type;
-    toastVisible = true;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { toastVisible = false; }, 3000);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
-  function todayISO() {
-    return new Date().toISOString().slice(0, 10);
-  }
-
-  function friendlyError(err) {
-    const msg = err?.message ?? '';
-    if (msg.includes('401')) return 'Session expired. Please sign in again.';
-    if (msg.includes('403')) return 'Permission denied. Check Drive sharing.';
-    return 'Network error. Try again.';
-  }
-
-  // ---------------------------------------------------------------------------
   // Business data load
   // ---------------------------------------------------------------------------
 
@@ -174,8 +145,7 @@
         configId = await findFile('config.json', business.folderId);
         if (configId) {
           const updated = { ...business, configFileId: configId };
-          businesses.update((list) => list.map((b) => b.name === business.name ? updated : b));
-          selectedBusiness.set(updated);
+          updateBusiness(updated);
           business = updated;
         }
       }
@@ -194,8 +164,7 @@
       const year = new Date().getFullYear();
       const updated = await ensureYearFolder(business, year);
       if (updated !== business) {
-        businesses.update((list) => list.map((b) => b.name === business.name ? updated : b));
-        selectedBusiness.set(updated);
+        updateBusiness(updated);
         business = updated;
       }
 
@@ -261,8 +230,7 @@
       // Ensure the target year folder exists (handles backdated expenses)
       if (!biz.sheetIds?.[year]) {
         biz = await ensureYearFolder(biz, year);
-        businesses.update((list) => list.map((b) => b.name === biz.name ? biz : b));
-        selectedBusiness.set(biz);
+        updateBusiness(biz);
       }
 
       const receiptFolderId = biz.receiptFolderIds?.[year];
@@ -493,8 +461,7 @@
     if (biz.yearFolders?.[year]) return;
     try {
       const updated = await ensureYearFolder(biz, year);
-      businesses.update((list) => list.map((b) => b.name === biz.name ? updated : b));
-      selectedBusiness.set(updated);
+      updateBusiness(updated);
     } catch (err) {
       console.warn('[expense] prefetchYearFolder failed:', err);
     }
@@ -970,4 +937,4 @@
 </div>
 
 <!-- Toast -->
-<Toast message={toastMessage} type={toastType} visible={toastVisible} />
+<Toast message={toast.message} type={toast.type} visible={toast.visible} />

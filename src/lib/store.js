@@ -92,6 +92,22 @@ export const mileageFavorites = writable({});
 export const pendingReceipt = writable(null);
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Atomically updates a business object in both the businesses list and
+ * selectedBusiness stores. Replaces the 2-line pattern that was previously
+ * copy-pasted 8+ times across pages.
+ *
+ * @param {Object} updated - The updated business object (must have .name)
+ */
+export function updateBusiness(updated) {
+  businesses.update((list) => list.map((b) => b.name === updated.name ? updated : b));
+  selectedBusiness.update((current) => current?.name === updated.name ? updated : current);
+}
+
+// ---------------------------------------------------------------------------
 // Persistence subscriptions — UX preferences only
 // ---------------------------------------------------------------------------
 

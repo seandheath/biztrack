@@ -12,6 +12,7 @@
   import { businesses, selectedBusiness } from '$lib/store.js';
   import { findRowByTxnId, readRow } from '$lib/sheets.js';
   import { deleteByUUID, pullTransactions } from '$lib/services/sheets.js';
+  import { toast, showToast } from '$lib/toast.js';
   import { syncStatus, cacheTransactions } from '$lib/sync.js';
   import Toast from '../../components/Toast.svelte';
 
@@ -38,23 +39,6 @@
   /** 1-based row number in the sheet (for delete). */
   let rowNum        = $state(/** @type {number|null} */(null));
   let spreadsheetId = $state('');
-
-  // ---------------------------------------------------------------------------
-  // Toast
-  // ---------------------------------------------------------------------------
-
-  let toastMessage = $state('');
-  let toastType    = $state(/** @type {'success'|'error'} */('success'));
-  let toastVisible = $state(false);
-  let toastTimer   = null;
-
-  function showToast(message, t = 'success') {
-    toastMessage = message;
-    toastType    = t;
-    toastVisible = true;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { toastVisible = false; }, 3000);
-  }
 
   // ---------------------------------------------------------------------------
   // URL builders
@@ -377,4 +361,4 @@
 </div>
 
 <!-- Toast -->
-<Toast message={toastMessage} type={toastType} visible={toastVisible} />
+<Toast message={toast.message} type={toast.type} visible={toast.visible} />

@@ -15,6 +15,7 @@
  */
 
 import { apiFetch } from '../auth.js';
+import { throwApiError } from '../api-error.js';
 
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
@@ -50,15 +51,7 @@ type SheetName = 'Expenses' | 'Mileage';
 // ---------------------------------------------------------------------------
 
 async function _throwSheetsError(response: Response, context: string): Promise<never> {
-  let message = `Sheets ${context} failed (HTTP ${response.status})`;
-  try {
-    const body = await response.json();
-    const err = body?.error;
-    if (err?.message) message = `Sheets ${context}: ${err.message} (${response.status})`;
-  } catch {
-    // Body not JSON — use status-only message
-  }
-  throw new Error(message);
+  return throwApiError(response, `Sheets ${context}`);
 }
 
 /** Converts a header string array to a Sheets API rowData values array. */
