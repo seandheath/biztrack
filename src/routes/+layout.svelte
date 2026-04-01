@@ -1,4 +1,7 @@
 <script>
+  /* global __APP_VERSION__ */
+  const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
+
   import '../app.css';
   import Spinner from '../components/Spinner.svelte';
   import { onMount } from 'svelte';
@@ -405,6 +408,9 @@
     <p class="text-xs text-center max-w-xs" style="color: var(--color-text-muted);">
       Your data is stored in your own Google Drive. BizTrack only accesses files it creates.
     </p>
+    {#if appVersion}
+      <p class="text-xs text-center" style="color: var(--color-text-muted);">v{appVersion}</p>
+    {/if}
   </div>
 
 <!-- =========================================================================
