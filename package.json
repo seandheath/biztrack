@@ -1,6 +1,6 @@
 {
   "name": "biztrack",
-  "version": "0.1.86",
+  "version": "0.1.87",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
@@ -9,7 +9,6 @@
     "build": "vite build",
     "preview": "vite preview"
   },
-  "dependencies": {},
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.55.0",
@@ -18,6 +17,7 @@
     "@vite-pwa/sveltekit": "^1.1.0",
     "svelte": "^5.55.0",
     "tailwindcss": "^4.2.2",
+    "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "workbox-build": "^7.4.0",
     "workbox-expiration": "^7.4.0",
