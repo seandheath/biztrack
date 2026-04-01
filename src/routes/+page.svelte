@@ -17,10 +17,10 @@
   import BusinessDropdown from '../components/BusinessDropdown.svelte';
 
   // ---------------------------------------------------------------------------
-  // Live state — pulled from Sheets
+  // Live state — pulled from Sheets (expenses + mileage merged)
   // ---------------------------------------------------------------------------
 
-  /** @type {import('$lib/services/sheets.js').TransactionRow[]} */
+  /** @type {(import('$lib/services/sheets.js').TransactionRow & { _type: 'expense' | 'mileage' })[]} */
   let rows = $state([]);
 
   /** Count of uncategorized expense transactions — drives the review banner */
@@ -28,36 +28,53 @@
 
   let loading = $state(false);
 
+  /**
+   * Tag each row with its type and merge two arrays into a date-sorted list.
+   * @param {import('$lib/services/sheets.js').TransactionRow[]} expenses
+   * @param {import('$lib/services/sheets.js').TransactionRow[]} mileage
+   */
+  function mergeAndSort(expenses, mileage) {
+    const tagged = [
+      ...expenses.map((r) => ({ ...r, _type: /** @type {const} */ ('expense') })),
+      ...mileage.map((r)  => ({ ...r, _type: /** @type {const} */ ('mileage') })),
+    ];
+    return tagged.sort((a, b) => b.date.localeCompare(a.date));
+  }
+
   $effect(() => {
     const biz = $selectedBusiness;
     if (!biz) { rows = []; uncategorizedCount = 0; return; }
     const spreadsheetId = biz.sheetIds?.[new Date().getFullYear()];
     if (!spreadsheetId) { rows = []; return; }
 
-    // Load cached rows immediately — no spinner, no "No expenses" flash
-    const cached = getCachedTransactions(spreadsheetId, 'Expenses');
-    if (cached) {
-      const sorted = cached.sort((a, b) => b.date.localeCompare(a.date));
-      rows = sorted;
-      uncategorizedCount = sorted.filter((r) => !r.category || r.category === 'Uncategorized').length;
+    // Load cached rows immediately — no spinner, no empty-state flash
+    const cachedExp = getCachedTransactions(spreadsheetId, 'Expenses');
+    const cachedMil = getCachedTransactions(spreadsheetId, 'Mileage');
+    const hasCached = cachedExp || cachedMil;
+    if (hasCached) {
+      const merged = mergeAndSort(cachedExp ?? [], cachedMil ?? []);
+      rows = merged;
+      uncategorizedCount = (cachedExp ?? []).filter((r) => !r.category || r.category === 'Uncategorized').length;
     }
 
-    // Background pull from Sheets (replaces cached rows on success)
-    loading = !cached;
+    // Background pull from both sheets in parallel
+    loading = !hasCached;
     syncStatus.set('yellow');
-    pullTransactions(spreadsheetId, 'Expenses')
-      .then((pulled) => {
-        const sorted = pulled.sort((a, b) => b.date.localeCompare(a.date));
-        rows = sorted;
-        uncategorizedCount = sorted.filter((r) => !r.category || r.category === 'Uncategorized').length;
+    Promise.all([
+      pullTransactions(spreadsheetId, 'Expenses'),
+      pullTransactions(spreadsheetId, 'Mileage'),
+    ])
+      .then(([pulledExp, pulledMil]) => {
+        rows = mergeAndSort(pulledExp, pulledMil);
+        uncategorizedCount = pulledExp.filter((r) => !r.category || r.category === 'Uncategorized').length;
         syncStatus.set('green');
-        cacheTransactions(spreadsheetId, 'Expenses', pulled);
+        cacheTransactions(spreadsheetId, 'Expenses', pulledExp);
+        cacheTransactions(spreadsheetId, 'Mileage', pulledMil);
       })
       .catch((err) => {
         console.error('[home] pull:', err);
         syncStatus.set('red');
-        // Keep cached rows visible — don't clear on error
-        if (!cached) rows = [];
+        if (!hasCached) rows = [];
       })
       .finally(() => { loading = false; });
   });
@@ -72,6 +89,7 @@
     u.searchParams.set('biz',  $selectedBusiness.id ?? $selectedBusiness.folderId);
     u.searchParams.set('year', String(year));
     u.searchParams.set('txn',  row.id);
+    if (row._type === 'mileage') u.searchParams.set('type', 'mileage');
     return u.toString();
   }
 
@@ -142,9 +160,9 @@
 
       {:else if rows.length === 0}
         <div class="flex flex-col items-center justify-center py-12 gap-3 text-center">
-          <p class="text-base" style="color: var(--color-text-muted);">No expenses recorded yet.</p>
+          <p class="text-base" style="color: var(--color-text-muted);">No entries recorded yet.</p>
           <p class="text-sm" style="color: var(--color-text-muted);">
-            Tap <strong>+ Expense</strong> below to add your first entry.
+            Tap <strong>+ Expense</strong> or <strong>+ Mileage</strong> below to add your first entry.
           </p>
         </div>
 
@@ -155,27 +173,44 @@
           style="border-color: var(--color-border); background-color: var(--color-surface-2);"
         >
           {#each rows as row (row.id)}
-            <a
-              href={transactionUrl(row)}
-              class="w-full flex items-center px-4 text-left hover:opacity-80 transition-opacity"
-              style="min-height: 64px; display: flex;"
-              aria-label="View entry: {row.vendor}, {row.date}"
-            >
-              <div class="flex flex-col gap-0.5 flex-1 min-w-0 pr-3">
-                <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.vendor}</span>
-                <span class="text-xs" style="color: var(--color-text-muted);">{row.date}{row.category ? ' · ' + row.category : ''}</span>
-              </div>
-              <div class="flex items-center gap-1.5 flex-shrink-0">
-                {#if row.receiptDriveId}
-                  <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                       aria-label="Receipt attached" style="color: var(--color-text-muted);">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                      d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                  </svg>
-                {/if}
-                <span class="text-sm font-semibold" style="color: var(--color-primary);">${Number(row.amount).toFixed(2)}</span>
-              </div>
-            </a>
+            {#if row._type === 'mileage'}
+              <a
+                href={transactionUrl(row)}
+                class="w-full flex items-center px-4 text-left hover:opacity-80 transition-opacity"
+                style="min-height: 64px; display: flex;"
+                aria-label="View mileage: {row.from} to {row.to}, {row.date}"
+              >
+                <div class="flex flex-col gap-0.5 flex-1 min-w-0 pr-3">
+                  <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.from} → {row.to}</span>
+                  <span class="text-xs" style="color: var(--color-text-muted);">{row.date} · Mileage</span>
+                </div>
+                <div class="flex items-center gap-1.5 flex-shrink-0">
+                  <span class="text-sm font-semibold" style="color: var(--color-primary);">{row.miles} mi</span>
+                </div>
+              </a>
+            {:else}
+              <a
+                href={transactionUrl(row)}
+                class="w-full flex items-center px-4 text-left hover:opacity-80 transition-opacity"
+                style="min-height: 64px; display: flex;"
+                aria-label="View entry: {row.vendor}, {row.date}"
+              >
+                <div class="flex flex-col gap-0.5 flex-1 min-w-0 pr-3">
+                  <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.vendor}</span>
+                  <span class="text-xs" style="color: var(--color-text-muted);">{row.date}{row.category ? ' · ' + row.category : ''}</span>
+                </div>
+                <div class="flex items-center gap-1.5 flex-shrink-0">
+                  {#if row.receiptDriveId}
+                    <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                         aria-label="Receipt attached" style="color: var(--color-text-muted);">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                  {/if}
+                  <span class="text-sm font-semibold" style="color: var(--color-primary);">${Number(row.amount).toFixed(2)}</span>
+                </div>
+              </a>
+            {/if}
           {/each}
         </div>
       {/if}

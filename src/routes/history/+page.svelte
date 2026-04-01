@@ -12,11 +12,8 @@
   import { syncStatus, getCachedTransactions, cacheTransactions } from '$lib/sync.js';
 
   // ---------------------------------------------------------------------------
-  // Tab / year state
+  // Year state
   // ---------------------------------------------------------------------------
-
-  /** @type {'expense'|'mileage'} */
-  let activeTab = $state('expense');
 
   /** Years with data — derived directly from sheetIds so it's always in sync. */
   let availableYears = $derived.by(() => {
@@ -43,39 +40,56 @@
   );
 
   // ---------------------------------------------------------------------------
-  // Row state — pulled from Sheets
+  // Row state — pulled from Sheets (expenses + mileage merged)
   // ---------------------------------------------------------------------------
 
-  /** @type {import('$lib/services/sheets.js').TransactionRow[]} */
+  /** @type {(import('$lib/services/sheets.js').TransactionRow & { _type: 'expense' | 'mileage' })[]} */
   let rows = $state([]);
 
   let loading = $state(false);
 
+  /**
+   * Tag each row with its type and merge two arrays into a date-sorted list.
+   * @param {import('$lib/services/sheets.js').TransactionRow[]} expenses
+   * @param {import('$lib/services/sheets.js').TransactionRow[]} mileage
+   */
+  function mergeAndSort(expenses, mileage) {
+    const tagged = [
+      ...expenses.map((r) => ({ ...r, _type: /** @type {const} */ ('expense') })),
+      ...mileage.map((r)  => ({ ...r, _type: /** @type {const} */ ('mileage') })),
+    ];
+    return tagged.sort((a, b) => b.date.localeCompare(a.date));
+  }
+
   $effect(() => {
     const sid = spreadsheetId;
-    const tab = activeTab;
     if (!sid) { rows = []; return; }
-    const sheetName = tab === 'mileage' ? 'Mileage' : 'Expenses';
 
     // Load cached rows for instant render
-    const cached = getCachedTransactions(sid, sheetName);
-    if (cached) {
-      rows = cached.sort((a, b) => b.date.localeCompare(a.date));
+    const cachedExp = getCachedTransactions(sid, 'Expenses');
+    const cachedMil = getCachedTransactions(sid, 'Mileage');
+    const hasCached = cachedExp || cachedMil;
+    if (hasCached) {
+      rows = mergeAndSort(cachedExp ?? [], cachedMil ?? []);
     }
 
-    // Background pull from Sheets
-    loading = !cached;
+    // Background pull from both sheets in parallel
+    loading = !hasCached;
     syncStatus.set('yellow');
-    pullTransactions(sid, sheetName)
-      .then((pulled) => {
-        rows = pulled.sort((a, b) => b.date.localeCompare(a.date));
+    Promise.all([
+      pullTransactions(sid, 'Expenses'),
+      pullTransactions(sid, 'Mileage'),
+    ])
+      .then(([pulledExp, pulledMil]) => {
+        rows = mergeAndSort(pulledExp, pulledMil);
         syncStatus.set('green');
-        cacheTransactions(sid, sheetName, pulled);
+        cacheTransactions(sid, 'Expenses', pulledExp);
+        cacheTransactions(sid, 'Mileage', pulledMil);
       })
       .catch((err) => {
         console.error('[history] pull:', err);
         syncStatus.set('red');
-        if (!cached) rows = [];
+        if (!hasCached) rows = [];
       })
       .finally(() => { loading = false; });
   });
@@ -89,7 +103,7 @@
     u.searchParams.set('biz',  $selectedBusiness.id ?? $selectedBusiness.folderId);
     u.searchParams.set('year', selectedYear);
     u.searchParams.set('txn',  row.id);
-    if (activeTab === 'mileage') u.searchParams.set('type', 'mileage');
+    if (row._type === 'mileage') u.searchParams.set('type', 'mileage');
     return u.toString();
   }
 
@@ -120,9 +134,8 @@
       {$selectedBusiness.name}
     </p>
 
-    <!-- Controls row: year selector + tab toggle -->
+    <!-- Year selector -->
     <div class="flex gap-3 items-center">
-      <!-- Year selector -->
       {#if availableYears.length > 0}
         <select
           bind:value={selectedYear}
@@ -137,30 +150,6 @@
       {:else}
         <span class="text-sm" style="color: var(--color-text-muted);">No data yet</span>
       {/if}
-
-      <!-- Tab toggle -->
-      <div
-        class="flex flex-1 rounded-xl overflow-hidden border"
-        style="border-color: var(--color-border);"
-        role="tablist"
-      >
-        {#each ['expense', 'mileage'] as tab}
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab}
-            onclick={() => { activeTab = tab; }}
-            class="flex-1 text-sm font-medium capitalize transition-colors"
-            style="
-              min-height: 40px;
-              background-color: {activeTab === tab ? 'var(--color-primary)' : 'var(--color-surface-2)'};
-              color: {activeTab === tab ? 'var(--color-primary-text)' : 'var(--color-text-muted)'};
-            "
-          >
-            {tab}
-          </button>
-        {/each}
-      </div>
     </div>
 
     <!-- Loading / empty / row list -->
@@ -172,7 +161,7 @@
     {:else if rows.length === 0}
       <div class="text-center py-12">
         <p class="text-base" style="color: var(--color-text-muted);">
-          No {activeTab} entries in {selectedYear}.
+          No entries in {selectedYear}.
         </p>
       </div>
 
@@ -183,7 +172,7 @@
         style="border-color: var(--color-border); background-color: var(--color-surface-2);"
       >
         {#each rows as row (row.id)}
-          {#if activeTab === 'expense'}
+          {#if row._type === 'expense'}
             <a
               href={transactionUrl(row)}
               class="w-full flex items-center justify-between px-4 hover:opacity-80 transition-opacity"
