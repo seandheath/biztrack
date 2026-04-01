@@ -1,5 +1,6 @@
 <script>
-  import { selectedBusiness, businessConfig, userEmail, businesses } from '$lib/store.js';
+  import { selectedBusiness, businessConfig, userEmail, businesses, paymentMethodCache } from '$lib/store.js';
+  import Autocomplete from '../../../components/Autocomplete.svelte';
   import { pushTransactions, pullTransactions } from '$lib/services/sheets.js';
   import { ensureYearFolder } from '$lib/business.js';
 
@@ -64,8 +65,6 @@
   let importing     = $state(false);
   let result        = $state(null); // {imported, skipped, errors} after import
 
-  /** Payment method options from businessConfig + default Cash */
-  let paymentMethods = $derived(['Cash', ...($businessConfig?.payment_accounts ?? [])]);
 
   /**
    * Reads the selected CSV file, parses it, and filters to debit rows only.
@@ -266,22 +265,7 @@
       <label class="text-sm font-medium" style="color: var(--color-text);" for="payment-method">
         Payment account <span style="color: var(--color-error);">*</span>
       </label>
-      <select
-        id="payment-method"
-        bind:value={paymentMethod}
-        class="rounded-xl border px-3 text-base"
-        style="
-          min-height: 44px;
-          background-color: var(--color-surface-2);
-          border-color: var(--color-border);
-          color: var(--color-text);
-        "
-      >
-        <option value="">Select account…</option>
-        {#each paymentMethods as m}
-          <option value={m}>{m}</option>
-        {/each}
-      </select>
+      <Autocomplete items={$paymentMethodCache} id="payment-method" bind:value={paymentMethod} placeholder="e.g. Chase Visa x4521" listboxPrefix="csv-payment" />
       <p class="text-xs" style="color: var(--color-text-muted);">
         All imported transactions will be assigned this payment method.
       </p>

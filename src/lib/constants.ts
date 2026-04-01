@@ -35,13 +35,6 @@ export const GOOGLE_APP_ID: string = import.meta.env.VITE_GOOGLE_APP_ID;
 export const DRIVE_SCOPE: string = 'https://www.googleapis.com/auth/drive';
 
 // ---------------------------------------------------------------------------
-// Payment methods
-// ---------------------------------------------------------------------------
-
-/** Default payment method — always present, cannot be deleted */
-export const DEFAULT_PAYMENT_METHODS: readonly string[] = ['Cash'] as const;
-
-// ---------------------------------------------------------------------------
 // IRS standard mileage rates
 // ---------------------------------------------------------------------------
 

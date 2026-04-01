@@ -63,6 +63,12 @@ export const businessConfig: Writable<BusinessConfig | null> = writable(null);
  */
 export const vendorCache: Writable<string[]> = writable([]);
 
+/**
+ * Payment method strings for autocomplete — unique methods from expense history.
+ * NOT cached in localStorage — populated from Sheets on each page load.
+ */
+export const paymentMethodCache: Writable<string[]> = writable([]);
+
 /** A destination paired with the "from" value from the most recent trip to it. */
 export interface DestinationEntry { to: string; lastFrom: string; }
 

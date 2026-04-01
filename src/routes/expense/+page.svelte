@@ -22,6 +22,7 @@
     selectedBusiness,
     businessConfig,
     vendorCache,
+    paymentMethodCache,
     pendingReceipt,
     userEmail,
     updateBusiness,
@@ -32,7 +33,7 @@
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
   import { syncStatus, cacheTransactions, invalidatePull } from '$lib/sync.js';
-  import { ensureYearFolder, loadBusinessData as _loadBusinessData, addPaymentMethod } from '$lib/business.js';
+  import { ensureYearFolder, loadBusinessData as _loadBusinessData } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
   import { DEFAULT_CATEGORIES } from '$lib/constants.js';
 
@@ -63,10 +64,6 @@
   let expErrors    = $state(/** @type {Record<string,string>} */({}));
   let expSubmitting = $state(false);
 
-  // Inline "add payment method" state
-  let addingPayment  = $state(false);
-  let newPaymentName = $state('');
-  let savingPayment  = $state(false);
   /** Only active in review mode — apply chosen category to all uncategorized rows for this vendor. */
   let applyToAll    = $state(false);
 
@@ -74,24 +71,6 @@
   let confirmDelete = $state(false);
   let deleting      = $state(false);
   let deleteError   = $state('');
-
-  // Save a new payment method inline without leaving the form.
-  async function handleAddPayment() {
-    const name = newPaymentName.trim();
-    if (!name || !$selectedBusiness || !$businessConfig) return;
-    savingPayment = true;
-    try {
-      await addPaymentMethod($selectedBusiness, $businessConfig, name);
-      expPayment = name;
-      addingPayment = false;
-      newPaymentName = '';
-    } catch (err) {
-      console.error('[expense] add payment method:', err);
-      showToast('Failed to add payment method.', 'error');
-    } finally {
-      savingPayment = false;
-    }
-  }
 
   async function handleDelete() {
     if (!confirmDelete) { confirmDelete = true; return; }
@@ -160,17 +139,15 @@
       const biz = await _loadBusinessData(business);
       if (!biz) return;
 
-      // Default payment method for a fresh load
-      const cfg = $businessConfig;
-      if (cfg && !expPayment) expPayment = cfg.payment_accounts?.[0] ?? '';
-
-      // Sync vendor autocomplete cache from this year's sheet
+      // Sync vendor + payment method autocomplete caches from this year's sheet
       const year = new Date().getFullYear();
       const sheetId = biz.sheetIds?.[year];
       if (sheetId) {
         const expenseRows = await pullTransactions(sheetId, 'Expenses');
-        const unique = [...new Set(expenseRows.map((r) => r.vendor).filter(Boolean))];
-        vendorCache.set(unique);
+        const uniqueVendors = [...new Set(expenseRows.map((r) => r.vendor).filter(Boolean))];
+        vendorCache.set(uniqueVendors);
+        const uniquePayments = [...new Set(expenseRows.map((r) => r.paymentMethod).filter(Boolean))];
+        paymentMethodCache.set(uniquePayments);
         _cacheVendorDefaults(expenseRows);
       }
     } catch (err) {
@@ -399,11 +376,17 @@
           }
         }
 
-        // Update vendor autocomplete cache
+        // Update vendor + payment method autocomplete caches
         const vendor = expVendor.trim();
         vendorCache.update((cache) =>
           cache.includes(vendor) ? cache : [...cache, vendor]
         );
+        const payment = expPayment.trim();
+        if (payment) {
+          paymentMethodCache.update((cache) =>
+            cache.includes(payment) ? cache : [...cache, payment]
+          );
+        }
 
         // Show share panel (only in single mode — split rows share no single txnId)
         if (!splitMode && txnId) {
@@ -785,60 +768,7 @@
       <!-- Payment Method -->
       <div class="flex flex-col gap-1">
         <label for="exp-payment" class="text-sm font-medium" style="color: var(--color-text-muted);">Payment Method</label>
-        {#if addingPayment}
-          <div class="flex items-center gap-2">
-            <input
-              type="text"
-              bind:value={newPaymentName}
-              placeholder="e.g. Chase Visa x4521"
-              onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddPayment(); } }}
-              class="flex-1 text-sm rounded-lg border px-3"
-              style="min-height: 40px; border-color: var(--color-border); background: var(--color-surface-2); color: var(--color-text);"
-            />
-            <button
-              type="button"
-              onclick={handleAddPayment}
-              disabled={savingPayment || !newPaymentName.trim()}
-              class="rounded-lg text-sm font-medium px-3 flex-shrink-0 disabled:opacity-50"
-              style="min-height: 40px; background-color: var(--color-primary); color: var(--color-primary-text);"
-            >
-              {savingPayment ? '…' : 'Save'}
-            </button>
-            <button
-              type="button"
-              onclick={() => { addingPayment = false; newPaymentName = ''; }}
-              class="rounded-lg text-sm px-2 flex-shrink-0"
-              style="min-height: 40px; background: transparent; color: var(--color-text-muted);"
-              aria-label="Cancel"
-            >
-              ✕
-            </button>
-          </div>
-        {:else if $businessConfig?.payment_accounts?.length}
-          <select
-            id="exp-payment"
-            value={expPayment}
-            onchange={(e) => {
-              if (e.target.value === '__add_payment__') {
-                e.target.value = expPayment; // reset select to previous value
-                addingPayment = true;
-                return;
-              }
-              expPayment = e.target.value;
-            }}
-            required
-          >
-            <option value="" disabled>Select method…</option>
-            {#each $businessConfig.payment_accounts as method (method)}
-              <option value={method}>{method}</option>
-            {/each}
-            <option value="__add_payment__" style="color: var(--color-primary);">+ Add Payment Method…</option>
-          </select>
-        {:else}
-          <select id="exp-payment" disabled>
-            <option>Loading…</option>
-          </select>
-        {/if}
+        <Autocomplete items={$paymentMethodCache} id="exp-payment" bind:value={expPayment} placeholder="e.g. Chase Visa x4521" listboxPrefix="payment" />
         {#if expErrors.payment}
           <span class="text-xs" style="color: var(--color-error);">{expErrors.payment}</span>
         {/if}

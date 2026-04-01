@@ -15,7 +15,6 @@ export interface Business {
 export interface BusinessConfig {
   id?: string;
   name: string;
-  payment_accounts: string[];
   mileage_favorites: MileageFavorite[];
   categories: string[];
 }

@@ -14,7 +14,7 @@
 
 import { findFile, downloadJson, uploadJson, updateJson, createFolder, moveFile, listFolders } from './drive.js';
 import { initSpreadsheet } from './services/sheets.js';
-import { DEFAULT_PAYMENT_METHODS, DEFAULT_CATEGORIES } from './constants.js';
+import { DEFAULT_CATEGORIES } from './constants.js';
 import { get } from 'svelte/store';
 import { businessConfig, businesses, selectedBusiness, mileageFavorites, updateBusiness } from './store.js';
 import { ensureBizTrackFolder, saveProfile } from './profile.js';
@@ -31,7 +31,6 @@ import type { Business, BusinessConfig, MileageFavorite } from './types.js';
  */
 export function normalizeConfig(cfg: BusinessConfig, businessName = ''): BusinessConfig {
   if (typeof cfg.name !== 'string' || !cfg.name) cfg.name = businessName;
-  if (!Array.isArray(cfg.payment_accounts))                            cfg.payment_accounts = [...DEFAULT_PAYMENT_METHODS];
   if (!Array.isArray(cfg.categories) || cfg.categories.length === 0)   cfg.categories       = [...DEFAULT_CATEGORIES];
   return cfg;
 }
@@ -101,7 +100,6 @@ export async function setupBusiness(
 ): Promise<{ business: Business; config: BusinessConfig }> {
   const defaultConfig: BusinessConfig = {
     name,
-    payment_accounts: [...DEFAULT_PAYMENT_METHODS],
     mileage_favorites: [],
     categories: [...DEFAULT_CATEGORIES],
   };
@@ -173,32 +171,6 @@ export async function saveConfig(business: Business, config: BusinessConfig): Pr
   if (!business?.configFileId) throw new Error('business.configFileId is missing');
   await updateJson(business.configFileId, config);
   businessConfig.set(config);
-}
-
-/**
- * Adds a payment method to a business config and saves to Drive.
- * No-op if the method already exists.
- */
-export async function addPaymentMethod(business: Business, config: BusinessConfig, method: string): Promise<BusinessConfig> {
-  const trimmed = method.trim();
-  if (!trimmed || config.payment_accounts.includes(trimmed)) return config;
-  const updated = { ...config, payment_accounts: [...config.payment_accounts, trimmed] };
-  await saveConfig(business, updated);
-  return updated;
-}
-
-/**
- * Removes a payment method from a business config and saves to Drive.
- * Refuses to remove 'Cash' (required default).
- */
-export async function removePaymentMethod(business: Business, config: BusinessConfig, method: string): Promise<BusinessConfig> {
-  if (method === 'Cash') return config;
-  const updated = {
-    ...config,
-    payment_accounts: config.payment_accounts.filter((m) => m !== method),
-  };
-  await saveConfig(business, updated);
-  return updated;
 }
 
 /**
