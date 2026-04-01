@@ -50,7 +50,15 @@
     loading = true;
     error   = null;
     try {
-      const drives = await listSharedDrives();
+      // Shared Drives listing may fail if the OAuth scope is insufficient
+      // (requires drive or drive.readonly). Degrade gracefully — still show
+      // My Drive and Shared with me.
+      let drives = [];
+      try {
+        drives = await listSharedDrives();
+      } catch (err) {
+        console.warn('[FolderBrowser] Could not list Shared Drives (scope may be insufficient):', err);
+      }
       folders = [
         { id: 'root', name: 'My Drive' },
         { id: SHARED_WITH_ME, name: 'Shared with me' },
