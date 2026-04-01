@@ -2,9 +2,8 @@
 @import 'tailwindcss';
 
 /* ============================================================
-   CSS custom properties for light/dark theming.
-   Components use these vars instead of hardcoded Tailwind colors
-   so that the theme switches automatically with prefers-color-scheme.
+   CSS custom properties for dark theme.
+   Components use these vars instead of hardcoded Tailwind colors.
    ============================================================ */
 
 :root {
