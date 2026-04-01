@@ -18,7 +18,7 @@
 
   <section style="margin-bottom: 2rem;">
     <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Google Account Access</h2>
-    <p>BizTrack uses Google Sign-In and requests the <code style="background: var(--color-surface-3); padding: 0.1em 0.3em; border-radius: 3px;">drive.file</code> permission scope. This scope grants access only to files that BizTrack itself creates — we cannot access any pre-existing files in your Google Drive. Your access token is held in browser memory only and is never written to disk or transmitted to any server other than Google's.</p>
+    <p>BizTrack uses Google Sign-In and requests the <code style="background: var(--color-surface-3); padding: 0.1em 0.3em; border-radius: 3px;">drive</code> permission scope. This scope allows BizTrack to read and write files in your Google Drive so it can manage business folders you select — including folders on Shared Drives created by other users. BizTrack only accesses the specific folders you choose; it does not scan or modify unrelated files. Your access token is held in browser memory only and is never written to disk or transmitted to any server other than Google's.</p>
   </section>
 
   <section style="margin-bottom: 2rem;">
