@@ -317,11 +317,10 @@ export async function exportTransactionsCSV(
 }
 
 /**
- * Triggers a browser download of the CSV data.
+ * Triggers a browser download of a Blob.
  * Creates a temporary <a> element to initiate the download.
  */
-export function downloadCSV(csv: string, filename: string): void {
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -331,6 +330,52 @@ export function downloadCSV(csv: string, filename: string): void {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/** Convenience wrapper for CSV string downloads. */
+export function downloadCSV(csv: string, filename: string): void {
+  downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8;' }), filename);
+}
+
+/**
+ * Exports all data for a business+year as a ZIP containing:
+ *   - Expenses.csv
+ *   - Mileage.csv
+ *   - Receipts/ (folder with receipt images/PDFs)
+ *
+ * Uses fflate for ZIP creation (~8KB gzipped).
+ */
+export async function exportZip(
+  bizId: string,
+  year: number,
+  businessName: string,
+): Promise<void> {
+  const { zipSync, strToU8 } = await import('fflate');
+
+  const files: Record<string, Uint8Array> = {};
+
+  // Add CSV files
+  const expCSV = await exportTransactionsCSV(bizId, year, 'Expenses');
+  files['Expenses.csv'] = strToU8(expCSV);
+
+  const milCSV = await exportTransactionsCSV(bizId, year, 'Mileage');
+  files['Mileage.csv'] = strToU8(milCSV);
+
+  // Add receipt files — convert data URLs back to binary
+  const receiptData = storage.get<Record<string, string>>(receiptsKey(bizId, year), {});
+  for (const [filename, dataUrl] of Object.entries(receiptData)) {
+    try {
+      const resp = await fetch(dataUrl);
+      const buf = await resp.arrayBuffer();
+      files[`Receipts/${filename}`] = new Uint8Array(buf);
+    } catch {
+      // Skip unreadable receipts
+    }
+  }
+
+  const zipped = zipSync(files);
+  const safeName = businessName.replace(/[^a-zA-Z0-9_-]/g, '_');
+  downloadBlob(new Blob([zipped as unknown as BlobPart], { type: 'application/zip' }), `${year}_${safeName}.zip`);
 }
 
 // ---------------------------------------------------------------------------

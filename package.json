@@ -1,6 +1,6 @@
 {
   "name": "biztrack",
-  "version": "0.1.124",
+  "version": "0.1.125",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
@@ -23,5 +23,8 @@
     "workbox-expiration": "^7.4.0",
     "workbox-strategies": "^7.4.0",
     "workbox-window": "^7.4.0"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
   }
 }
