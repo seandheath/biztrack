@@ -84,6 +84,9 @@
   /** Whether to double entered miles (round trip). */
   let milRoundTrip = $state(false);
 
+  /** Two-tap confirm when submitting an entry that duplicates an existing one. */
+  let confirmDuplicate = $state(false);
+
   /**
    * Effective miles to store — doubled when round trip is checked.
    * Returns a string so it can be passed directly to the row.
@@ -117,6 +120,12 @@
 
   // Sync the editable update-name field whenever the matched favorite changes.
   $effect(() => { milUpdateFavName = milMatchedFavorite()?.name ?? ''; });
+
+  // Reset duplicate confirmation when any matched field changes.
+  $effect(() => {
+    milDate; milFrom; milTo; milMiles; milDriver; milRoundTrip;
+    confirmDuplicate = false;
+  });
 
   /** True when all mileage fields are filled (enables "Save as Favorite") */
   let milCanSaveFav = $derived(
@@ -247,6 +256,26 @@
       const spreadsheetId = biz.sheetIds?.[year];
       if (!spreadsheetId) throw new Error(`No sheet found for ${year}.`);
 
+      // Duplicate check — first tap shows warning, second tap proceeds
+      if (!confirmDuplicate) {
+        const cached = getCachedTransactions(spreadsheetId, 'Mileage') ?? [];
+        const eff = milEffectiveMiles();
+        const isDup = cached.some((r) =>
+          (editMode ? r.id !== editTxnId : true) &&
+          r.date === milDate &&
+          r.from === milFrom.trim() &&
+          r.to === milTo.trim() &&
+          r.miles === eff &&
+          r.driver === milDriver.trim()
+        );
+        if (isDup) {
+          confirmDuplicate = true;
+          milSubmitting = false;
+          return;
+        }
+      }
+      confirmDuplicate = false;
+
       if (editMode) {
         const updatedRow = {
           id:      editTxnId,
@@ -302,7 +331,7 @@
         if (!navigator.onLine) {
           enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'create', row: newRow });
           showToast('Saved offline — will sync when back online', 'success');
-          milFrom = ''; milTo = ''; milPurpose = ''; milMiles = ''; milDriver = ''; milErrors = {};
+          milErrors = {};
           saveFavOpen = false; saveFavName = '';
           return;
         }
@@ -335,12 +364,6 @@
         );
       }
 
-      // Clear fields — preserve date
-      milFrom     = '';
-      milTo       = '';
-      milPurpose  = '';
-      milMiles    = '';
-      milDriver   = $defaultDrivers[$selectedBusiness?.folderId] ?? '';
       milErrors   = {};
       saveFavOpen = false;
       saveFavName = '';
@@ -371,9 +394,9 @@
     milPurpose   = fav.purpose ?? '';
     milMiles     = String(fav.miles ?? '');
     milDriver    = fav.driver ?? '';
-    milDate      = todayISO();
+    if (!milDate) milDate = todayISO();
     milErrors    = {};
-    milRoundTrip = false;
+    milRoundTrip = fav.roundTrip ?? false;
   }
 
   async function handleSaveFavorite() {
@@ -700,13 +723,15 @@
         class="w-full rounded-xl font-semibold text-base transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
         style="
           min-height: 52px;
-          background-color: var(--color-primary);
-          color: var(--color-primary-text);
+          background-color: {confirmDuplicate ? 'var(--color-warning, #e67e22)' : 'var(--color-primary)'};
+          color: {confirmDuplicate ? '#ffffff' : 'var(--color-primary-text)'};
         "
       >
         {#if milSubmitting}
           <Spinner />
           Saving…
+        {:else if confirmDuplicate}
+          Duplicate entry — tap to confirm
         {:else}
           {editMode ? 'Save Changes' : 'Save Mileage'}
         {/if}
