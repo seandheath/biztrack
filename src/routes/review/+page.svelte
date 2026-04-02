@@ -19,8 +19,10 @@
 
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { selectedBusiness } from '$lib/store.js';
+  import { get } from 'svelte/store';
+  import { selectedBusiness, deviceMode } from '$lib/store.js';
   import { pullTransactions } from '$lib/services/sheets.js';
+  import { localPullTransactions } from '$lib/services/local-store.js';
 
   let loaded = $state(false);
   let total  = $state(0);
@@ -54,11 +56,17 @@
     const biz = $selectedBusiness;
     const currentYear = new Date().getFullYear();
     const allRows = [];
+    const isLocal = get(deviceMode);
     for (let y = currentYear; y >= currentYear - 2; y--) {
-      const sid = biz.sheetIds?.[y];
-      if (!sid) continue;
-      try { allRows.push(...await pullTransactions(sid, 'Expenses')); }
-      catch (err) { console.warn(`[review] pull ${y}:`, err); }
+      try {
+        if (isLocal) {
+          allRows.push(...await localPullTransactions(biz.id, y, 'Expenses'));
+        } else {
+          const sid = biz.sheetIds?.[y];
+          if (!sid) continue;
+          allRows.push(...await pullTransactions(sid, 'Expenses'));
+        }
+      } catch (err) { console.warn(`[review] pull ${y}:`, err); }
     }
 
     const uncategorized = allRows

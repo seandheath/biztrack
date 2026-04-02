@@ -1,7 +1,9 @@
 <script>
-  import { selectedBusiness, businessConfig, userEmail, businesses, paymentMethodCache } from '$lib/store.js';
+  import { get } from 'svelte/store';
+  import { selectedBusiness, businessConfig, userEmail, businesses, paymentMethodCache, deviceMode } from '$lib/store.js';
   import Autocomplete from '../../../components/Autocomplete.svelte';
   import { pushTransactions, pullTransactions } from '$lib/services/sheets.js';
+  import { localPushTransactions, localPullTransactions, localEnsureYearFolder } from '$lib/services/local-store.js';
   import { ensureYearFolder } from '$lib/business.js';
 
   // ---------------------------------------------------------------------------
@@ -119,13 +121,19 @@
     // a vendor share one category).
     if ($selectedBusiness?.id) {
       const biz = $selectedBusiness;
+      const isLocal = get(deviceMode);
       const currentYear = new Date().getFullYear();
       const historyRows = [];
       for (let y = currentYear; y >= currentYear - 1; y--) {
-        const sid = biz.sheetIds?.[y];
-        if (!sid) continue;
-        try { historyRows.push(...await pullTransactions(sid, 'Expenses')); }
-        catch { /* ignore */ }
+        try {
+          if (isLocal) {
+            historyRows.push(...await localPullTransactions(biz.id, y, 'Expenses'));
+          } else {
+            const sid = biz.sheetIds?.[y];
+            if (!sid) continue;
+            historyRows.push(...await pullTransactions(sid, 'Expenses'));
+          }
+        } catch { /* ignore */ }
       }
 
       const vendorCats = new Map();
@@ -159,29 +167,34 @@
     let imported = 0, skipped = 0, errors = 0;
 
     try {
+      const isLocal = get(deviceMode);
       // Build dedup set from existing transactions for each year in the import.
       const years = [...new Set(parsedRows.map((r) => parseInt(r.date.slice(0, 4), 10)))];
 
-      // Ensure a Drive spreadsheet exists for every year in the import.
-      // Without this, prior-year transactions (e.g. 2025 imported in 2026) would
-      // be enqueued but never synced — _flushCreates silently skips entries whose
-      // year has no sheetId.
+      // Ensure a folder/sheet exists for every year in the import.
       let biz = $selectedBusiness;
       for (const year of years) {
-        if (!biz.yearFolders?.[year] || !biz.sheetIds?.[year]) {
+        if (isLocal) {
+          biz = await localEnsureYearFolder(biz, year);
+        } else if (!biz.yearFolders?.[year] || !biz.sheetIds?.[year]) {
           biz = await ensureYearFolder(biz, year);
-          businesses.update((list) => list.map((b) => b.id === biz.id ? biz : b));
-          selectedBusiness.set(biz);
         }
+        businesses.update((list) => list.map((b) => b.id === biz.id ? biz : b));
+        selectedBusiness.set(biz);
       }
 
-      // Pull each year's existing rows from Sheets to build the dedup set.
+      // Pull each year's existing rows to build the dedup set.
       const dedupKeys = new Set();
       for (const year of years) {
-        const sid = biz.sheetIds?.[year];
-        if (!sid) continue;
         try {
-          const existing = await pullTransactions(sid, 'Expenses');
+          let existing;
+          if (isLocal) {
+            existing = await localPullTransactions(biz.id, year, 'Expenses');
+          } else {
+            const sid = biz.sheetIds?.[year];
+            if (!sid) continue;
+            existing = await pullTransactions(sid, 'Expenses');
+          }
           for (const t of existing) {
             dedupKeys.add(`${t.date}|${t.vendor}|${parseFloat(t.amount ?? '0').toFixed(2)}`);
           }
@@ -206,16 +219,20 @@
           paymentMethod,
           receipt: '',
           notes:         '',
-          submittedBy:   $userEmail ?? '',
+          submittedBy:   isLocal ? 'Device' : ($userEmail ?? ''),
         });
         dedupKeys.add(key);
       }
 
       for (const [year, sheetRows] of rowsByYear) {
-        const sid = biz.sheetIds?.[year];
-        if (!sid) { errors += sheetRows.length; continue; }
         try {
-          await pushTransactions(sid, 'Expenses', sheetRows);
+          if (isLocal) {
+            await localPushTransactions(biz.id, year, 'Expenses', sheetRows);
+          } else {
+            const sid = biz.sheetIds?.[year];
+            if (!sid) { errors += sheetRows.length; continue; }
+            await pushTransactions(sid, 'Expenses', sheetRows);
+          }
           imported += sheetRows.length;
         } catch {
           errors += sheetRows.length;

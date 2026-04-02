@@ -7,8 +7,10 @@
    * the full read-only detail, edit, share, and delete actions.
    */
 
-  import { selectedBusiness } from '$lib/store.js';
+  import { get } from 'svelte/store';
+  import { selectedBusiness, deviceMode } from '$lib/store.js';
   import { pullTransactions } from '$lib/services/sheets.js';
+  import { localPullTransactions } from '$lib/services/local-store.js';
   import { syncStatus, getCachedTransactions, cacheTransactions, shouldPull, markPullStarted, markPullComplete, markPullFailed } from '$lib/sync.js';
 
   // ---------------------------------------------------------------------------
@@ -68,8 +70,26 @@
   let pullGen = 0;
 
   $effect(() => {
-    const sid = spreadsheetId;
+    const biz = $selectedBusiness;
+    const year = Number(selectedYear);
     const gen = ++pullGen;
+
+    // Device-only mode: read directly from localStorage
+    if (get(deviceMode)) {
+      if (!biz || !year) { rows = []; return; }
+      loading = true;
+      Promise.all([
+        localPullTransactions(biz.id, year, 'Expenses'),
+        localPullTransactions(biz.id, year, 'Mileage'),
+      ]).then(([exp, mil]) => {
+        if (gen !== pullGen) return;
+        rows = mergeAndSort(exp, mil);
+      }).finally(() => { if (gen === pullGen) loading = false; });
+      return;
+    }
+
+    // Google mode: pull from Sheets with caching
+    const sid = spreadsheetId;
     if (!sid) { rows = []; return; }
 
     // Load cached rows for instant render

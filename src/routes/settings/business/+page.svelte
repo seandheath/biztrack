@@ -2,10 +2,11 @@
   import { goto } from '$app/navigation';
   import Spinner from '../../../components/Spinner.svelte';
   import { get } from 'svelte/store';
-  import { businesses, selectedBusiness, businessConfig, mileageFavorites, defaultDrivers } from '$lib/store.js';
+  import { businesses, selectedBusiness, businessConfig, mileageFavorites, defaultDrivers, deviceMode } from '$lib/store.js';
   import { setupBusiness, ensureYearFolder, discoverYearFolders, normalizeConfig } from '$lib/business.js';
   import { findFile, downloadJson } from '$lib/drive.js';
   import { saveProfile } from '$lib/profile.js';
+  import { localSetupBusiness, localEnsureYearFolder, localSaveProfile } from '$lib/services/local-store.js';
   import FolderBrowser from '../../../components/FolderBrowser.svelte';
 
   /** @type {string} */
@@ -64,11 +65,37 @@
     const trimmedName = name.trim();
 
     if (!trimmedName) { error = 'Business name is required.'; return; }
-    if (!folder) { error = 'Select a Drive folder first.'; return; }
     if ($businesses.some((b) => b.name === trimmedName)) {
       error = `"${trimmedName}" is already added.`;
       return;
     }
+
+    // Device-only mode: skip Drive folder requirement
+    if ($deviceMode && !folder) {
+      loading = true;
+      try {
+        const year = new Date().getFullYear();
+        const { business, config } = await localSetupBusiness(trimmedName);
+        const withYear = await localEnsureYearFolder(business, year);
+
+        businesses.update((list) => [...list, withYear]);
+        selectedBusiness.set(withYear);
+        businessConfig.set(config);
+
+        // Persist to local profile
+        await localSaveProfile(get(businesses), get(mileageFavorites), get(defaultDrivers));
+
+        goto('/settings');
+      } catch (err) {
+        error = err.message ?? 'Setup failed.';
+        console.error('[business] local setup error:', err);
+      } finally {
+        loading = false;
+      }
+      return;
+    }
+
+    if (!folder) { error = 'Select a Drive folder first.'; return; }
 
     loading = true;
     try {
@@ -101,7 +128,7 @@
   // Derived
   // ---------------------------------------------------------------------------
 
-  let submitDisabled = $derived(loading || !name.trim() || !folder);
+  let submitDisabled = $derived(loading || !name.trim() || (!$deviceMode && !folder));
   let submitLabel  = $derived(detectedImport ? 'Import Business' : 'Add Business');
   let spinnerLabel = $derived(detectedImport ? 'Importing…' : 'Setting up…');
 </script>
@@ -110,45 +137,51 @@
 
   <h2 class="text-xl font-semibold" style="color: var(--color-text);">Add Business</h2>
 
-  <!-- Drive folder section -->
-  <div class="flex flex-col gap-3">
-    <span class="text-sm font-medium" style="color: var(--color-text-muted);">Drive Folder</span>
+  <!-- Drive folder section (hidden in device mode) -->
+  {#if !$deviceMode}
+    <div class="flex flex-col gap-3">
+      <span class="text-sm font-medium" style="color: var(--color-text-muted);">Drive Folder</span>
 
-    <p class="text-xs px-1" style="color: var(--color-text-muted);">
-      Select an existing business folder to import it, or any folder to start fresh.
-    </p>
-
-    <button
-      onclick={openBrowser}
-      disabled={loading}
-      class="rounded-xl border px-4 text-base text-left flex items-center gap-3 hover:opacity-70 transition-opacity disabled:opacity-50"
-      style="
-        min-height: 48px;
-        background-color: var(--color-surface-2);
-        border-color: var(--color-border);
-        color: var(--color-text);
-      "
-    >
-      <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-text-muted);">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
-      </svg>
-      {#if folder}
-        <span>{folder.name}</span>
-      {:else}
-        <span style="color: var(--color-text-muted);">Select Drive Folder…</span>
-      {/if}
-    </button>
-
-    {#if detectedImport}
-      <p class="text-xs px-1" style="color: var(--color-primary);">
-        Existing BizTrack business detected — data will be reconnected, not overwritten.
-      </p>
-    {:else if folder}
       <p class="text-xs px-1" style="color: var(--color-text-muted);">
-        New business — expenses and receipts will be stored in this folder.
+        Select an existing business folder to import it, or any folder to start fresh.
       </p>
-    {/if}
-  </div>
+
+      <button
+        onclick={openBrowser}
+        disabled={loading}
+        class="rounded-xl border px-4 text-base text-left flex items-center gap-3 hover:opacity-70 transition-opacity disabled:opacity-50"
+        style="
+          min-height: 48px;
+          background-color: var(--color-surface-2);
+          border-color: var(--color-border);
+          color: var(--color-text);
+        "
+      >
+        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-text-muted);">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+        </svg>
+        {#if folder}
+          <span>{folder.name}</span>
+        {:else}
+          <span style="color: var(--color-text-muted);">Select Drive Folder…</span>
+        {/if}
+      </button>
+
+      {#if detectedImport}
+        <p class="text-xs px-1" style="color: var(--color-primary);">
+          Existing BizTrack business detected — data will be reconnected, not overwritten.
+        </p>
+      {:else if folder}
+        <p class="text-xs px-1" style="color: var(--color-text-muted);">
+          New business — expenses and receipts will be stored in this folder.
+        </p>
+      {/if}
+    </div>
+  {:else}
+    <p class="text-sm px-1" style="color: var(--color-text-muted);">
+      Data will be stored on this device only.
+    </p>
+  {/if}
 
   <!-- Business name -->
   <div class="flex flex-col gap-1">
@@ -206,10 +239,12 @@
 
 </div>
 
-<!-- Folder browser modal -->
-<FolderBrowser
-  open={browserOpen}
-  title="Select Folder"
-  onselect={handleFolderSelected}
-  oncancel={() => { browserOpen = false; }}
-/>
+<!-- Folder browser modal (Google mode only) -->
+{#if !$deviceMode}
+  <FolderBrowser
+    open={browserOpen}
+    title="Select Folder"
+    onselect={handleFolderSelected}
+    oncancel={() => { browserOpen = false; }}
+  />
+{/if}

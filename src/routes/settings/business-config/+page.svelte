@@ -8,9 +8,10 @@
 
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { businesses, selectedBusiness, businessConfig, mileageFavorites, defaultDrivers } from '$lib/store.js';
+  import { businesses, selectedBusiness, businessConfig, mileageFavorites, defaultDrivers, deviceMode } from '$lib/store.js';
   import { loadConfig, saveConfig } from '$lib/business.js';
   import { saveProfile } from '$lib/profile.js';
+  import { localSaveProfile } from '$lib/services/local-store.js';
   import { get } from 'svelte/store';
 
   // Snapshot the business at load time so name changes don't cause reactivity issues
@@ -40,10 +41,14 @@
     if (get(selectedBusiness)?.name === biz.name) {
       selectedBusiness.set(remaining[0] ?? null);
     }
-    // Update profile.json so other devices stop discovering the removed business
-    const rootFolderId = localStorage.getItem('bt_biz_folder');
-    if (rootFolderId) {
-      await saveProfile(rootFolderId, remaining, get(mileageFavorites), get(defaultDrivers)).catch((e) => console.warn('[business-config] profile save:', e));
+    // Update profile so other devices stop discovering the removed business
+    if (get(deviceMode)) {
+      await localSaveProfile(remaining, get(mileageFavorites), get(defaultDrivers)).catch((e) => console.warn('[business-config] profile save:', e));
+    } else {
+      const rootFolderId = localStorage.getItem('bt_biz_folder');
+      if (rootFolderId) {
+        await saveProfile(rootFolderId, remaining, get(mileageFavorites), get(defaultDrivers)).catch((e) => console.warn('[business-config] profile save:', e));
+      }
     }
     goto('/settings');
   }

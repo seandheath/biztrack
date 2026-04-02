@@ -11,8 +11,10 @@
 
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { businesses, selectedBusiness, pendingReceipt } from '$lib/store.js';
+  import { get } from 'svelte/store';
+  import { businesses, selectedBusiness, pendingReceipt, deviceMode } from '$lib/store.js';
   import { pullTransactions } from '$lib/services/sheets.js';
+  import { localPullTransactions } from '$lib/services/local-store.js';
   import { syncStatus, getCachedTransactions, cacheTransactions, shouldPull, markPullStarted, markPullComplete, markPullFailed } from '$lib/sync.js';
   import BusinessDropdown from '../components/BusinessDropdown.svelte';
 
@@ -49,7 +51,25 @@
     const biz = $selectedBusiness;
     const gen = ++pullGen;
     if (!biz) { rows = []; uncategorizedCount = 0; return; }
-    const spreadsheetId = biz.sheetIds?.[new Date().getFullYear()];
+
+    const year = new Date().getFullYear();
+
+    // Device-only mode: read directly from localStorage
+    if (get(deviceMode)) {
+      loading = true;
+      Promise.all([
+        localPullTransactions(biz.id, year, 'Expenses'),
+        localPullTransactions(biz.id, year, 'Mileage'),
+      ]).then(([exp, mil]) => {
+        if (gen !== pullGen) return;
+        rows = mergeAndSort(exp, mil);
+        uncategorizedCount = exp.filter((r) => !r.category || r.category === 'Uncategorized').length;
+      }).finally(() => { if (gen === pullGen) loading = false; });
+      return;
+    }
+
+    // Google mode: pull from Sheets with caching
+    const spreadsheetId = biz.sheetIds?.[year];
     if (!spreadsheetId) { rows = []; return; }
 
     // Load cached rows immediately — no spinner, no empty-state flash
@@ -63,8 +83,6 @@
     }
 
     // Skip network pull if one is already in-flight or cooldown hasn't expired.
-    // On full page reload modules reinitialize so shouldPull() returns true.
-    // On in-app navigation the cooldown (60 s) prevents redundant fetches.
     if (!shouldPull(spreadsheetId)) return;
 
     // Background pull from both sheets in parallel

@@ -16,8 +16,9 @@ import { findFile, downloadJson, uploadJson, updateJson, createFolder, moveFile,
 import { initSpreadsheet } from './services/sheets.js';
 import { DEFAULT_CATEGORIES } from './constants.js';
 import { get } from 'svelte/store';
-import { businessConfig, businesses, selectedBusiness, mileageFavorites, defaultDrivers, updateBusiness } from './store.js';
+import { businessConfig, businesses, selectedBusiness, mileageFavorites, defaultDrivers, updateBusiness, deviceMode } from './store.js';
 import { ensureBizTrackFolder, saveProfile } from './profile.js';
+import { localLoadConfig, localSaveConfig, localSaveProfile, localEnsureYearFolder } from './services/local-store.js';
 import type { Business, BusinessConfig, MileageFavorite } from './types.js';
 
 /**
@@ -143,10 +144,19 @@ export async function setupBusiness(
 // ---------------------------------------------------------------------------
 
 /**
- * Downloads config.json from Drive and updates the businessConfig store.
- * Safe to call even if configFileId is missing (returns null).
+ * Downloads config.json from Drive (or localStorage in device mode) and updates
+ * the businessConfig store. Safe to call even if configFileId is missing (returns null).
  */
 export async function loadConfig(business: Business): Promise<BusinessConfig | null> {
+  if (get(deviceMode)) {
+    const cfg = await localLoadConfig(business.id);
+    if (cfg) {
+      normalizeConfig(cfg, business.name ?? '');
+      businessConfig.set(cfg);
+    }
+    return cfg;
+  }
+
   if (!business?.configFileId) return null;
   const cfg = await downloadJson<BusinessConfig>(business.configFileId);
   normalizeConfig(cfg, business.name ?? '');
@@ -165,9 +175,15 @@ export async function loadConfig(business: Business): Promise<BusinessConfig | n
 }
 
 /**
- * Writes config back to Drive and updates the businessConfig store.
+ * Writes config back to Drive (or localStorage in device mode) and updates
+ * the businessConfig store.
  */
 export async function saveConfig(business: Business, config: BusinessConfig): Promise<void> {
+  if (get(deviceMode)) {
+    await localSaveConfig(business.id, config);
+    businessConfig.set(config);
+    return;
+  }
   if (!business?.configFileId) throw new Error('business.configFileId is missing');
   await updateJson(business.configFileId, config);
   businessConfig.set(config);
@@ -181,7 +197,6 @@ export async function saveMileageFavorite(business: Business, _cfg: unknown, fav
   const folderId = business.folderId;
   mileageFavorites.update((all) => {
     const current = Array.isArray(all[folderId]) ? all[folderId] : [];
-    // Upsert: if a favorite with the same name exists, replace it in-place
     const idx = current.findIndex((f) => f.name === favorite.name);
     if (idx !== -1) {
       const updated = [...current];
@@ -190,8 +205,12 @@ export async function saveMileageFavorite(business: Business, _cfg: unknown, fav
     }
     return { ...all, [folderId]: [...current, favorite] };
   });
-  const rootFolderId = await ensureBizTrackFolder();
-  await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers));
+  if (get(deviceMode)) {
+    await localSaveProfile(get(businesses), get(mileageFavorites), get(defaultDrivers));
+  } else {
+    const rootFolderId = await ensureBizTrackFolder();
+    await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers));
+  }
 }
 
 /**
@@ -204,8 +223,12 @@ export async function updateMileageFavorite(business: Business, _cfg: unknown, o
     const current = Array.isArray(all[folderId]) ? all[folderId] : [];
     return { ...all, [folderId]: current.map((f) => f.name === originalName ? favorite : f) };
   });
-  const rootFolderId = await ensureBizTrackFolder();
-  await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers));
+  if (get(deviceMode)) {
+    await localSaveProfile(get(businesses), get(mileageFavorites), get(defaultDrivers));
+  } else {
+    const rootFolderId = await ensureBizTrackFolder();
+    await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers));
+  }
 }
 
 /**
@@ -217,8 +240,12 @@ export async function deleteMileageFavorite(business: Business, _cfg: unknown, n
     const current = Array.isArray(all[folderId]) ? all[folderId] : [];
     return { ...all, [folderId]: current.filter((f) => f.name !== name) };
   });
-  const rootFolderId = await ensureBizTrackFolder();
-  await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers));
+  if (get(deviceMode)) {
+    await localSaveProfile(get(businesses), get(mileageFavorites), get(defaultDrivers));
+  } else {
+    const rootFolderId = await ensureBizTrackFolder();
+    await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers));
+  }
 }
 
 /**
@@ -234,8 +261,12 @@ export async function saveDefaultDriver(business: Business, driver: string): Pro
     }
     return { ...all, [folderId]: driver };
   });
-  const rootFolderId = await ensureBizTrackFolder();
-  await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers));
+  if (get(deviceMode)) {
+    await localSaveProfile(get(businesses), get(mileageFavorites), get(defaultDrivers));
+  } else {
+    const rootFolderId = await ensureBizTrackFolder();
+    await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers));
+  }
 }
 
 /**

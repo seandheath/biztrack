@@ -10,6 +10,7 @@
 
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { get } from 'svelte/store';
   import {
     businesses,
     selectedBusiness,
@@ -21,8 +22,13 @@
     originCache,
     driverCache,
     defaultDrivers,
+    deviceMode,
   } from '$lib/store.js';
   import { pushTransactions, updateByUUID, deleteByUUID, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
+  import {
+    localPushTransactions, localPullTransactions, localUpdateByUUID, localDeleteByUUID,
+    localEnsureYearFolder, localLoadConfig,
+  } from '$lib/services/local-store.js';
   import { toast, showToast } from '$lib/toast.svelte.js';
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
@@ -147,15 +153,28 @@
   async function loadBusinessData(business) {
     configLoading = true;
     try {
-      await _loadBusinessData(business);
+      const isLocal = get(deviceMode);
+      if (isLocal) {
+        const cfg = await localLoadConfig(business.id);
+        if (cfg) businessConfig.set(cfg);
+        const updated = await localEnsureYearFolder(business, new Date().getFullYear());
+        if (updated !== business) updateBusiness(updated);
+      } else {
+        await _loadBusinessData(business);
+      }
+
       // Populate destination + origin autocomplete caches from mileage history
       const year = new Date().getFullYear();
-      const sheetId = business.sheetIds?.[year];
-      if (sheetId) {
-        const rows = getCachedTransactions(sheetId, 'Mileage')
+      let rows;
+      if (isLocal) {
+        rows = await localPullTransactions(business.id, year, 'Mileage');
+      } else {
+        const sheetId = business.sheetIds?.[year];
+        if (!sheetId) return;
+        rows = getCachedTransactions(sheetId, 'Mileage')
           ?? await pullTransactions(sheetId, 'Mileage');
-        buildMileageCaches(rows);
       }
+      buildMileageCaches(rows);
     } catch (err) {
       console.error('[mileage] loadBusinessData:', err);
     } finally {
@@ -213,10 +232,14 @@
     deleteError = '';
     try {
       const year = new Date(milDate + 'T00:00:00').getFullYear();
-      const spreadsheetId = $selectedBusiness?.sheetIds?.[year] ?? editSheetId;
-      await deleteByUUID(spreadsheetId, 'Mileage', editTxnId);
-      removeCachedTransaction(spreadsheetId, 'Mileage', editTxnId);
-      invalidatePull(spreadsheetId);
+      if (get(deviceMode)) {
+        await localDeleteByUUID($selectedBusiness.id, year, 'Mileage', editTxnId);
+      } else {
+        const spreadsheetId = $selectedBusiness?.sheetIds?.[year] ?? editSheetId;
+        await deleteByUUID(spreadsheetId, 'Mileage', editTxnId);
+        removeCachedTransaction(spreadsheetId, 'Mileage', editTxnId);
+        invalidatePull(spreadsheetId);
+      }
       goto(returnTo || '/');
     } catch (err) {
       console.error('[mileage] delete:', err);
@@ -247,18 +270,27 @@
     try {
       const year = new Date(milDate + 'T00:00:00').getFullYear();
       let biz = $selectedBusiness;
+      const isLocal = get(deviceMode);
 
-      if (!biz.sheetIds?.[year]) {
+      if (isLocal) {
+        biz = await localEnsureYearFolder(biz, year);
+        updateBusiness(biz);
+      } else if (!biz.sheetIds?.[year]) {
         biz = await ensureYearFolder(biz, year);
         updateBusiness(biz);
       }
 
-      const spreadsheetId = biz.sheetIds?.[year];
-      if (!spreadsheetId) throw new Error(`No sheet found for ${year}.`);
+      const spreadsheetId = isLocal ? null : biz.sheetIds?.[year];
+      if (!isLocal && !spreadsheetId) throw new Error(`No sheet found for ${year}.`);
 
       // Duplicate check — first tap shows warning, second tap proceeds
       if (!confirmDuplicate) {
-        const cached = getCachedTransactions(spreadsheetId, 'Mileage') ?? [];
+        let cached;
+        if (isLocal) {
+          cached = await localPullTransactions(biz.id, year, 'Mileage');
+        } else {
+          cached = getCachedTransactions(spreadsheetId, 'Mileage') ?? [];
+        }
         const eff = milEffectiveMiles();
         const isDup = cached.some((r) =>
           (editMode ? r.id !== editTxnId : true) &&
@@ -284,33 +316,42 @@
           to:      milTo.trim(),
           purpose: milPurpose.trim(),
           miles:   milEffectiveMiles(),
-          savedBy: $userEmail ?? '',
+          savedBy: isLocal ? 'Device' : ($userEmail ?? ''),
           driver:  milDriver.trim(),
         };
-        try {
-          if (spreadsheetId !== editSheetId) {
-            // Date changed to a different year — move row between sheets
-            await deleteByUUID(editSheetId, 'Mileage', editTxnId);
-            await pushTransactions(spreadsheetId, 'Mileage', [updatedRow]);
+        if (isLocal) {
+          const origYear = editSheetId ? Number(editSheetId.split('_').pop()) : year;
+          if (origYear !== year) {
+            await localDeleteByUUID(biz.id, origYear, 'Mileage', editTxnId);
+            await localPushTransactions(biz.id, year, 'Mileage', [updatedRow]);
           } else {
-            await updateByUUID(spreadsheetId, 'Mileage', updatedRow);
+            await localUpdateByUUID(biz.id, year, 'Mileage', updatedRow);
           }
-        } catch (err) {
-          if (!navigator.onLine) {
-            enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'update', row: updatedRow });
-            showToast('Saved offline — will sync when back online', 'success');
-            goto(returnTo || '/');
-            return;
+        } else {
+          try {
+            if (spreadsheetId !== editSheetId) {
+              await deleteByUUID(editSheetId, 'Mileage', editTxnId);
+              await pushTransactions(spreadsheetId, 'Mileage', [updatedRow]);
+            } else {
+              await updateByUUID(spreadsheetId, 'Mileage', updatedRow);
+            }
+          } catch (err) {
+            if (!navigator.onLine) {
+              enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'update', row: updatedRow });
+              showToast('Saved offline — will sync when back online', 'success');
+              goto(returnTo || '/');
+              return;
+            }
+            throw err;
           }
-          throw err;
+          if (spreadsheetId !== editSheetId) {
+            removeCachedTransaction(editSheetId, 'Mileage', editTxnId);
+            invalidatePull(editSheetId);
+          }
+          updateCachedTransaction(spreadsheetId, 'Mileage', updatedRow);
+          invalidatePull(spreadsheetId);
         }
         showToast('Mileage updated!', 'success');
-        if (spreadsheetId !== editSheetId) {
-          removeCachedTransaction(editSheetId, 'Mileage', editTxnId);
-          invalidatePull(editSheetId);
-        }
-        updateCachedTransaction(spreadsheetId, 'Mileage', updatedRow);
-        invalidatePull(spreadsheetId);
         goto(returnTo || '/');
         return;
       }
@@ -322,20 +363,24 @@
         to:      milTo.trim(),
         purpose: milPurpose.trim(),
         miles:   milEffectiveMiles(),
-        savedBy: $userEmail ?? '',
+        savedBy: isLocal ? 'Device' : ($userEmail ?? ''),
         driver:  milDriver.trim(),
       };
-      try {
-        await pushTransactions(spreadsheetId, 'Mileage', [newRow]);
-      } catch (err) {
-        if (!navigator.onLine) {
-          enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'create', row: newRow });
-          showToast('Saved offline — will sync when back online', 'success');
-          milErrors = {};
-          saveFavOpen = false; saveFavName = '';
-          return;
+      if (isLocal) {
+        await localPushTransactions(biz.id, year, 'Mileage', [newRow]);
+      } else {
+        try {
+          await pushTransactions(spreadsheetId, 'Mileage', [newRow]);
+        } catch (err) {
+          if (!navigator.onLine) {
+            enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'create', row: newRow });
+            showToast('Saved offline — will sync when back online', 'success');
+            milErrors = {};
+            saveFavOpen = false; saveFavName = '';
+            return;
+          }
+          throw err;
         }
-        throw err;
       }
 
       // Update autocomplete caches with the just-submitted entry
@@ -370,15 +415,17 @@
 
       showToast('Mileage saved!', 'success');
 
-      // Background re-pull to update cache
-      invalidatePull(spreadsheetId);
-      syncStatus.set('yellow');
-      pullTransactions(spreadsheetId, 'Mileage')
-        .then((pulled) => {
-          syncStatus.set('green');
-          cacheTransactions(spreadsheetId, 'Mileage', pulled);
-        })
-        .catch(() => syncStatus.set('red'));
+      // Background re-pull to update cache (Google mode only)
+      if (!isLocal) {
+        invalidatePull(spreadsheetId);
+        syncStatus.set('yellow');
+        pullTransactions(spreadsheetId, 'Mileage')
+          .then((pulled) => {
+            syncStatus.set('green');
+            cacheTransactions(spreadsheetId, 'Mileage', pulled);
+          })
+          .catch(() => syncStatus.set('red'));
+      }
     } catch (err) {
       console.error('[mileage] submit:', err);
       showToast(friendlyError(err), 'error');
@@ -462,6 +509,7 @@
 
     if (bizId && yearStr && txnId) {
       editLoading = true;
+      const isLocal = get(deviceMode);
       try {
         const biz = $businesses.find((b) => b.id === bizId);
         if (!biz) throw new Error("Business not found. Make sure you're signed in to the correct account.");
@@ -469,15 +517,23 @@
         await loadBusinessData(biz);
 
         const yr = parseInt(yearStr, 10);
-        const sheetId = biz.sheetIds?.[yr] ?? $selectedBusiness?.sheetIds?.[yr];
-        if (!sheetId) throw new Error(`No mileage sheet found for ${yr}.`);
-        editSheetId = sheetId;
+        let row;
+        if (isLocal) {
+          editSheetId = `local_sheet_${bizId}_${yr}`;
+          const rows = await localPullTransactions(bizId, yr, 'Mileage');
+          row = rows.find((r) => r.id === txnId);
+          if (!row) throw new Error('Mileage entry not found.');
+        } else {
+          const sheetId = biz.sheetIds?.[yr] ?? $selectedBusiness?.sheetIds?.[yr];
+          if (!sheetId) throw new Error(`No mileage sheet found for ${yr}.`);
+          editSheetId = sheetId;
 
-        const rowNum = await findRowByTxnId(sheetId, txnId, 'Mileage');
-        if (rowNum === null) throw new Error('Mileage entry not found.');
-        editRowNum = rowNum;
+          const rowNum = await findRowByTxnId(sheetId, txnId, 'Mileage');
+          if (rowNum === null) throw new Error('Mileage entry not found.');
+          editRowNum = rowNum;
 
-        const row = await readRow(sheetId, 'Mileage', rowNum);
+          row = await readRow(sheetId, 'Mileage', rowNum);
+        }
         milDate    = row.date    || todayISO();
         milFrom    = row.from    || '';
         milTo      = row.to      || '';
