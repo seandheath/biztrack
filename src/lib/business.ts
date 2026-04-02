@@ -209,6 +209,13 @@ export async function saveMileageFavorite(business: Business, _cfg: unknown, fav
   const folderId = business.folderId;
   mileageFavorites.update((all) => {
     const current = Array.isArray(all[folderId]) ? all[folderId] : [];
+    // Upsert: if a favorite with the same name exists, replace it in-place
+    const idx = current.findIndex((f) => f.name === favorite.name);
+    if (idx !== -1) {
+      const updated = [...current];
+      updated[idx] = favorite;
+      return { ...all, [folderId]: updated };
+    }
     return { ...all, [folderId]: [...current, favorite] };
   });
   const rootFolderId = await ensureBizTrackFolder();
