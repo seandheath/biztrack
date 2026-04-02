@@ -99,6 +99,12 @@ export const driverCache: Writable<string[]> = writable([]);
 export const mileageFavorites: Writable<Record<string, MileageFavorite[]>> = writable({});
 
 /**
+ * Default driver name per business, keyed by business folderId.
+ * Populated from profile.json at session start — same lifecycle as mileageFavorites.
+ */
+export const defaultDrivers: Writable<Record<string, string>> = writable({});
+
+/**
  * A receipt File shared via the Android Web Share Target.
  * Set by the /share route on mount; cleared by the expense form after attaching.
  * NOT persisted — the file blob is held in the SW cache until consumed.

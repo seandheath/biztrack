@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import Spinner from '../../../components/Spinner.svelte';
   import { get } from 'svelte/store';
-  import { businesses, selectedBusiness, businessConfig, mileageFavorites } from '$lib/store.js';
+  import { businesses, selectedBusiness, businessConfig, mileageFavorites, defaultDrivers } from '$lib/store.js';
   import { setupBusiness, ensureYearFolder, discoverYearFolders, normalizeConfig } from '$lib/business.js';
   import { findFile, downloadJson } from '$lib/drive.js';
   import { saveProfile } from '$lib/profile.js';
@@ -85,7 +85,7 @@
       // Update profile.json so other devices discover the new business
       const rootFolderId = localStorage.getItem('bt_biz_folder');
       if (rootFolderId) {
-        await saveProfile(rootFolderId, get(businesses), get(mileageFavorites)).catch((e) => console.warn('[business] profile save:', e));
+        await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers)).catch((e) => console.warn('[business] profile save:', e));
       }
 
       goto('/settings');

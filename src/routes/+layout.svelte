@@ -18,7 +18,7 @@
     onAuthRequired,
   } from '$lib/auth.js';
   import { get } from 'svelte/store';
-  import { authToken, userEmail, isAuthenticated, businesses, selectedBusiness, mileageFavorites } from '$lib/store.js';
+  import { authToken, userEmail, isAuthenticated, businesses, selectedBusiness, mileageFavorites, defaultDrivers } from '$lib/store.js';
   import { ensureBizTrackFolder, loadProfile, saveProfile } from '$lib/profile.js';
   import { loadConfig, discoverYearFolders, ensureYearFolder } from '$lib/business.js';
   import { findFile, downloadJson } from '$lib/drive.js';
@@ -141,6 +141,7 @@
 
       businesses.set(hydrated);
       mileageFavorites.set(profile.mileage_favorites ?? {});
+      defaultDrivers.set(profile.default_drivers ?? {});
 
       const savedName = storage.get<string | null>('biztrack_selected_name', null);
       const toSelect = (savedName && hydrated.find((b) => b.name === savedName)) ?? hydrated[0] ?? null;

@@ -16,7 +16,7 @@ import { findFile, downloadJson, uploadJson, updateJson, createFolder, moveFile,
 import { initSpreadsheet } from './services/sheets.js';
 import { DEFAULT_CATEGORIES } from './constants.js';
 import { get } from 'svelte/store';
-import { businessConfig, businesses, selectedBusiness, mileageFavorites, updateBusiness } from './store.js';
+import { businessConfig, businesses, selectedBusiness, mileageFavorites, defaultDrivers, updateBusiness } from './store.js';
 import { ensureBizTrackFolder, saveProfile } from './profile.js';
 import type { Business, BusinessConfig, MileageFavorite } from './types.js';
 
@@ -191,7 +191,7 @@ export async function saveMileageFavorite(business: Business, _cfg: unknown, fav
     return { ...all, [folderId]: [...current, favorite] };
   });
   const rootFolderId = await ensureBizTrackFolder();
-  await saveProfile(rootFolderId, get(businesses), get(mileageFavorites));
+  await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers));
 }
 
 /**
@@ -205,7 +205,7 @@ export async function updateMileageFavorite(business: Business, _cfg: unknown, o
     return { ...all, [folderId]: current.map((f) => f.name === originalName ? favorite : f) };
   });
   const rootFolderId = await ensureBizTrackFolder();
-  await saveProfile(rootFolderId, get(businesses), get(mileageFavorites));
+  await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers));
 }
 
 /**
@@ -218,7 +218,24 @@ export async function deleteMileageFavorite(business: Business, _cfg: unknown, n
     return { ...all, [folderId]: current.filter((f) => f.name !== name) };
   });
   const rootFolderId = await ensureBizTrackFolder();
-  await saveProfile(rootFolderId, get(businesses), get(mileageFavorites));
+  await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers));
+}
+
+/**
+ * Sets (or clears) the default driver for a business.
+ * Persisted in profile.json — user-specific, not shared config.
+ */
+export async function saveDefaultDriver(business: Business, driver: string): Promise<void> {
+  const folderId = business.folderId;
+  defaultDrivers.update((all) => {
+    if (!driver) {
+      const { [folderId]: _, ...rest } = all;
+      return rest;
+    }
+    return { ...all, [folderId]: driver };
+  });
+  const rootFolderId = await ensureBizTrackFolder();
+  await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers));
 }
 
 /**

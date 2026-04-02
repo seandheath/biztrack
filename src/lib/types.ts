@@ -40,6 +40,7 @@ export interface ProfileBusiness {
 export interface ProfileData {
   businesses: ProfileBusiness[];
   mileage_favorites: Record<string, MileageFavorite[]>;
+  default_drivers?: Record<string, string>;
 }
 
 /** Payload shape for the auth token update callback. */
@@ -66,6 +67,7 @@ export interface DriveFileMeta {
 export interface SyncCache {
   businesses: Business[];
   mileageFavorites: Record<string, MileageFavorite[]>;
+  defaultDrivers: Record<string, string>;
   businessConfigs: Record<string, BusinessConfig>;
   transactions: Record<string, TransactionRow[]>;
   lastSyncTimestamp: number;

@@ -82,10 +82,11 @@ export async function ensureBizTrackFolder(): Promise<string> {
 export async function loadProfile(folderId: string): Promise<ProfileData | null> {
   const fileId = await findFile(PROFILE_FILENAME, folderId);
   if (!fileId) return null;
-  const data = await downloadJson<{ businesses?: unknown[]; mileage_favorites?: Record<string, MileageFavorite[]> }>(fileId);
+  const data = await downloadJson<{ businesses?: unknown[]; mileage_favorites?: Record<string, MileageFavorite[]>; default_drivers?: Record<string, string> }>(fileId);
   return Array.isArray(data.businesses) ? {
     businesses: data.businesses as ProfileData['businesses'],
     mileage_favorites: data.mileage_favorites ?? {},
+    default_drivers: data.default_drivers ?? {},
   } : null;
 }
 
@@ -101,12 +102,13 @@ export async function saveProfile(
   folderId: string,
   bizList: Business[],
   mileageFavs: Record<string, MileageFavorite[]> = {},
+  defDrivers: Record<string, string> = {},
 ): Promise<void> {
   // Only persist the minimal fields needed to locate each business on Drive.
   // All other state (sheetIds, yearFolders, configFileId, etc.) is
   // discovered from Drive folder structure on each session start.
   const minimal = bizList.map(({ name, folderId: bFolderId }) => ({ name, folderId: bFolderId }));
-  const payload = { businesses: minimal, mileage_favorites: mileageFavs };
+  const payload = { businesses: minimal, mileage_favorites: mileageFavs, default_drivers: defDrivers };
 
   // Use cached file ID to skip the findFile() lookup after the first save
   if (!_profileFileId) {

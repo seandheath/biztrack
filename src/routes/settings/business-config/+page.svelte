@@ -8,7 +8,7 @@
 
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { businesses, selectedBusiness, businessConfig, mileageFavorites } from '$lib/store.js';
+  import { businesses, selectedBusiness, businessConfig, mileageFavorites, defaultDrivers } from '$lib/store.js';
   import { loadConfig, saveConfig } from '$lib/business.js';
   import { saveProfile } from '$lib/profile.js';
   import { get } from 'svelte/store';
@@ -43,7 +43,7 @@
     // Update profile.json so other devices stop discovering the removed business
     const rootFolderId = localStorage.getItem('bt_biz_folder');
     if (rootFolderId) {
-      await saveProfile(rootFolderId, remaining, get(mileageFavorites)).catch((e) => console.warn('[business-config] profile save:', e));
+      await saveProfile(rootFolderId, remaining, get(mileageFavorites), get(defaultDrivers)).catch((e) => console.warn('[business-config] profile save:', e));
     }
     goto('/settings');
   }

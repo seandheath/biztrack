@@ -20,13 +20,14 @@
     destinationCache,
     originCache,
     driverCache,
+    defaultDrivers,
   } from '$lib/store.js';
   import { pushTransactions, updateByUUID, deleteByUUID, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.svelte.js';
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
   import { syncStatus, cacheTransactions, getCachedTransactions, invalidatePull } from '$lib/sync.js';
-  import { ensureYearFolder, saveMileageFavorite, updateMileageFavorite, loadBusinessData as _loadBusinessData } from '$lib/business.js';
+  import { ensureYearFolder, saveMileageFavorite, updateMileageFavorite, saveDefaultDriver, loadBusinessData as _loadBusinessData } from '$lib/business.js';
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
   import FavoriteRouteList from '../../components/FavoriteRouteList.svelte';
   import Autocomplete from '../../components/Autocomplete.svelte';
@@ -76,6 +77,9 @@
   let confirmDelete = $state(false);
   let deleting      = $state(false);
   let deleteError   = $state('');
+
+  // Default driver state
+  let settingDefaultDriver = $state(false);
 
   /** Whether to double entered miles (round trip). */
   let milRoundTrip = $state(false);
@@ -212,6 +216,19 @@
     }
   }
 
+  async function handleSetDefaultDriver() {
+    settingDefaultDriver = true;
+    try {
+      await saveDefaultDriver($selectedBusiness, milDriver.trim());
+      showToast(`Default driver set to "${milDriver.trim()}"`, 'success');
+    } catch (err) {
+      console.error('[mileage] setDefaultDriver:', err);
+      showToast(friendlyError(err), 'error');
+    } finally {
+      settingDefaultDriver = false;
+    }
+  }
+
   async function submitMileage() {
     if (!validateMileage()) return;
 
@@ -315,7 +332,7 @@
       milTo       = '';
       milPurpose  = '';
       milMiles    = '';
-      milDriver   = '';
+      milDriver   = $defaultDrivers[$selectedBusiness?.folderId] ?? '';
       milErrors   = {};
       saveFavOpen = false;
       saveFavName = '';
@@ -445,6 +462,7 @@
         editLoading = false;
       }
     } else if ($selectedBusiness) {
+      milDriver = $defaultDrivers[$selectedBusiness.folderId] ?? '';
       loadBusinessData($selectedBusiness);
     }
   });
@@ -573,6 +591,19 @@
         <Autocomplete items={$driverCache} id="mil-driver" bind:value={milDriver} placeholder="Driver name" listboxPrefix="driver" />
         {#if milErrors.driver}
           <span class="text-xs" style="color: var(--color-error);">{milErrors.driver}</span>
+        {/if}
+        {#if milDriver.trim() && milDriver.trim() !== ($defaultDrivers[$selectedBusiness?.folderId] ?? '')}
+          <button
+            type="button"
+            onclick={handleSetDefaultDriver}
+            disabled={settingDefaultDriver}
+            class="text-xs self-start hover:opacity-70 transition-opacity disabled:opacity-50"
+            style="color: var(--color-primary);"
+          >
+            {settingDefaultDriver ? 'Saving…' : 'Set as default driver'}
+          </button>
+        {:else if milDriver.trim() && milDriver.trim() === ($defaultDrivers[$selectedBusiness?.folderId] ?? '')}
+          <span class="text-xs" style="color: var(--color-text-muted);">Default driver</span>
         {/if}
       </div>
 

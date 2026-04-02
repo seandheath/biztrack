@@ -13,7 +13,7 @@
 import { writable, get } from 'svelte/store';
 import type { Writable } from 'svelte/store';
 import * as storage from './storage.js';
-import { businesses, selectedBusiness, mileageFavorites, businessConfig } from './store.js';
+import { businesses, selectedBusiness, mileageFavorites, defaultDrivers, businessConfig } from './store.js';
 import type { Business, SyncCache, SyncStatus } from './types.js';
 import type { TransactionRow } from './services/sheets.js';
 
@@ -114,6 +114,7 @@ export function loadCache(): boolean {
 
   businesses.set(cached.businesses);
   mileageFavorites.set(cached.mileageFavorites ?? {});
+  defaultDrivers.set(cached.defaultDrivers ?? {});
 
   // Restore selected business
   const savedName = storage.get<string | null>('biztrack_selected_name', null);
@@ -154,6 +155,7 @@ export function writeCache(): void {
   const data: SyncCache = {
     businesses: safeBiz,
     mileageFavorites: get(mileageFavorites),
+    defaultDrivers: get(defaultDrivers),
     businessConfigs: existing?.businessConfigs ?? {},
     transactions: existing?.transactions ?? {},
     lastSyncTimestamp: Date.now(),
@@ -188,6 +190,7 @@ export function cacheTransactions(spreadsheetId: string, sheetName: SheetName, r
   const existing = _readCache() ?? {
     businesses: get(businesses),
     mileageFavorites: get(mileageFavorites),
+    defaultDrivers: get(defaultDrivers),
     businessConfigs: {},
     transactions: {},
     lastSyncTimestamp: Date.now(),
