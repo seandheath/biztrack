@@ -13,7 +13,7 @@
 import { writable, get } from 'svelte/store';
 import type { Writable } from 'svelte/store';
 import * as storage from './storage.js';
-import { businesses, selectedBusiness, mileageFavorites, defaultDrivers, businessConfig } from './store.js';
+import { businesses, selectedBusiness, mileageFavorites, defaultDrivers, businessConfig, deviceMode } from './store.js';
 import type { Business, SyncCache, SyncStatus } from './types.js';
 import type { TransactionRow } from './services/sheets.js';
 
@@ -31,9 +31,11 @@ const _pullInFlight = new Set<string>();
 
 /**
  * Returns true when a network pull should be initiated for this spreadsheet.
- * False when a pull is already in-flight or the cooldown hasn't expired.
+ * False when a pull is already in-flight, the cooldown hasn't expired, or
+ * device-only mode is active (no network pulls needed).
  */
 export function shouldPull(spreadsheetId: string): boolean {
+  if (get(deviceMode)) return false;
   if (_pullInFlight.has(spreadsheetId)) return false;
   const ts = _lastPull.get(spreadsheetId);
   return !ts || (Date.now() - ts >= PULL_COOLDOWN_MS);

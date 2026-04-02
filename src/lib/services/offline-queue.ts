@@ -13,6 +13,8 @@ import {
   deleteByUUID,
   type TransactionRow,
 } from './sheets.js';
+import { get } from 'svelte/store';
+import { deviceMode } from '../store.js';
 
 const QUEUE_KEY = 'biztrack_offline_queue';
 
@@ -42,8 +44,9 @@ function saveQueue(q: QueuedWrite[]): void {
   }
 }
 
-/** Add a failed write to the offline queue. */
+/** Add a failed write to the offline queue. No-op in device mode. */
 export function enqueue(write: Omit<QueuedWrite, 'timestamp'>): void {
+  if (get(deviceMode)) return; // writes already succeeded locally
   const q = getQueue();
   q.push({ ...write, timestamp: Date.now() });
   saveQueue(q);
@@ -62,11 +65,12 @@ export function clearQueue(): void {
 }
 
 /**
- * Replay all queued writes to Sheets.
+ * Replay all queued writes to Sheets. No-op in device mode.
  * Entries that still fail (e.g. network down) are kept for next attempt.
  * Entries that succeed or 404 (spreadsheet gone) are removed.
  */
 export async function drainQueue(): Promise<{ drained: number; failed: number }> {
+  if (get(deviceMode)) return { drained: 0, failed: 0 };
   const queue = getQueue();
   if (!queue.length) return { drained: 0, failed: 0 };
 
