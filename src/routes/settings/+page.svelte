@@ -1,7 +1,8 @@
 <script>
   import { goto } from '$app/navigation';
-  import { userEmail, businesses, selectedBusiness } from '$lib/store.js';
+  import { userEmail, businesses, selectedBusiness, deviceMode } from '$lib/store.js';
   import { revokeToken } from '$lib/auth.js';
+  import { exitDeviceMode } from '$lib/device-mode.js';
 
   // Injected by vite.config.js at build time
   /* global __APP_VERSION__ */
@@ -9,6 +10,10 @@
 
   function signOut() {
     revokeToken();
+  }
+
+  function handleExitDeviceMode() {
+    exitDeviceMode();
   }
 
   function openBusiness(business) {
@@ -53,26 +58,49 @@
       Account
     </h2>
     <div class="rounded-xl border divide-y overflow-hidden" style="border-color: var(--color-border); background-color: var(--color-surface-2);">
-      <!-- Signed-in email -->
-      <div class="flex items-center px-4 py-3">
-        <svg class="w-5 h-5 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-text-muted);">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-        </svg>
-        <span class="text-sm truncate" style="color: var(--color-text);">
-          {$userEmail ?? 'Loading…'}
-        </span>
-      </div>
-      <!-- Sign out -->
-      <button
-        onclick={signOut}
-        class="w-full flex items-center px-4 text-left hover:opacity-70 transition-opacity"
-        style="color: var(--color-error); min-height: 48px;"
-      >
-        <svg class="w-5 h-5 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-        </svg>
-        <span class="text-base">Sign Out</span>
-      </button>
+      {#if $deviceMode}
+        <!-- Device-only mode indicator -->
+        <div class="flex items-center px-4 py-3">
+          <svg class="w-5 h-5 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-text-muted);">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+          </svg>
+          <span class="text-sm" style="color: var(--color-text);">
+            Device-only mode
+          </span>
+        </div>
+        <!-- Switch to Google -->
+        <button
+          onclick={handleExitDeviceMode}
+          class="w-full flex items-center px-4 text-left hover:opacity-70 transition-opacity"
+          style="color: var(--color-primary); min-height: 48px;"
+        >
+          <svg class="w-5 h-5 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16l-4-4m0 0l4-4m-4 4h18" />
+          </svg>
+          <span class="text-base">Switch to Google Sign-in</span>
+        </button>
+      {:else}
+        <!-- Signed-in email -->
+        <div class="flex items-center px-4 py-3">
+          <svg class="w-5 h-5 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--color-text-muted);">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+          <span class="text-sm truncate" style="color: var(--color-text);">
+            {$userEmail ?? 'Loading…'}
+          </span>
+        </div>
+        <!-- Sign out -->
+        <button
+          onclick={signOut}
+          class="w-full flex items-center px-4 text-left hover:opacity-70 transition-opacity"
+          style="color: var(--color-error); min-height: 48px;"
+        >
+          <svg class="w-5 h-5 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+          </svg>
+          <span class="text-base">Sign Out</span>
+        </button>
+      {/if}
     </div>
   </section>
 
@@ -89,6 +117,15 @@
       >
         <span class="text-base">Import bank CSV</span>
       </a>
+      {#if $deviceMode}
+        <a
+          href="/settings/csv-export"
+          class="flex items-center px-4 hover:opacity-70 transition-opacity"
+          style="color: var(--color-text); min-height: 48px;"
+        >
+          <span class="text-base">Export CSV</span>
+        </a>
+      {/if}
     </div>
   </section>
 
