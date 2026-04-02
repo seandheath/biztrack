@@ -238,7 +238,7 @@
           date:           expDate,
           vendor:         expVendor.trim(),
           paymentMethod:  expPayment,
-          receipt: receiptFilename || '',
+          receipt: receiptFilename || existingReceipt || '',
           notes:          expNotes.trim(),
           submittedBy:    shareSubmittedBy,
         };
