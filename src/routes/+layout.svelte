@@ -18,7 +18,9 @@
     onAuthRequired,
   } from '$lib/auth.js';
   import { get } from 'svelte/store';
-  import { authToken, userEmail, isAuthenticated, businesses, selectedBusiness, mileageFavorites, defaultDrivers } from '$lib/store.js';
+  import { authToken, userEmail, isAuthenticated, businesses, selectedBusiness, mileageFavorites, defaultDrivers, deviceMode, businessConfig } from '$lib/store.js';
+  import { isDeviceModeActive, enterDeviceMode } from '$lib/device-mode.js';
+  import { localGetBusinesses, localLoadConfig } from '$lib/services/local-store.js';
   import { ensureBizTrackFolder, loadProfile, saveProfile } from '$lib/profile.js';
   import { loadConfig, discoverYearFolders, ensureYearFolder } from '$lib/business.js';
   import { findFile, downloadJson } from '$lib/drive.js';
@@ -83,6 +85,43 @@
 
   /** Prevents initFromDrive() from re-running on the email-only onTokenUpdate callback */
   let driveInitialized = false;
+
+  // ---------------------------------------------------------------------------
+  // Device-only mode initialization
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Populates stores from localStorage when running in device-only mode.
+   * No network calls — purely synchronous reads.
+   */
+  function initFromLocal() {
+    const bizList = localGetBusinesses();
+    businesses.set(bizList);
+
+    const savedName = storage.get('biztrack_selected_name', null);
+    const toSelect = (savedName && bizList.find((b) => b.name === savedName)) ?? bizList[0] ?? null;
+    if (toSelect) {
+      selectedBusiness.set(toSelect);
+      // Load config synchronously from localStorage
+      const cfg = storage.get(`bt_local_config_${toSelect.id}`, null);
+      if (cfg) businessConfig.set(cfg);
+    }
+
+    // Load profile data (favorites, drivers)
+    const profile = storage.get('bt_local_profile', null);
+    if (profile) {
+      mileageFavorites.set(profile.mileage_favorites ?? {});
+      defaultDrivers.set(profile.default_drivers ?? {});
+    }
+
+    syncStatus.set('green');
+  }
+
+  /** Enters device mode and initializes local data. */
+  function handleEnterDeviceMode() {
+    enterDeviceMode();
+    initFromLocal();
+  }
 
   // ---------------------------------------------------------------------------
   // Drive-first initialization
@@ -155,6 +194,16 @@
   const IOS_PROMPT_KEY = 'biztrack_ios_prompt_dismissed';
 
   onMount(async () => {
+    // Device-only mode: skip all Google auth, initialize from localStorage
+    if (isDeviceModeActive()) {
+      enterDeviceMode();
+      initFromLocal();
+
+      // Still register SW update handling for PWA cache freshness
+      _registerServiceWorkerUpdates();
+      return;
+    }
+
     // Read saved email hint for the "Continue as" button.
     // GIS requestAccessToken() always opens a popup — even with prompt:''.
     // Calling it from onMount (no user gesture) causes the browser to block it.
@@ -227,21 +276,32 @@
       }
     }, 30_000);
 
+    _registerServiceWorkerUpdates();
+
+    // onMount cleanup
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('online',  setOnline);
+      window.removeEventListener('online',  drainOnOnline);
+      window.removeEventListener('offline', setOffline);
+    };
+  });
+
+  /**
+   * Registers SW controllerchange + update handlers.
+   * Shared between Google auth and device-only mode onMount paths.
+   */
+  function _registerServiceWorkerUpdates() {
     // Reload when a new SW takes control so the app picks up fresh cached assets.
-    // controllerchange fires after the new SW calls skipWaiting + clientsClaim.
     const onControllerChange = () => window.location.reload();
     navigator.serviceWorker?.addEventListener('controllerchange', onControllerChange);
 
     // Explicit SW update check — registerSW.js only registers, does not handle SKIP_WAITING.
-    // On every page load: force a network check for a new SW, and if one is already
-    // waiting (installed but not active), send SKIP_WAITING immediately.
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistration().then((reg) => {
         if (!reg) return;
         const skipWaiting = (sw) => sw.postMessage({ type: 'SKIP_WAITING' });
-        // Already waiting (e.g., user refreshed after a deploy)
         if (reg.waiting) { skipWaiting(reg.waiting); }
-        // Newly found during this page load
         reg.addEventListener('updatefound', () => {
           const sw = reg.installing;
           if (!sw) return;
@@ -251,20 +311,10 @@
             }
           });
         });
-        // Force network check for a new SW version
         reg.update().catch(() => {});
       });
     }
-
-    // onMount cleanup
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('online',  setOnline);
-      window.removeEventListener('online',  drainOnOnline);
-      window.removeEventListener('offline', setOffline);
-      navigator.serviceWorker?.removeEventListener('controllerchange', onControllerChange);
-    };
-  });
+  }
 
   // ---------------------------------------------------------------------------
   // Handlers
@@ -426,6 +476,33 @@
           {signInError}
         </p>
       {/if}
+
+      <!-- Divider -->
+      <div class="flex items-center gap-3 w-full">
+        <div class="flex-1 h-px" style="background-color: var(--color-border);"></div>
+        <span class="text-xs" style="color: var(--color-text-muted);">or</span>
+        <div class="flex-1 h-px" style="background-color: var(--color-border);"></div>
+      </div>
+
+      <!-- Device-only mode -->
+      <button
+        onclick={handleEnterDeviceMode}
+        class="w-full flex items-center justify-center gap-2 rounded-xl border px-6 font-medium text-sm transition-opacity hover:opacity-80"
+        style="
+          min-height: 48px;
+          border-color: var(--color-border);
+          color: var(--color-text-muted);
+          background-color: var(--color-surface);
+        "
+      >
+        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+        </svg>
+        <span>Use without Google</span>
+      </button>
+      <p class="text-xs text-center" style="color: var(--color-text-muted);">
+        Data stays on this device only
+      </p>
     </div>
 
     <!-- Footer note -->
@@ -442,8 +519,8 @@
      ========================================================================= -->
 
 {:else}
-  <!-- Offline banner — z-30 so it renders above the session banner -->
-  {#if !isOnline}
+  <!-- Offline banner — z-30 so it renders above the session banner (hidden in device mode) -->
+  {#if !isOnline && !$deviceMode}
     <div
       class="sticky top-0 z-30 flex items-center justify-center px-4 py-2 text-sm font-medium"
       style="background-color: var(--color-error); color: #ffffff;"
@@ -456,8 +533,8 @@
     </div>
   {/if}
 
-  <!-- Session expiry banner — z-20 so it renders above the sticky header -->
-  {#if refreshBannerVisible}
+  <!-- Session expiry banner — z-20 so it renders above the sticky header (hidden in device mode) -->
+  {#if refreshBannerVisible && !$deviceMode}
     <div
       class="sticky top-0 z-20 flex items-center justify-between px-4 py-2 text-sm"
       style="background-color: var(--color-primary); color: var(--color-primary-text);"
@@ -523,14 +600,20 @@
         style="color: var(--color-text);"
       >
         BizTrack
-        <span
-          class="inline-block w-2 h-2 rounded-full flex-shrink-0"
-          style="background-color: {$syncStatus === 'green' ? '#22c55e' :
-                                     $syncStatus === 'yellow' ? '#eab308' : '#ef4444'};"
-          role="status"
-          aria-label="Sync status: {$syncStatus === 'green' ? 'synced' :
-                                     $syncStatus === 'yellow' ? 'syncing' : 'sync error'}"
-        ></span>
+        {#if $deviceMode}
+          <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="#22c55e" viewBox="0 0 24 24" aria-label="Device-only mode" role="status">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+          </svg>
+        {:else}
+          <span
+            class="inline-block w-2 h-2 rounded-full flex-shrink-0"
+            style="background-color: {$syncStatus === 'green' ? '#22c55e' :
+                                       $syncStatus === 'yellow' ? '#eab308' : '#ef4444'};"
+            role="status"
+            aria-label="Sync status: {$syncStatus === 'green' ? 'synced' :
+                                       $syncStatus === 'yellow' ? 'syncing' : 'sync error'}"
+          ></span>
+        {/if}
       </a>
 
       <!-- Gear / close icon (hidden on entry form pages) -->

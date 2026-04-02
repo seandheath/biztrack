@@ -12,6 +12,7 @@
 import { writable, derived } from 'svelte/store';
 import type { Writable, Readable } from 'svelte/store';
 import * as storage from './storage.js';
+import { deviceMode } from './device-mode.js';
 import type { Business, BusinessConfig, MileageFavorite } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -29,10 +30,16 @@ export const authToken: Writable<string | null> = writable(null);
 export const userEmail: Writable<string | null> = writable(null);
 
 /**
- * True when a valid access token is held in memory.
+ * True when a valid access token is held in memory OR device-only mode is active.
  * All protected content and API calls gate on this.
  */
-export const isAuthenticated: Readable<boolean> = derived(authToken, ($t) => !!$t);
+export const isAuthenticated: Readable<boolean> = derived(
+  [authToken, deviceMode],
+  ([$t, $dm]) => !!$t || $dm,
+);
+
+// Re-export deviceMode for convenient single-import from store.js
+export { deviceMode } from './device-mode.js';
 
 // ---------------------------------------------------------------------------
 // Business stores
