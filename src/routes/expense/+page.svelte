@@ -806,7 +806,8 @@
             {existingReceipt}
           </a>
         {/if}
-        <ReceiptPicker id="exp-receipt" bind:file={expReceipt} />
+        <ReceiptPicker id="exp-receipt" bind:file={expReceipt}
+          label={existingReceipt ? 'Replace Receipt (photo or PDF)' : 'Add Receipt (photo or PDF)'} />
       </div>
 
       <!-- Description (single mode only — in split mode description is per-line) -->
