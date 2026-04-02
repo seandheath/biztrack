@@ -26,7 +26,7 @@
   import { toast, showToast } from '$lib/toast.svelte.js';
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
-  import { syncStatus, cacheTransactions, getCachedTransactions, invalidatePull } from '$lib/sync.js';
+  import { syncStatus, cacheTransactions, getCachedTransactions, invalidatePull, removeCachedTransaction, updateCachedTransaction } from '$lib/sync.js';
   import { ensureYearFolder, saveMileageFavorite, updateMileageFavorite, saveDefaultDriver, loadBusinessData as _loadBusinessData } from '$lib/business.js';
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
   import FavoriteRouteList from '../../components/FavoriteRouteList.svelte';
@@ -206,6 +206,8 @@
       const year = new Date(milDate + 'T00:00:00').getFullYear();
       const spreadsheetId = $selectedBusiness?.sheetIds?.[year] ?? editSheetId;
       await deleteByUUID(spreadsheetId, 'Mileage', editTxnId);
+      removeCachedTransaction(spreadsheetId, 'Mileage', editTxnId);
+      invalidatePull(spreadsheetId);
       goto(returnTo || '/');
     } catch (err) {
       console.error('[mileage] delete:', err);
@@ -274,6 +276,12 @@
           throw err;
         }
         showToast('Mileage updated!', 'success');
+        if (spreadsheetId !== editSheetId) {
+          removeCachedTransaction(editSheetId, 'Mileage', editTxnId);
+          invalidatePull(editSheetId);
+        }
+        updateCachedTransaction(spreadsheetId, 'Mileage', updatedRow);
+        invalidatePull(spreadsheetId);
         goto(returnTo || '/');
         return;
       }
@@ -704,8 +712,8 @@
         {/if}
       </button>
 
-      <!-- Delete — only in edit mode -->
-      {#if returnTo}
+      <!-- Delete — any edit mode -->
+      {#if editMode}
         {#if deleteError}
           <p class="text-xs text-center" style="color: var(--color-error);">{deleteError}</p>
         {/if}

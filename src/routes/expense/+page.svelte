@@ -32,7 +32,7 @@
   import { toast, showToast } from '$lib/toast.svelte.js';
   import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
-  import { syncStatus, cacheTransactions, invalidatePull } from '$lib/sync.js';
+  import { syncStatus, cacheTransactions, invalidatePull, removeCachedTransaction, updateCachedTransaction } from '$lib/sync.js';
   import { ensureYearFolder, loadBusinessData as _loadBusinessData } from '$lib/business.js';
   import { processReceipt, generateFilename } from '$lib/receipt.js';
   import { DEFAULT_CATEGORIES } from '$lib/constants.js';
@@ -80,6 +80,8 @@
       const year = new Date(expDate + 'T00:00:00').getFullYear();
       const spreadsheetId = $selectedBusiness?.sheetIds?.[year] ?? shareSheetId;
       await deleteByUUID(spreadsheetId, 'Expenses', shareTxnId);
+      removeCachedTransaction(spreadsheetId, 'Expenses', shareTxnId);
+      invalidatePull(spreadsheetId);
       goto(returnTo || '/');
     } catch (err) {
       console.error('[expense] delete:', err);
@@ -261,13 +263,10 @@
             throw err;
           }
           showToast(`Split into ${validLines.length} expenses!`, 'success');
-          // Sync cache before navigating so destination page has fresh data
+          // Update local cache — remove original, invalidate so destination pulls fresh data
+          removeCachedTransaction(shareSheetId, 'Expenses', shareTxnId);
           invalidatePull(spreadsheetId);
           if (shareSheetId !== spreadsheetId) invalidatePull(shareSheetId);
-          try {
-            const pulled = await pullTransactions(spreadsheetId, 'Expenses');
-            cacheTransactions(spreadsheetId, 'Expenses', pulled);
-          } catch (err) { console.warn('[expense] post-split cache sync:', err); }
           if (returnTo) { goto(returnTo); return; }
           shareMode = false;
         } else {
@@ -298,13 +297,13 @@
             throw err;
           }
           showToast('Details saved!', 'success');
-          // Sync cache before navigating so destination page has fresh data
+          // Update local cache so destination page renders fresh data instantly
+          if (spreadsheetId !== shareSheetId) {
+            removeCachedTransaction(shareSheetId, 'Expenses', shareTxnId);
+            invalidatePull(shareSheetId);
+          }
+          updateCachedTransaction(spreadsheetId, 'Expenses', updatedRow);
           invalidatePull(spreadsheetId);
-          if (shareSheetId !== spreadsheetId) invalidatePull(shareSheetId);
-          try {
-            const pulled = await pullTransactions(spreadsheetId, 'Expenses');
-            cacheTransactions(spreadsheetId, 'Expenses', pulled);
-          } catch (err) { console.warn('[expense] post-edit cache sync:', err); }
           if (returnTo) {
             if (applyToAll && expVendor && expCategory) {
               const biz = $selectedBusiness;
@@ -839,7 +838,7 @@
         {/if}
       </button>
 
-      <!-- Skip / Delete — only in review mode -->
+      <!-- Skip — only in review mode -->
       {#if returnTo}
         <button
           type="button"
@@ -849,7 +848,10 @@
         >
           Skip for now
         </button>
+      {/if}
 
+      <!-- Delete — any edit mode -->
+      {#if shareMode}
         {#if deleteError}
           <p class="text-xs text-center" style="color: var(--color-error);">{deleteError}</p>
         {/if}

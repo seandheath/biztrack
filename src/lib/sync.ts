@@ -203,6 +203,42 @@ export function cacheTransactions(spreadsheetId: string, sheetName: SheetName, r
 }
 
 /**
+ * Remove a single cached transaction row by UUID.
+ * Used after deletes so the destination page doesn't flash the deleted entry.
+ */
+export function removeCachedTransaction(spreadsheetId: string, sheetName: SheetName, uuid: string): void {
+  const existing = _readCache();
+  if (!existing) return;
+  const key = `${spreadsheetId}::${sheetName}`;
+  const rows = existing.transactions?.[key];
+  if (!rows) return;
+  existing.transactions = { ...existing.transactions, [key]: rows.filter(r => r.id !== uuid) };
+  existing.lastSyncTimestamp = Date.now();
+  _writeCache(existing);
+}
+
+/**
+ * Update a single cached transaction row in-place by UUID, or append if not found.
+ * Used after edits so the destination page renders the updated values immediately.
+ */
+export function updateCachedTransaction(spreadsheetId: string, sheetName: SheetName, row: TransactionRow): void {
+  const existing = _readCache();
+  if (!existing) return;
+  const key = `${spreadsheetId}::${sheetName}`;
+  const rows = existing.transactions?.[key];
+  if (!rows) return;
+  const idx = rows.findIndex(r => r.id === row.id);
+  if (idx >= 0) {
+    rows[idx] = row;
+  } else {
+    rows.push(row);
+  }
+  existing.transactions = { ...existing.transactions, [key]: rows };
+  existing.lastSyncTimestamp = Date.now();
+  _writeCache(existing);
+}
+
+/**
  * Clears the sync cache. Called on sign-out.
  */
 export function clearCache(): void {
