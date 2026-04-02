@@ -8,7 +8,7 @@ Zero-backend PWA for tracking business expenses and mileage across multiple LLCs
 
 - **Multi-business support** — manage any number of LLCs from one account; access controlled by Google Drive folder sharing
 - **Expense tracking** — vendor autocomplete, customizable categories and payment methods, receipt capture with client-side JPEG compression (or PDF pass-through)
-- **Mileage tracking** — IRS rate auto-calculation, round-trip toggle, saved favorite routes
+- **Mileage tracking** — round-trip toggle, saved favorite routes
 - **Transaction history** — browse and search past entries by year and type
 - **Uncategorized review** — step-through workflow for categorizing imported or uncategorized transactions
 - **CSV bank import** — parse bank export CSVs with smart vendor/category matching from existing data
