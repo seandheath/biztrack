@@ -361,16 +361,17 @@ export async function exportZip(
   const milCSV = await exportTransactionsCSV(bizId, year, 'Mileage');
   files['Mileage.csv'] = strToU8(milCSV);
 
-  // Add receipt files — convert data URLs back to binary
+  // Add receipt files — decode base64 data URLs back to binary
   const receiptData = storage.get<Record<string, string>>(receiptsKey(bizId, year), {});
   for (const [filename, dataUrl] of Object.entries(receiptData)) {
-    try {
-      const resp = await fetch(dataUrl);
-      const buf = await resp.arrayBuffer();
-      files[`Receipts/${filename}`] = new Uint8Array(buf);
-    } catch {
-      // Skip unreadable receipts
+    const base64 = dataUrl.split(',')[1];
+    if (!base64) continue;
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
     }
+    files[`Receipts/${filename}`] = bytes;
   }
 
   const zipped = zipSync(files);
