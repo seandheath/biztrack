@@ -27,7 +27,7 @@
     userEmail,
     updateBusiness,
   } from '$lib/store.js';
-  import { listFileNames, uploadFile } from '$lib/drive.js';
+  import { listFileNames, uploadFile, findFile } from '$lib/drive.js';
   import { pushTransactions, updateByUUID, deleteByUUID, batchSetCategory, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.svelte.js';
   import { todayISO, friendlyError } from '$lib/util.js';
@@ -124,6 +124,13 @@
   let shareSheetId     = $state('');
   let shareSubmittedBy = $state('');
   let shareTxnId       = $state('');
+
+  // Existing receipt link — populated when editing a transaction that has a receipt
+  let existingReceipt    = $state('');
+  let existingReceiptUrl = $state('');
+
+  // Hide existing receipt link when user picks a new file
+  $effect(() => { if (expReceipt) { existingReceipt = ''; existingReceiptUrl = ''; } });
 
   // ---------------------------------------------------------------------------
   // Business data load
@@ -561,6 +568,16 @@
         expNotes         = row.notes         || '';
         shareSubmittedBy = row.submittedBy   || '';
         shareTxnId       = row.id            || txnId;
+
+        // Resolve existing receipt to a viewable Drive link
+        if (row.receipt) {
+          existingReceipt = row.receipt;
+          const rfId = biz.receiptFolderIds?.[yr];
+          if (rfId) {
+            const fileId = await findFile(row.receipt, rfId);
+            if (fileId) existingReceiptUrl = `https://drive.google.com/file/d/${fileId}/view`;
+          }
+        }
       } catch (err) {
         console.error('[expense] share load:', err);
         shareLoadError = err.message;
@@ -778,6 +795,17 @@
         <label for="exp-receipt" class="text-sm font-medium" style="color: var(--color-text-muted);">
           Receipt <span style="color: var(--color-text-muted); font-weight: 400;">(optional)</span>
         </label>
+        {#if existingReceipt && existingReceiptUrl}
+          <a href={existingReceiptUrl} target="_blank" rel="noopener noreferrer"
+             class="text-sm flex items-center gap-1.5 underline"
+             style="color: var(--color-primary);">
+            <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+            {existingReceipt}
+          </a>
+        {/if}
         <ReceiptPicker id="exp-receipt" bind:file={expReceipt} />
       </div>
 
