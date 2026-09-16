@@ -1,4 +1,6 @@
 <script>
+  import { resolve } from '$app/paths';
+
   /* global __APP_VERSION__ */
   const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
 
@@ -6,6 +8,8 @@
   import Spinner from '../components/Spinner.svelte';
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
+  import { appName, appBase, storageKey } from '$lib/version.js';
+  import { returnRoute } from '$lib/util.js';
   import {
     loadGisScript,
     requestToken,
@@ -37,22 +41,22 @@
   // Route context (for top-bar navigation)
   // ---------------------------------------------------------------------------
 
-  let isSettings = $derived($page.url.pathname.startsWith('/settings'));
-  let isSettingsRoot = $derived($page.url.pathname === '/settings');
+  let isSettings = $derived(($page.route.id ?? '').startsWith('/settings'));
+  let isSettingsRoot = $derived($page.route.id === '/settings');
   let isSettingsSub = $derived(isSettings && !isSettingsRoot);
-  let isHistory = $derived($page.url.pathname.startsWith('/history'));
-  let isExpense = $derived($page.url.pathname === '/expense');
-  let isMileage = $derived($page.url.pathname === '/mileage');
+  let isHistory = $derived($page.route.id === '/history');
+  let isExpense = $derived($page.route.id === '/expense');
+  let isMileage = $derived($page.route.id === '/mileage');
   let isEntryForm = $derived(isExpense || isMileage);
   let backHref = $derived(
     isSettingsSub ? '/settings'
-    : isEntryForm ? ($page.url.searchParams.get('returnTo') || '/')
+    : isEntryForm ? (returnRoute($page.url.searchParams.get('returnTo')) || '/')
     : '/'
   );
 
   // Public routes bypass the auth guard entirely — needed for OAuth consent screen URLs
   const PUBLIC_ROUTES = ['/privacy', '/terms'];
-  let isPublicRoute = $derived(PUBLIC_ROUTES.includes($page.url.pathname));
+  let isPublicRoute = $derived(PUBLIC_ROUTES.includes($page.route.id));
 
   // ---------------------------------------------------------------------------
   // Auth state
@@ -262,7 +266,7 @@
     window.addEventListener('pageshow', onVisibility);
     // A sign-out or account change in another tab must not leave the old workspace exposed.
     const onStorage = (event) => {
-      if (event.key === 'bt_email_hint' && event.newValue !== getEmail()) window.location.reload();
+      if (event.key === storageKey('bt_email_hint') && event.newValue !== getEmail()) window.location.reload();
     };
     window.addEventListener('storage', onStorage);
 
@@ -275,7 +279,7 @@
     // waiting (installed but not active), send SKIP_WAITING immediately.
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistration().then((reg) => {
-        if (!reg || disposed) return;
+        if (!reg || disposed || new URL(reg.scope).pathname !== `${appBase}/`) return;
         const skipWaiting = (sw) => sw.postMessage({ type: 'SKIP_WAITING' });
         // Already waiting (e.g., user refreshed after a deploy)
         if (reg.waiting) { skipWaiting(reg.waiting); }
@@ -347,7 +351,7 @@
     try {
       await signOut(pending > 0);
       // Reset route/component module state as well as the cleared account caches.
-      window.location.replace('/');
+      window.location.replace(resolve('/'));
     } catch (error) {
       signInError = error.message;
     } finally { signingIn = false; }
@@ -357,6 +361,10 @@
     if (!isEntryForm && !signingIn && !hasPendingOperations()) window.location.reload();
   }
 </script>
+
+<svelte:head>
+  <meta name="apple-mobile-web-app-title" content={appName} />
+</svelte:head>
 
 <!-- =========================================================================
      PUBLIC: No auth, no app shell (privacy policy, terms of service)
@@ -378,7 +386,7 @@
     <!-- Wordmark -->
     <div class="text-center">
       <div class="text-5xl mb-3" aria-hidden="true">🧾</div>
-      <h1 class="text-3xl font-bold tracking-tight">BizTrack</h1>
+      <h1 class="text-3xl font-bold tracking-tight">{appName}</h1>
       <p class="mt-2 text-base" style="color: var(--color-text-muted);">
         Business expense &amp; mileage tracker
       </p>
@@ -554,7 +562,7 @@
       <!-- Back button (settings sub-pages + entry form pages) -->
       {#if isSettingsSub || isEntryForm}
         <a
-          href={backHref}
+          href={resolve(backHref)}
           class="rounded-lg hover:opacity-70 transition-opacity"
           aria-label="Go back"
           style="color: var(--color-primary);"
@@ -566,7 +574,7 @@
       {:else if !isSettings && !isHistory}
         <!-- History clock icon — visible on main screen -->
         <a
-          href="/history"
+          href={resolve('/history')}
           class="rounded-lg hover:opacity-70 transition-opacity"
           aria-label="View history"
           style="color: var(--color-text-muted);"
@@ -582,11 +590,11 @@
 
       <!-- App title with sync indicator -->
       <a
-        href="/"
+        href={resolve('/')}
         class="flex-1 flex items-center justify-center gap-1.5 text-lg font-semibold tracking-tight px-2 hover:opacity-70 transition-opacity"
         style="color: var(--color-text);"
       >
-        BizTrack
+        {appName}
         <span
           class="inline-block w-2 h-2 rounded-full flex-shrink-0"
           style="background-color: {$syncStatus === 'green' ? '#22c55e' :
@@ -600,7 +608,7 @@
       <!-- Gear / close icon (hidden on entry form pages) -->
       {#if !isSettingsSub && !isEntryForm}
         <a
-          href={isSettings || isHistory ? '/' : '/settings'}
+          href={resolve(isSettings || isHistory ? '/' : '/settings')}
           class="rounded-lg hover:opacity-70 transition-opacity"
           aria-label={isSettings || isHistory ? 'Go to main screen' : 'Open settings'}
           style="color: var(--color-text-muted);"
@@ -642,10 +650,10 @@
           padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
         "
         role="complementary"
-        aria-label="Install BizTrack"
+        aria-label={`Install ${appName}`}
       >
         <div class="flex-1 min-w-0">
-          <p class="text-sm font-semibold" style="color: var(--color-text);">Install BizTrack</p>
+          <p class="text-sm font-semibold" style="color: var(--color-text);">Install {appName}</p>
           <p class="text-xs mt-0.5" style="color: var(--color-text-muted);">
             Tap
             <svg class="w-4 h-4 inline-block mx-0.5 align-text-bottom" fill="currentColor" viewBox="0 0 24 24" aria-label="Share">

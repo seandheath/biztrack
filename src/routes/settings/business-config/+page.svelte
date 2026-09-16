@@ -1,4 +1,8 @@
 <script>
+  import { resolve } from '$app/paths';
+
+  import { storageKey } from '$lib/version.js';
+
   import Spinner from '../../../components/Spinner.svelte';
   /**
    * Per-business configuration screen.
@@ -41,11 +45,11 @@
       selectedBusiness.set(remaining[0] ?? null);
     }
     // Update profile.json so other devices stop discovering the removed business
-    const rootFolderId = localStorage.getItem('bt_biz_folder');
+    const rootFolderId = localStorage.getItem(storageKey('bt_biz_folder'));
     if (rootFolderId) {
       await saveProfile(rootFolderId, remaining, get(mileageFavorites), get(defaultDrivers)).catch((e) => console.warn('[business-config] profile save:', e));
     }
-    goto('/settings');
+    goto(resolve('/settings'));
   }
 
   onMount(async () => {
@@ -99,7 +103,7 @@
         Select a business on the main screen first.
       </p>
       <a
-        href="/"
+        href={resolve('/')}
         class="mt-4 inline-flex items-center justify-center rounded-xl text-sm font-medium px-5"
         style="background-color: var(--color-primary); color: var(--color-primary-text); min-height: 44px;"
       >
@@ -166,7 +170,7 @@
       <div class="rounded-xl border divide-y overflow-hidden flex flex-col"
            style="border-color: var(--color-border); background-color: var(--color-surface-2);">
         <a
-          href="/settings/favorites"
+          href={resolve('/settings/favorites')}
           class="flex items-center justify-between px-4 hover:opacity-70 transition-opacity"
           style="color: var(--color-text); min-height: 48px;"
         >
@@ -176,7 +180,7 @@
           </svg>
         </a>
         <a
-          href="/settings/categories"
+          href={resolve('/settings/categories')}
           class="flex items-center justify-between px-4 hover:opacity-70 transition-opacity"
           style="color: var(--color-text); min-height: 48px;"
         >

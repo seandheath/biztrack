@@ -1,4 +1,6 @@
 <script>
+  import { resolve } from '$app/paths';
+
   import { ensureAuthorized, AuthError } from '$lib/auth.js';
   import Spinner from '../../components/Spinner.svelte';
   /**
@@ -24,7 +26,7 @@
   } from '$lib/store.js';
   import { pushTransactions, updateByUUID, deleteByUUID, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.svelte.js';
-  import { todayISO, friendlyError } from '$lib/util.js';
+  import { todayISO, friendlyError, returnRoute } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
   import { syncStatus, cacheTransactions, getCachedTransactions, invalidatePull, removeCachedTransaction, updateCachedTransaction } from '$lib/sync.js';
   import { ensureYearFolder, saveMileageFavorite, updateMileageFavorite, saveDefaultDriver, loadBusinessData as _loadBusinessData } from '$lib/business.js';
@@ -216,7 +218,7 @@
       await deleteByUUID(spreadsheetId, 'Mileage', editTxnId);
       removeCachedTransaction(spreadsheetId, 'Mileage', editTxnId);
       invalidatePull(spreadsheetId);
-      goto(returnTo || '/');
+      goto(resolve(returnTo || '/'));
     } catch (err) {
       console.error('[mileage] delete:', err);
       deleteError = 'Delete failed. Try again.';
@@ -300,7 +302,7 @@
           if (!navigator.onLine && !(err instanceof AuthError)) {
             enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'update', row });
             showToast('Saved offline — will sync when back online', 'success');
-            goto('/');
+            goto(resolve('/'));
             return;
           }
           throw err;
@@ -312,7 +314,7 @@
         }
         updateCachedTransaction(spreadsheetId, 'Mileage', row);
         invalidatePull(spreadsheetId);
-        goto('/');
+        goto(resolve('/'));
         return;
       }
 
@@ -322,7 +324,7 @@
         if (!navigator.onLine && !(err instanceof AuthError)) {
           enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'create', row });
           showToast('Saved offline — will sync when back online', 'success');
-          goto('/');
+          goto(resolve('/'));
           return;
         }
         throw err;
@@ -369,7 +371,7 @@
           cacheTransactions(spreadsheetId, 'Mileage', pulled);
         })
         .catch(() => syncStatus.set('red'));
-      goto('/');
+      goto(resolve('/'));
     } catch (err) {
       console.error('[mileage] submit:', err);
       showToast(friendlyError(err), 'error');
@@ -448,7 +450,7 @@
     const bizId  = sp.get('biz');
     const yearStr = sp.get('year');
     const txnId  = sp.get('txn');
-    returnTo = sp.get('returnTo') ?? '';
+    returnTo = returnRoute(sp.get('returnTo'));
 
     if (bizId && yearStr && txnId) {
       editLoading = true;
@@ -499,7 +501,7 @@
     <p class="text-sm rounded-xl px-4 py-3 mt-4" style="color: var(--color-error); background-color: var(--color-surface-2);">
       {editLoadError}
     </p>
-    <a href="/" class="self-start rounded-xl text-sm font-medium px-5" style="min-height: 44px; display:inline-flex; align-items:center; background-color: var(--color-surface-2); color: var(--color-text);">← Go home</a>
+    <a href={resolve('/')} class="self-start rounded-xl text-sm font-medium px-5" style="min-height: 44px; display:inline-flex; align-items:center; background-color: var(--color-surface-2); color: var(--color-text);">← Go home</a>
   {:else}
 
   {#if editMode}

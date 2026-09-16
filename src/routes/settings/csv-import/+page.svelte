@@ -1,4 +1,6 @@
 <script>
+  import { resolve } from '$app/paths';
+
   import { selectedBusiness, userEmail, businesses, paymentMethodCache } from '$lib/store.js';
   import Autocomplete from '../../../components/Autocomplete.svelte';
   import { pushTransactions, pullTransactions } from '$lib/services/sheets.js';
@@ -236,7 +238,7 @@
   <!-- Back + heading -->
   <div>
     <a
-      href="/settings"
+      href={resolve('/settings')}
       class="text-sm mb-3 inline-flex items-center gap-1 hover:opacity-70 transition-opacity"
       style="color: var(--color-primary);"
     >
@@ -253,7 +255,7 @@
 
   {#if !$selectedBusiness}
     <p class="text-sm" style="color: var(--color-text-muted);">
-      No business selected. <a href="/" style="color: var(--color-primary);">Go home</a> and select one first.
+      No business selected. <a href={resolve('/')} style="color: var(--color-primary);">Go home</a> and select one first.
     </p>
   {:else}
 
@@ -361,7 +363,7 @@
           </p>
         {/if}
         {#if result.imported > 0}
-          <a href="/history" class="text-sm mt-1" style="color: var(--color-primary);">
+          <a href={resolve('/history')} class="text-sm mt-1" style="color: var(--color-primary);">
             View in history →
           </a>
         {/if}

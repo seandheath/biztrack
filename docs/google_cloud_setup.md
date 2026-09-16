@@ -90,6 +90,11 @@ The OAuth client ID is the only required environment variable. The Drive folder
 browser does not use a Picker API key or project number. Do not place an OAuth
 client secret in any `VITE_*` variable: those values are public in the browser bundle.
 
+Version paths (`/beta/`, `/v/1.2.3/`) share the same origin and OAuth client.
+Authorized JavaScript origins must not include these paths. Existing root privacy
+and terms URLs redirect to beta's public pages. See [release setup](releases.md)
+for GitHub configuration; users of the hosted app need none of this setup.
+
 ---
 
 ## 5. Verify Setup

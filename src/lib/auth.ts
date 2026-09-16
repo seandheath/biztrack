@@ -1,3 +1,4 @@
+import { storageKey, shareCache } from './version.js';
 /** Google's browser token model: reconnect explicitly, without discarding work. */
 import { GOOGLE_CLIENT_ID, DRIVE_SCOPE } from './constants.js';
 import type { TokenUpdate } from './types.js';
@@ -34,14 +35,14 @@ function pending(): Pending {
 }
 
 try {
-  email = localStorage.getItem(EMAIL) || null;
-  const storedExpiry = new Date(localStorage.getItem(EXPIRY) || '');
+  email = localStorage.getItem(storageKey(EMAIL)) || null;
+  const storedExpiry = new Date(localStorage.getItem(storageKey(EXPIRY)) || '');
   if (storedExpiry > new Date()) {
-    token = localStorage.getItem(TOKEN);
+    token = localStorage.getItem(storageKey(TOKEN));
     expiry = storedExpiry;
   } else {
-    localStorage.removeItem(TOKEN);
-    localStorage.removeItem(EXPIRY);
+    localStorage.removeItem(storageKey(TOKEN));
+    localStorage.removeItem(storageKey(EXPIRY));
   }
 } catch { /* Storage can be disabled. */ }
 
@@ -63,8 +64,8 @@ export function expireToken(): void {
   expiry = null;
   verified = false;
   try {
-    localStorage.removeItem(TOKEN);
-    localStorage.removeItem(EXPIRY);
+    localStorage.removeItem(storageKey(TOKEN));
+    localStorage.removeItem(storageKey(EXPIRY));
   } catch {}
   notify();
 }
@@ -122,15 +123,15 @@ export async function restoreSession(): Promise<void> {
     if (!expiry || expiry <= new Date()) { expireToken(); return; }
     // Legacy caches without an owner must not be loaded for an arbitrary account.
     if (!email) {
-      if (localStorage.getItem('biztrack_offline_queue')) {
+      if (localStorage.getItem(storageKey('biztrack_offline_queue'))) {
         throw new AuthError('Unidentified pending changes exist. Sign out and review the discard warning before changing accounts.');
       }
-      localStorage.removeItem('bt_cache');
-      localStorage.removeItem('bt_biz_folder');
+      localStorage.removeItem(storageKey('bt_cache'));
+      localStorage.removeItem(storageKey('bt_biz_folder'));
     }
     email = actual;
     verified = true;
-    try { localStorage.setItem(EMAIL, email); } catch {}
+    try { localStorage.setItem(storageKey(EMAIL), email); } catch {}
     notify();
   } catch (error) {
     if (version !== session || token !== restoredToken) return;
@@ -176,8 +177,8 @@ export function requestToken(): Promise<void> {
             if (queueLength()) throw new AuthError('Pending changes have no account owner. Sign out before using a different account.');
             if (popup !== attempt || session !== version) return;
             try {
-              localStorage.removeItem('bt_cache');
-              localStorage.removeItem('bt_biz_folder');
+              localStorage.removeItem(storageKey('bt_cache'));
+              localStorage.removeItem(storageKey('bt_biz_folder'));
             } catch {}
           }
           token = response.access_token;
@@ -185,9 +186,9 @@ export function requestToken(): Promise<void> {
           email = actual;
           verified = true;
           try {
-            localStorage.setItem(TOKEN, token);
-            localStorage.setItem(EXPIRY, expiry.toISOString());
-            localStorage.setItem(EMAIL, email);
+            localStorage.setItem(storageKey(TOKEN), token);
+            localStorage.setItem(storageKey(EXPIRY), expiry.toISOString());
+            localStorage.setItem(storageKey(EMAIL), email);
           } catch {}
           popup = null;
           const waiting = reconnect;
@@ -245,7 +246,7 @@ export async function signOut(discardPending = false): Promise<void> {
   email = null;
   clearQueue();
   for (const key of [EMAIL, 'bt_biz_folder', 'bt_cache', 'biztrack_selected_name']) {
-    try { localStorage.removeItem(key); } catch {}
+    try { localStorage.removeItem(storageKey(key)); } catch {}
   }
   const [{ clearProfileCache }, { clearTrashedCache }, { resetAccountStores }, { clearCache }] = await Promise.all([
     import('./profile.js'), import('./services/sheets.js'), import('./store.js'), import('./sync.js'),
@@ -256,7 +257,7 @@ export async function signOut(discardPending = false): Promise<void> {
   clearCache();
   try {
     if (typeof caches !== 'undefined') await Promise.all([
-      caches.delete('api-responses'), caches.delete('biztrack-share'),
+      caches.delete(storageKey('api-responses')), caches.delete(shareCache),
     ]);
   } finally { notify(); }
 }

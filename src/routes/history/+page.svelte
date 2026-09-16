@@ -1,4 +1,6 @@
 <script>
+  import { resolve } from '$app/paths';
+
   import Spinner from '../../components/Spinner.svelte';
   /**
    * History screen — review past expense and mileage entries.
@@ -95,7 +97,7 @@
       Select a business on the main screen first.
     </p>
     <a
-      href="/"
+      href={resolve('/')}
       class="rounded-xl text-sm font-medium px-6"
       style="background-color: var(--color-primary); color: var(--color-primary-text); min-height: 44px; display:inline-flex; align-items:center;"
     >

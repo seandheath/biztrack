@@ -200,6 +200,7 @@ try {
         showToast: (...args) => messages.push(args), friendlyError: error => error.message,
         invalidatePull: () => events.push('invalidate'), removeCachedTransaction: noop, updateCachedTransaction: noop, cacheTransactions: noop,
         goto: destination => { navigations.push(destination); events.push('navigate'); },
+        resolve: destination => destination,
         syncStatus: { set: noop }, pullTransactions: async () => [{ id: 'other', vendor: ' Vendor ', category: 'Uncategorized' }],
         batchSetCategory: async (sid, ids, category) => {
           await Promise.resolve();

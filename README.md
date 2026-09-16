@@ -1,42 +1,88 @@
 # BizTrack
 
-Zero-backend PWA for tracking business expenses and mileage across multiple LLCs. All data lives in the user's own Google Drive — BizTrack has no server, no database, and no third-party data storage. The app is a SvelteKit static SPA that talks directly to Google Drive and Sheets APIs from the browser.
+Static PWA for tracking expenses and mileage across multiple businesses. Runs in your browser; data stays on your device and in your Google Drive. No BizTrack backend or database. **No infrastructure setup required to use it.**
 
----
+[User instructions](#for-users) · [Developer instructions](#for-developers)
 
-## Features
+## For users
 
-- **Multi-business support** — manage any number of LLCs from one account; access controlled by Google Drive folder sharing
-- **Expense tracking** — vendor autocomplete, customizable categories and payment-method autocomplete, receipt capture with client-side JPEG compression (or PDF pass-through)
-- **Mileage tracking** — round-trip toggle, driver autocomplete/defaults, and personal favorite routes
-- **Transaction history** — browse expenses and mileage by year, then open entries to edit
-- **Uncategorized review** — step-through workflow for categorizing imported or uncategorized transactions
-- **CSV bank import** — parse bank export CSVs with smart vendor/category matching from existing data
-- **Custom folder browser** — browse My Drive, Shared Drives, and Shared with Me folders directly via the Drive API (no Google Picker iframe)
-- **Web Share Target** — Android image/PDF share registration and receipt handoff (see known limitations in the specification)
-- **PWA** — installable with offline shell caching, dark theme, safe-area-aware layout
+### Get started
 
----
+You need a browser, a Google account, and internet access to sign in and sync. No Google Cloud project, API credentials, or developer tools needed.
 
-## Tech Stack
+1. Open [BizTrack](https://biztrack.lol) and choose a fixed version or **Beta**.
+2. Select **Sign in with Google** and grant Drive access.
+3. Choose **Add Business → Select Drive Folder…**. Pick a writable folder and name the business, or use **Import Business** if the folder already contains one.
+4. Use **+ Expense** or **+ Mileage**. BizTrack creates the spreadsheets and receipt folders.
 
-| Layer | Choice |
-|-------|--------|
-| Framework | SvelteKit 2 + Svelte 5 (runes API) |
-| Output | `adapter-static` — pure SPA, `fallback: '404.html'` |
-| Styling | Tailwind CSS v4, CSS custom properties for theming |
-| Auth | Google Identity Services (GIS) token model — short-lived token reuse and explicit reconnect, no backend |
-| Storage | Google Drive (files) + Google Sheets (ledger) via raw `fetch()` |
-| Folder Selection | Custom FolderBrowser component (Drive API v3 direct) |
-| PWA | `@vite-pwa/sveltekit`, `injectManifest`, Web Share Target (Android) |
-| Deployment | GitHub Pages, custom domain `biztrack.lol`, GitHub Actions CI |
-| License | AGPL-3.0-only |
+Installation is optional: use your browser's install option, or **Share → Add to Home Screen** in Safari on iPhone/iPad.
 
----
+Fixed versions stay on that release. Beta tracks `main` and updates automatically. Install a new version separately when you want to upgrade. Existing installs can continue in beta with their local data; sync pending changes before switching versions.
 
-## Drive Data Structure
+Release archives are immutable, but the website owner can still change what Pages serves. Using the hosted app requires trusting its maintainers. Source and download links are on the version chooser.
 
-All business data lives in the user's Google Drive. BizTrack creates and manages this structure:
+### Where your data lives
+
+- **Google Drive:** ledgers in Google Sheets; receipts, configuration, and preferences in files. Folder sharing controls access.
+- **Your device:** sign-in token, email, cached records, preferences, pending changes, and temporarily cached shared receipts.
+- **Website:** serves static app files. Business data goes directly between your browser and Google.
+
+Offline support is limited. The app shell is cached, but authentication, folder creation, receipt uploads, and syncing need a connection. Unsynced changes exist only on this device.
+
+### Reconnecting and signing out
+
+Reconnect with the same Google account when prompted. Your open form and receipt survive reconnection, but not a reload or browser termination. App updates let you defer reloading.
+
+- **Sign Out:** clears this version's local account data; keeps Google permission.
+- **Disconnect Google Drive:** also revokes permission, affecting other devices using that grant.
+
+Neither deletes Drive files. Sync or explicitly discard pending changes before either action. Clearing browser site data deletes unsynced work.
+
+BizTrack does not encrypt local data. Sign out on shared devices.
+
+### Features
+
+- Expenses: vendor/payment autocomplete, custom categories, compressed photo receipts, PDFs.
+- Mileage: round trips, driver defaults/autocomplete, favorite routes.
+- History by year, entry editing, uncategorized review, CSV bank import with vendor/category matching.
+- Multiple businesses; My Drive, Shared Drives, and Shared with Me folders.
+- Installable PWA, dark theme, offline shell caching, Android receipt sharing ([known limitations](docs/specification.md#known-limitations-and-separate-correctness-work)).
+
+## For developers
+
+For local development or hosting your own copy.
+
+### Setup
+
+- Node.js 22+ and Python 3 (or use `nix develop`)
+- Google Cloud project with Drive and Sheets APIs enabled
+- OAuth 2.0 web client ID — follow the [Google Cloud setup guide](docs/google_cloud_setup.md)
+
+```sh
+nix develop # optional, if using Nix
+npm install
+cp .env.example .env
+```
+
+Set `.env`:
+
+```env
+VITE_GOOGLE_CLIENT_ID=<your OAuth client ID>
+```
+
+The client ID is public in the browser bundle. Never include an OAuth client secret.
+
+```sh
+npm run dev
+```
+
+### Tech stack
+
+SvelteKit 2, Svelte 5 runes, Tailwind CSS v4. `adapter-static` outputs directory indexes for each route. `@vite-pwa/sveltekit` uses `injectManifest` for the service worker.
+
+Google Identity Services handles auth; browser `fetch()` calls Drive and Sheets directly. The folder browser uses Drive API v3.
+
+### Drive data structure
 
 ```
 <Business Folder>/
@@ -49,87 +95,32 @@ BizTrack/                   # app-level folder in user's Drive root
   profile.json              # business index, personal favorites/default drivers
 ```
 
-Each year gets its own subfolder, spreadsheet, and receipts folder. The spreadsheet has an **Expenses** tab (date, vendor, description, amount, category, payment method, receipt filename, notes, submitter, UUID) and a **Mileage** tab (date, from, to, purpose, miles, submitter, UUID, driver).
+Each year has its own spreadsheet and receipts folder. Column schemas are in the [specification](docs/specification.md).
 
----
+### Authentication behavior
 
-## Prerequisites
+Saved tokens expire after roughly an hour. Reconnection verifies the same account before resuming pending API calls. The auth layer retries HTTP 401 once; it does not replay writes after network failures.
 
-- Node.js 22+ (or use `nix develop`)
-- A Google Cloud project with Drive and Sheets APIs enabled
-- An OAuth 2.0 client ID (Web application type)
+Google Testing mode expires consent after seven days; see the setup guide for production configuration.
 
-See [`docs/google_cloud_setup.md`](docs/google_cloud_setup.md) for step-by-step Google Cloud configuration.
-
----
-
-## Dev Setup
+### Build and deploy
 
 ```sh
-# Using Nix (recommended — provides Node, npm, and all tools)
-nix develop
-npm install
-npm run dev
-
-# Or directly with Node 22+
-npm install
-npm run dev
+npm test        # regression checks
+npm run check   # TypeScript; excludes plain-JS Svelte scripts
+npm run build   # static output in build/
 ```
 
-Copy `.env.example` to `.env` and fill in your credentials:
+[GitHub Actions](.github/workflows/deploy.yml) deploys `main` to `/beta/`. A `v1.2.3` tag publishes an immutable release and serves it at `/v/1.2.3/`. Every deployment reuses existing release archives. Set `VITE_GOOGLE_CLIENT_ID` as a repository secret and [configure release protections](docs/releases.md) before tagging.
 
-```sh
-cp .env.example .env
-```
-
-```env
-VITE_GOOGLE_CLIENT_ID=<your OAuth client ID>
-```
-
----
-
-## Google reconnection
-
-The app reuses a saved access token until Google expires it (usually about an hour).
-On returning with expired access, reconnect before viewing your business data.
-During entry, reconnecting preserves the mounted form and receipt; waiting API calls
-resume after the same Google account is verified. Only a request rejected with HTTP
-401 is retried, once. Network failures do not automatically replay writes.
-
-**Sign Out** clears this device without revoking Google permission. **Disconnect
-Google Drive** also revokes the grant, including its use on other devices. Pending
-offline changes must be synced or explicitly discarded before either action.
-
-Local storage contains tokens, the account email, cached business data, and existing
-offline writes. This is not an encrypted vault; protect your browser profile and sign
-out on shared devices. Reconnection preserves work in the current page, not after a
-browser termination or manual reload. App updates offer a safe reload instead of
-interrupting an entry form.
-
-Run `npm test` for auth and cleanup regression checks. Google Testing mode still expires
-consent after seven days; see the setup guide for production configuration.
-
----
-
-## Build & Deploy
-
-```sh
-npm test        # auth, data loading, Drive operations, and form regressions
-npm run check   # TypeScript modules; plain-JS Svelte scripts are not type-checked
-npm run build   # compiles Svelte and outputs to build/
-```
-
-GitHub Actions (`.github/workflows/deploy.yml`) runs these checks, then builds and deploys to GitHub Pages on every push to `main`. No manual deploy step needed.
-
----
+For a local beta build: `BIZTRACK_BASE_PATH=/beta npm run build`. Without that setting, development uses `/`.
 
 ## Docs
 
-- [`docs/specification.md`](docs/specification.md) — Current behavior, data formats, limitations, and release checks
-- [`docs/log.md`](docs/log.md) — Architectural decision log with rationale
-- [`docs/google_cloud_setup.md`](docs/google_cloud_setup.md) — Google Cloud setup guide
-
----
+- [Specification](docs/specification.md) — behavior, schemas, limitations, release checks
+- [Decision log](docs/log.md)
+- [Google Cloud setup](docs/google_cloud_setup.md) — developers only
+- [Releases](docs/releases.md) — protections, publishing, migration, verification
 
 ## License
 

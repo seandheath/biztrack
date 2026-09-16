@@ -1,3 +1,4 @@
+import { storageKey } from './version.js';
 /**
  * Cross-device profile sync via Google Drive.
  *
@@ -34,7 +35,7 @@ let _profileFileId: string | null = null;
  */
 export async function ensureBizTrackFolder(): Promise<string> {
   try {
-    const cached = localStorage.getItem(LS_FOLDER_KEY);
+    const cached = localStorage.getItem(storageKey(LS_FOLDER_KEY));
     if (cached) {
       // Validate the cached folder still exists and isn't trashed
       try {
@@ -49,7 +50,7 @@ export async function ensureBizTrackFolder(): Promise<string> {
         if (error instanceof AuthError) throw error;
       }
       // Cache is stale — clear and fall through
-      localStorage.removeItem(LS_FOLDER_KEY);
+      localStorage.removeItem(storageKey(LS_FOLDER_KEY));
     }
   } catch (error) {
     if (error instanceof AuthError) throw error;
@@ -64,7 +65,7 @@ export async function ensureBizTrackFolder(): Promise<string> {
         const { id } = await createFolder(BIZTRACK_FOLDER_NAME, 'root');
         folderId = id;
       }
-      try { localStorage.setItem(LS_FOLDER_KEY, folderId); } catch {}
+      try { localStorage.setItem(storageKey(LS_FOLDER_KEY), folderId); } catch {}
       return folderId;
     } finally {
       // Clear on success OR error so subsequent calls can retry if needed

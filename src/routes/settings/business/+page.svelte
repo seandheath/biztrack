@@ -1,4 +1,8 @@
 <script>
+  import { resolve } from '$app/paths';
+
+  import { storageKey } from '$lib/version.js';
+
   import { goto } from '$app/navigation';
   import Spinner from '../../../components/Spinner.svelte';
   import { get } from 'svelte/store';
@@ -83,12 +87,12 @@
       businessConfig.set(config);
 
       // Update profile.json so other devices discover the new business
-      const rootFolderId = localStorage.getItem('bt_biz_folder');
+      const rootFolderId = localStorage.getItem(storageKey('bt_biz_folder'));
       if (rootFolderId) {
         await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers)).catch((e) => console.warn('[business] profile save:', e));
       }
 
-      goto('/settings');
+      goto(resolve('/settings'));
     } catch (err) {
       error = err.message ?? 'Setup failed. Check your Drive permissions and try again.';
       console.error('[business] Setup error:', err);

@@ -7,6 +7,8 @@
  * All real data lives in Google Drive.
  */
 
+import { storageKey } from './version.js';
+
 const _available: boolean = typeof localStorage !== 'undefined';
 
 /**
@@ -17,7 +19,7 @@ const _available: boolean = typeof localStorage !== 'undefined';
 export function get<T = null>(key: string, fallback: T = null as T): T {
   if (!_available) return fallback;
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(storageKey(key));
     if (raw === null) return fallback;
     return JSON.parse(raw) as T;
   } catch {
@@ -33,7 +35,7 @@ export function get<T = null>(key: string, fallback: T = null as T): T {
 export function set(key: string, value: unknown): void {
   if (!_available) return;
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(storageKey(key), JSON.stringify(value));
   } catch {
     // QuotaExceededError or SecurityError — cache write failure is non-fatal
   }
@@ -46,7 +48,7 @@ export function set(key: string, value: unknown): void {
 export function remove(key: string): void {
   if (!_available) return;
   try {
-    localStorage.removeItem(key);
+    localStorage.removeItem(storageKey(key));
   } catch {
     // SecurityError in some locked-down environments
   }

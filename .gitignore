@@ -1,6 +1,8 @@
 .DS_Store
 node_modules
 /build
+/pages
+__pycache__/
 /.svelte-kit
 .env
 .env.local

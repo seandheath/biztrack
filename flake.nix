@@ -15,6 +15,8 @@
           buildInputs = with pkgs; [
             # Node.js 22 LTS — matches CI (deploy.yml node-version: '22')
             nodejs_22
+            python3
+            gh
           ];
 
           shellHook = ''

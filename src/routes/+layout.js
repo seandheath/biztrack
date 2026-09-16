@@ -5,3 +5,4 @@ export const ssr = false;
 // prerender=true is required for adapter-static to output HTML files.
 // With ssr=false, this produces a static shell for every route.
 export const prerender = true;
+export const trailingSlash = 'always';

@@ -1,0 +1,8 @@
+:root { color-scheme: dark; font: 17px/1.6 system-ui, sans-serif; background: #0f172a; color: #f8fafc; }
+body { margin: 0; }
+main { max-width: 44rem; margin: 3rem auto; padding: 0 1.25rem; }
+h1, h2 { line-height: 1.2; }
+h2 { margin-top: 2rem; }
+a { color: #7dd3fc; text-underline-offset: .2em; }
+a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+li { margin: .75rem 0; }

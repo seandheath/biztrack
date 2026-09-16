@@ -1,4 +1,6 @@
 <script>
+  import { resolve } from '$app/paths';
+
   import Spinner from '../../../components/Spinner.svelte';
   /**
    * Expense Categories management screen.
@@ -83,7 +85,7 @@
         Select a business on the main screen first.
       </p>
       <a
-        href="/"
+        href={resolve('/')}
         class="mt-4 inline-flex rounded-xl text-sm font-medium px-5"
         style="background-color: var(--color-primary); color: var(--color-primary-text); min-height: 44px;"
       >

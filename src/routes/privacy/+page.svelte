@@ -1,3 +1,7 @@
+<script>
+  import { resolve } from '$app/paths';
+</script>
+
 <svelte:head>
   <title>Privacy Policy — BizTrack</title>
 </svelte:head>
@@ -28,7 +32,7 @@
 
   <section style="margin-bottom: 2rem;">
     <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Sign Out and Disconnect</h2>
-    <p>Sign Out clears account data from this device without revoking Google permission. Disconnect Google Drive also asks Google to revoke BizTrack's grant, which can affect your other devices. Neither action deletes your Drive files. Sync pending changes first, or explicitly choose to discard them. Clearing browser site data also removes local copies and any unsynced work. Unfinished forms survive reconnection within the page, but are not backed up across browser termination or manual reload.</p>
+    <p>Sign Out clears this version's account data without revoking Google permission. Disconnect Google Drive also asks Google to revoke BizTrack's grant, which can affect your other versions and devices. Neither action deletes your Drive files. Sync pending changes first, or explicitly choose to discard them. Clearing browser site data also removes local copies and any unsynced work. Unfinished forms survive reconnection within the page, but are not backed up across browser termination or manual reload.</p>
   </section>
 
   <section style="margin-bottom: 2rem;">
@@ -53,8 +57,8 @@
   </section>
 
   <p style="margin-top: 3rem;">
-    <a href="/" style="color: var(--color-primary);">← Back to BizTrack</a>
+    <a href={resolve('/')} style="color: var(--color-primary);">← Back to BizTrack</a>
     &nbsp;·&nbsp;
-    <a href="/terms" style="color: var(--color-primary);">Terms of Service</a>
+    <a href={resolve('/terms')} style="color: var(--color-primary);">Terms of Service</a>
   </p>
 </div>

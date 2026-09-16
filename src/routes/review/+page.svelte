@@ -5,6 +5,8 @@
 </script>
 
 <script>
+  import { resolve } from '$app/paths';
+
   import Spinner from '../../components/Spinner.svelte';
   /**
    * Review screen — routes directly to the expense edit form for each
@@ -41,7 +43,7 @@
   // ---------------------------------------------------------------------------
 
   onMount(async () => {
-    if (!$selectedBusiness) { goto('/'); return; }
+    if (!$selectedBusiness) { goto(resolve('/')); return; }
 
     // Pick up any skipped txnId from the URL before pulling
     const sp = new URLSearchParams(window.location.search);
@@ -81,7 +83,7 @@
     style="border-color: var(--color-border);"
   >
     <a
-      href="/"
+      href={resolve('/')}
       class="text-sm flex items-center gap-1 hover:opacity-70 transition-opacity"
       style="color: var(--color-primary);"
     >
@@ -117,7 +119,7 @@
           </p>
         </div>
         <a
-          href="/"
+          href={resolve('/')}
           class="rounded-xl font-medium text-base px-8 flex items-center justify-center transition-opacity hover:opacity-80"
           style="min-height: 48px; background-color: var(--color-primary); color: var(--color-primary-text);"
         >

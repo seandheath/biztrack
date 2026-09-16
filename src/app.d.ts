@@ -25,3 +25,6 @@ declare namespace google.accounts.oauth2 {
 
 // Build-time constant injected by vite.config.js
 declare const __APP_VERSION__: string;
+declare const __APP_BASE__: string;
+declare const __APP_NAME__: string;
+declare const __APP_COMMIT__: string;

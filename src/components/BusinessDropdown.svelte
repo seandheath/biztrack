@@ -5,6 +5,8 @@
     onchange  {(business: Object|null) => void}  — called when selection changes
 -->
 <script>
+  import { resolve } from '$app/paths';
+
   import { goto } from '$app/navigation';
   import { businesses, selectedBusiness } from '$lib/store.js';
 
@@ -13,7 +15,7 @@
   function handleChange(event) {
     const name = event.target.value;
     if (name === '__add_business__') {
-      goto('/settings/business');
+      goto(resolve('/settings/business'));
       return;
     }
     const biz = $businesses.find((b) => b.name === name) ?? null;

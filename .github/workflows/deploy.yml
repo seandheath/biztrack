@@ -1,57 +1,79 @@
-name: Deploy to GitHub Pages
+name: Publish BizTrack
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
 
-# Required for OIDC-based GitHub Pages deployment (no PAT needed)
 permissions:
-  pages: write
-  id-token: write
+  contents: read
 
-# Only one deployment runs at a time; cancel in-progress if a new push arrives
+# Keep releases and complete-site deployments in order, including pending runs.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  queue: max
+  cancel-in-progress: false
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check
-        run: npm run check
-
-      - name: Regression checks
-        run: npm test
-
-      - name: Build
-        run: npm run build
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - name: Build and publish immutable release
         env:
-          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 scripts/releases.py publish "$RELEASE_TAG"
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+  deploy:
+    needs: release
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+      BIZTRACK_BASE_PATH: /beta
+    steps:
+      - uses: actions/checkout@v4
         with:
-          # SvelteKit adapter-static outputs to build/
-          path: build
-
-      - name: Deploy to GitHub Pages
-        id: deploy
-        uses: actions/deploy-pages@v4
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - name: Assemble beta and original release archives
+        run: python3 scripts/releases.py assemble pages
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages
+      - uses: actions/deploy-pages@v4
+        id: deployment

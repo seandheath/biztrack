@@ -1,4 +1,6 @@
 <script>
+  import { resolve } from '$app/paths';
+
   let vendorDefaults = {};
   import { ensureAuthorized, AuthError } from '$lib/auth.js';
   import Spinner from '../../components/Spinner.svelte';
@@ -26,7 +28,7 @@
   import { listFileNames, uploadFile, findFile } from '$lib/drive.js';
   import { pushTransactions, updateByUUID, deleteByUUID, batchSetCategory, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.svelte.js';
-  import { todayISO, friendlyError } from '$lib/util.js';
+  import { todayISO, friendlyError, returnRoute } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
   import { syncStatus, cacheTransactions, invalidatePull, removeCachedTransaction, updateCachedTransaction } from '$lib/sync.js';
   import { ensureYearFolder, loadBusinessData as _loadBusinessData } from '$lib/business.js';
@@ -78,7 +80,7 @@
       await deleteByUUID(spreadsheetId, 'Expenses', shareTxnId);
       removeCachedTransaction(spreadsheetId, 'Expenses', shareTxnId);
       invalidatePull(spreadsheetId);
-      goto(returnTo || '/');
+      goto(resolve(returnTo || '/'));
     } catch (err) {
       console.error('[expense] delete:', err);
       deleteError = 'Delete failed. Try again.';
@@ -258,7 +260,7 @@
               for (const row of rows)
                 enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'create', row });
               showToast('Saved offline — will sync when back online', 'success');
-              goto('/');
+              goto(resolve('/'));
               return;
             }
             throw err;
@@ -283,7 +285,7 @@
             if (!navigator.onLine && !(err instanceof AuthError)) {
               enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'update', row: updatedRow });
               showToast('Saved offline — will sync when back online', 'success');
-              goto('/');
+              goto(resolve('/'));
               return;
             }
             throw err;
@@ -350,7 +352,7 @@
           })
           .catch(() => syncStatus.set('red'));
       }
-      goto('/');
+      goto(resolve('/'));
     } catch (err) {
       console.error('[expense] submit:', err);
       showToast(friendlyError(err), 'error');
@@ -429,7 +431,7 @@
     if (bizId && yearStr && txnId) {
       shareMode = true;
       shareLoading = true;
-      returnTo = sp.get('returnTo') ?? '';
+      returnTo = returnRoute(sp.get('returnTo'));
       try {
         const biz = $businesses.find((b) => b.id === bizId);
         if (!biz) throw new Error("Business not found. Make sure you're signed in to the correct account.");
@@ -494,7 +496,7 @@
     <div class="rounded-xl border p-5 flex flex-col gap-3 text-center"
          style="border-color: var(--color-error); background-color: var(--color-surface-2);">
       <p class="text-sm font-medium" style="color: var(--color-error);">{shareLoadError}</p>
-      <a href="/" class="text-sm" style="color: var(--color-primary);">Go to main page</a>
+      <a href={resolve('/')} class="text-sm" style="color: var(--color-primary);">Go to main page</a>
     </div>
 
   {:else if shareLoading}
@@ -756,7 +758,7 @@
       {#if returnTo}
         <button
           type="button"
-          onclick={() => goto(`${returnTo}?skipped=${shareTxnId}`)}
+          onclick={() => goto(resolve(`${returnTo}?skipped=${encodeURIComponent(shareTxnId)}`))}
           class="text-sm hover:opacity-70 transition-opacity px-2 py-2 self-center"
           style="color: var(--color-text-muted);"
         >

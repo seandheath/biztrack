@@ -1,11 +1,11 @@
 {
   "name": "biztrack",
-  "version": "0.1.124",
+  "version": "0.1.125",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/auth.mjs && node tests/cleanup.mjs",
+    "test": "node tests/auth.mjs && node tests/cleanup.mjs && node tests/versions.mjs && python3 tests/releases.py",
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",

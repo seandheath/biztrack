@@ -4,12 +4,14 @@ BizTrack is a static SvelteKit/Svelte 5 PWA for expense and mileage tracking acr
 businesses. It calls Google Drive and Sheets directly using `fetch`; there is no
 application server or database. Drive folder sharing controls access. Styling uses
 Tailwind CSS and CSS variables with a dark theme. GitHub Pages serves the app at
-`biztrack.lol`, with `404.html` as the SPA fallback.
+`biztrack.lol`, with directory indexes for each route and a static 404 page.
 
 This document describes the current implementation. Historical designs remain in
 [the decision log](log.md); they are not requirements to restore retired features.
 
 ## Workflows
+
+Routes below are relative to `/beta/` or `/v/<version>/`. The site root is the version chooser.
 
 | Route | Behavior |
 |-------|----------|
@@ -131,10 +133,18 @@ to two decimals, including duplicates within the imported file. Writes are batch
 by year. The parser handles commas and doubled quotes within a line; it does not
 support quoted multiline records or arbitrary bank schemas.
 
-Workbox precaches the app shell and provides navigation fallback. Google requests
-are not service-worker cached. Static runtime assets have a separate cache. Updates
-can activate while forms remain mounted; reload is offered only when safe. iOS has
-a dismissible install prompt. Android share registration accepts images and PDFs.
+Workbox precaches each build's routes and assets. Google requests are not
+service-worker cached. Each build has its own manifest identity and worker scope.
+Beta retains legacy local storage and receipt cache names; fixed versions prefix
+their keys with the build path. Sign-out clears only that version's account data;
+Google revocation can affect every version using the grant.
+
+Beta updates can activate while forms remain mounted; reload is offered only when
+safe. Fixed release assets are reused unchanged. Android shares POST to the same
+build's `/share/` route, then redirect there with GET to consume the cached receipt.
+The root migration worker passes version routes through, serves cached modules for
+old open tabs, and forwards legacy receipt shares to beta without clearing data.
+See [releases](releases.md) for deployment and migration details.
 
 ## Known limitations and separate correctness work
 
@@ -142,8 +152,6 @@ a dismissible install prompt. Android share registration accepts images and PDFs
   replacements. Failure between requests is not atomic; cross-year offline recovery
   can queue an update for a destination row that does not exist. A recoverable
   compound-write design is separate from the simplification work.
-- The share service worker redirects to `/?shared=1`, while the cache consumer lives
-  at `/share`. That handoff needs a separate fix and an installed-Android check.
 - Renaming a business changes its config name but does not rename existing year
   files or synchronize every name reference. Do not treat rename as a file migration.
 - Browser-local data and tokens are not an encrypted vault. Unfinished forms are not
@@ -155,7 +163,9 @@ a dismissible install prompt. Android share registration accepts images and PDFs
 Run `npm test`, `npm run check`, and `npm run build`. CI runs these before uploading
 the Pages artifact. The Node/assert scripts cover auth, queue protections, shared
 refreshes, Drive pagination/year setup, links, and entry payloads with mocked API
-calls. TypeScript checks cover TS modules; the plain-JS Svelte scripts receive build
+calls. Version checks cover storage isolation and receipt handoff; Python checks
+cover release archives, catalog generation, and unchanged release files across deployments.
+TypeScript checks cover TS modules; the plain-JS Svelte scripts receive build
 compilation and targeted handler checks, not comprehensive static type checking.
 
 Before release, use test Drive data and exercise:

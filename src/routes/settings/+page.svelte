@@ -1,8 +1,11 @@
 <script>
+  import { resolve } from '$app/paths';
+
   import { goto } from '$app/navigation';
   import { userEmail, businesses, selectedBusiness } from '$lib/store.js';
   import { signOut, revokeToken } from '$lib/auth.js';
   import { queueLength } from '$lib/services/offline-queue.js';
+  import { appName, appCommit } from '$lib/version.js';
   let accountBusy = $state(false);
   let accountError = $state('');
 
@@ -19,7 +22,7 @@
     try {
       if (disconnect) await revokeToken(pending > 0);
       else await signOut(pending > 0);
-      window.location.replace(disconnect ? '/?disconnected=1' : '/');
+      window.location.replace(resolve(disconnect ? '/?disconnected=1' : '/'));
     } catch (error) {
       accountError = error.message || 'Could not complete this action. Please try again.';
     } finally { accountBusy = false; }
@@ -27,7 +30,7 @@
 
   function openBusiness(business) {
     selectedBusiness.set(business);
-    goto('/settings/business-config');
+    goto(resolve('/settings/business-config'));
   }
 </script>
 
@@ -50,7 +53,7 @@
         </button>
       {/each}
       <a
-        href="/settings/business"
+        href={resolve('/settings/business')}
         class="flex items-center px-4 hover:opacity-70 transition-opacity"
         style="color: var(--color-primary); min-height: 48px;"
       >
@@ -93,7 +96,7 @@
         style="color: var(--color-error); min-height: 48px;"
       >Disconnect Google Drive</button>
     </div>
-    <p class="text-xs px-1" style="color: var(--color-text-muted);">Sign Out clears this device. Disconnect also revokes Google permission.</p>
+    <p class="text-xs px-1" style="color: var(--color-text-muted);">Sign Out clears this version's account data. Disconnect also revokes Google permission for other versions and devices.</p>
     {#if accountError}<p role="alert">{accountError}</p>{/if}
   </section>
 
@@ -104,7 +107,7 @@
     </h2>
     <div class="rounded-xl border divide-y overflow-hidden" style="border-color: var(--color-border); background-color: var(--color-surface-2);">
       <a
-        href="/settings/csv-import"
+        href={resolve('/settings/csv-import')}
         class="flex items-center px-4 hover:opacity-70 transition-opacity"
         style="color: var(--color-text); min-height: 48px;"
       >
@@ -116,7 +119,12 @@
   <!-- App version -->
   {#if appVersion}
     <p class="text-center text-xs pb-2" style="color: var(--color-text-muted);">
-      BizTrack v{appVersion}
+      {appName} · v{appVersion}
+      {#if appCommit}
+        · <a href={`https://github.com/seandheath/biztrack/commit/${appCommit}`} class="underline">{appCommit.slice(0, 7)}</a>
+      {/if}
+      <br />
+      <a href="/" data-sveltekit-reload class="underline">Choose a version</a>
     </p>
   {/if}
 

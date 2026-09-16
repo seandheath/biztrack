@@ -1,4 +1,6 @@
 <script>
+  import { resolve } from '$app/paths';
+
   /**
    * Home screen — transaction log.
    *
@@ -70,7 +72,7 @@
   onMount(() => {
     // Redirect Android Web Share Target receipts to the entry form
     if ($pendingReceipt) {
-      goto('/expense');
+      goto(resolve('/expense'));
     }
   });
 </script>
@@ -86,7 +88,7 @@
       Add a business to start tracking.
     </p>
     <a
-      href="/settings/business"
+      href={resolve('/settings/business')}
       class="mt-2 rounded-xl text-sm font-medium px-6"
       style="background-color: var(--color-primary); color: var(--color-primary-text); min-height: 44px; display:inline-flex; align-items:center;"
     >
@@ -109,7 +111,7 @@
     {#if uncategorizedCount > 0}
       <div class="px-4 pb-2 flex-shrink-0">
         <a
-          href="/review"
+          href={resolve('/review')}
           class="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium transition-opacity hover:opacity-80"
           style="background-color: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 0.5rem; color: var(--color-primary);"
         >
@@ -198,7 +200,7 @@
       "
     >
       <a
-        href="/expense"
+        href={resolve('/expense')}
         class="flex-1 rounded-xl font-semibold text-base flex items-center justify-center transition-opacity hover:opacity-80"
         style="
           min-height: 52px;
@@ -209,7 +211,7 @@
         + Expense
       </a>
       <a
-        href="/mileage"
+        href={resolve('/mileage')}
         class="flex-1 rounded-xl font-semibold text-base flex items-center justify-center transition-opacity hover:opacity-80"
         style="
           min-height: 52px;

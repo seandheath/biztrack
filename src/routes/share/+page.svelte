@@ -1,12 +1,13 @@
 <script>
+  import { resolve } from '$app/paths';
+
   import Spinner from '../../components/Spinner.svelte';
   /**
    * Web Share Target handler (Android only).
    *
    * When the user shares a receipt from another app on Android, the service
-   * worker intercepts the POST /share request, stores the file blob in the
-   * 'biztrack-share' cache, and redirects to /?shared=1. That GET request
-   * loads this page (or the main page after the SW redirect).
+   * worker intercepts this build's POST /share/ request, stores the file in
+   * its receipt cache, and redirects here with GET to consume it.
    *
    * On mount, this page reads the file from the SW cache, stores it in the
    * pendingReceipt store, and navigates to / where the expense form picks it up.
@@ -17,26 +18,27 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { pendingReceipt } from '$lib/store.js';
+  import { shareCache, receiptKey } from '$lib/version.js';
 
   onMount(async () => {
     if ('caches' in window) {
       try {
-        const cache = await caches.open('biztrack-share');
-        const response = await cache.match('/pending-receipt');
+        const cache = await caches.open(shareCache);
+        const response = await cache.match(receiptKey);
         if (response) {
           const blob = await response.blob();
           const filename = response.headers.get('X-Filename') ?? 'receipt';
           const file = new File([blob], filename, { type: blob.type });
           pendingReceipt.set(file);
           // Consume — prevent the file from being read twice
-          await cache.delete('/pending-receipt');
+          await cache.delete(receiptKey);
         }
       } catch (err) {
         console.error('[share] failed to read pending receipt:', err);
       }
     }
     // Navigate to the main form — the expense form checks $pendingReceipt on mount
-    goto('/');
+    goto(resolve('/'));
   });
 </script>
 

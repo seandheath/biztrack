@@ -1,3 +1,7 @@
+<script>
+  import { resolve } from '$app/paths';
+</script>
+
 <svelte:head>
   <title>Terms of Service — BizTrack</title>
 </svelte:head>
@@ -37,8 +41,8 @@
   </section>
 
   <p style="margin-top: 3rem;">
-    <a href="/" style="color: var(--color-primary);">← Back to BizTrack</a>
+    <a href={resolve('/')} style="color: var(--color-primary);">← Back to BizTrack</a>
     &nbsp;·&nbsp;
-    <a href="/privacy" style="color: var(--color-primary);">Privacy Policy</a>
+    <a href={resolve('/privacy')} style="color: var(--color-primary);">Privacy Policy</a>
   </p>
 </div>

@@ -1,3 +1,4 @@
+import { storageKey } from '../version.js';
 /**
  * Offline write queue — localStorage-backed.
  *
@@ -31,7 +32,7 @@ export interface QueuedWrite {
 
 function getQueue(): QueuedWrite[] {
   try {
-    return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+    return JSON.parse(localStorage.getItem(storageKey(QUEUE_KEY)) || '[]');
   } catch {
     return [];
   }
@@ -39,7 +40,7 @@ function getQueue(): QueuedWrite[] {
 
 function saveQueue(q: QueuedWrite[]): void {
   // Queued writes are the only copy of unsynced data: storage failure is fatal.
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+  localStorage.setItem(storageKey(QUEUE_KEY), JSON.stringify(q));
 }
 
 /** Add a failed write to the offline queue. */
@@ -59,7 +60,7 @@ export function queueLength(): number {
 export function clearQueue(): void {
   queueVersion++;
   try {
-    localStorage.removeItem(QUEUE_KEY);
+    localStorage.removeItem(storageKey(QUEUE_KEY));
   } catch {}
 }
 
