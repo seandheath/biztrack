@@ -1,5 +1,7 @@
 // Run with npm test. Uses the existing Vite loader; no test framework required.
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { parse } from 'svelte/compiler';
 import { createServer } from 'vite';
 
 const values = new Map([
@@ -41,6 +43,36 @@ try {
   const queue = await server.ssrLoadModule('/src/lib/services/offline-queue.ts');
   const stores = await server.ssrLoadModule('/src/lib/store.ts');
   const { get } = await import('svelte/store');
+  // Execute the layout's actual startup function as JavaScript. TypeScript checks
+  // don't cover plain-JS Svelte scripts (a stray generic became runtime operators).
+  const layout = await readFile(new URL('../src/routes/+layout.svelte', import.meta.url), 'utf8');
+  const init = parse(layout).instance.content.body.find(node =>
+    node.type === 'FunctionDeclaration' && node.id.name === 'initFromDrive');
+  const startupDeps = {
+    ensureBizTrackFolder: async () => 'root',
+    loadProfile: async () => ({ businesses: [
+      { name: 'First', folderId: 'first' }, { name: 'Saved', folderId: 'saved' },
+    ] }),
+    getCachedBusinesses: () => [],
+    findFile: async () => null,
+    discoverYearFolders: async business => business,
+    ensureYearFolder: async business => business,
+    getSessionVersion: () => 0,
+    businesses: stores.businesses,
+    selectedBusiness: stores.selectedBusiness,
+    mileageFavorites: stores.mileageFavorites,
+    defaultDrivers: stores.defaultDrivers,
+    AuthError: auth.AuthError,
+    storage: { get: () => 'Saved' },
+  };
+  const initFromDrive = new Function(...Object.keys(startupDeps),
+    `return (${layout.slice(init.start, init.end)});`)(...Object.values(startupDeps));
+  assert.equal(await initFromDrive(0), false);
+  assert.equal(get(stores.selectedBusiness)?.folderId, 'saved');
+  startupDeps.storage.get = () => null;
+  await initFromDrive(0);
+  assert.equal(get(stores.selectedBusiness)?.folderId, 'first');
+  stores.resetAccountStores();
   let lastUpdate;
   let needsReconnect = false;
   auth.onTokenUpdate(update => { lastUpdate = update; });

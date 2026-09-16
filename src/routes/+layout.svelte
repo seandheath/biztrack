@@ -157,7 +157,7 @@
       mileageFavorites.set(profile.mileage_favorites ?? {});
       defaultDrivers.set(profile.default_drivers ?? {});
 
-      const savedName = storage.get<string | null>('biztrack_selected_name', null);
+      const savedName = storage.get('biztrack_selected_name', null);
       const toSelect = (savedName && hydrated.find((b) => b.name === savedName)) ?? hydrated[0] ?? null;
       if (toSelect) selectedBusiness.set(toSelect);
     } catch (err) {
