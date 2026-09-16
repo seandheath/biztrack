@@ -56,13 +56,6 @@ export interface DriveFile {
   name: string;
 }
 
-/** Return shape for Drive file metadata queries. */
-export interface DriveFileMeta {
-  id: string;
-  name: string;
-  parents: string[];
-}
-
 /** Sync cache structure stored in localStorage. */
 export interface SyncCache {
   businesses: Business[];
@@ -70,8 +63,6 @@ export interface SyncCache {
   defaultDrivers: Record<string, string>;
   businessConfigs: Record<string, BusinessConfig>;
   transactions: Record<string, TransactionRow[]>;
-  lastSyncTimestamp: number;
-  lastSyncError: string | null;
 }
 
 /** Toast notification type. */

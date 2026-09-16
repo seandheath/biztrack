@@ -86,16 +86,13 @@ VITE_GOOGLE_CLIENT_ID=PASTE_YOUR_CLIENT_ID_HERE.apps.googleusercontent.com
 
 ---
 
-## 5. Optional Legacy Picker Credentials
-
-The current app uses its own Drive folder browser, not Google Picker. The
-`VITE_GOOGLE_API_KEY` and `VITE_GOOGLE_APP_ID` variables remain for compatibility;
-they are not used for the reconnect flow. Do not place an OAuth client secret in
-any `VITE_*` variable: those values are public in the browser bundle.
+The OAuth client ID is the only required environment variable. The Drive folder
+browser does not use a Picker API key or project number. Do not place an OAuth
+client secret in any `VITE_*` variable: those values are public in the browser bundle.
 
 ---
 
-## 7. Verify Setup
+## 5. Verify Setup
 
 After configuring `.env`, run the dev server:
 
@@ -131,7 +128,7 @@ Safari (browser and installed PWA where supported):
   Google's actual revocation result. Test the unsynced-change discard warning.
 - Confirm `/privacy` and `/terms` remain accessible without sign-in.
 
-Automated auth regressions: `npm test`. Production build: `npm run build`.
+Automated regressions: `npm test`. TypeScript: `npm run check`. Production build: `npm run build`.
 
 ---
 
@@ -140,5 +137,3 @@ Automated auth regressions: `npm test`. Production build: `npm run build`.
 | Credential | Where to paste |
 |------------|----------------|
 | OAuth Client ID | `.env` → `VITE_GOOGLE_CLIENT_ID` |
-| API Key | Optional `.env` → `VITE_GOOGLE_API_KEY` |
-| Project Number | Optional `.env` → `VITE_GOOGLE_APP_ID` |

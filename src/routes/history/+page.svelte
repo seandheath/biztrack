@@ -3,13 +3,13 @@
   /**
    * History screen — review past expense and mileage entries.
    *
-   * Pure list view: tapping any row navigates to /transaction for
-   * the full read-only detail, edit, share, and delete actions.
+   * Tapping a row opens its expense or mileage form for editing,
+   * with a return link to the selected history year.
    */
 
   import { selectedBusiness } from '$lib/store.js';
-  import { pullTransactions } from '$lib/services/sheets.js';
-  import { syncStatus, getCachedTransactions, cacheTransactions, shouldPull, markPullStarted, markPullComplete, markPullFailed } from '$lib/sync.js';
+  import { transactionUrl as buildTransactionUrl } from '$lib/util.js';
+  import { getCachedTransactions, mergeTransactions, refreshYearTransactions } from '$lib/sync.js';
 
   // ---------------------------------------------------------------------------
   // Year state
@@ -51,62 +51,27 @@
 
   let loading = $state(false);
 
-  /**
-   * Tag each row with its type and merge two arrays into a date-sorted list.
-   * @param {import('$lib/services/sheets.js').TransactionRow[]} expenses
-   * @param {import('$lib/services/sheets.js').TransactionRow[]} mileage
-   */
-  function mergeAndSort(expenses, mileage) {
-    const tagged = [
-      ...expenses.map((r) => ({ ...r, _type: /** @type {const} */ ('expense') })),
-      ...mileage.map((r)  => ({ ...r, _type: /** @type {const} */ ('mileage') })),
-    ];
-    return tagged.sort((a, b) => b.date.localeCompare(a.date));
-  }
-
-  // Generation counter for stale-pull detection
-  let pullGen = 0;
-
   $effect(() => {
     const sid = spreadsheetId;
-    const gen = ++pullGen;
-    if (!sid) { rows = []; return; }
-
-    // Load cached rows for instant render
+    if (!sid) { rows = []; loading = false; return; }
+    let current = true;
     const cachedExp = getCachedTransactions(sid, 'Expenses');
     const cachedMil = getCachedTransactions(sid, 'Mileage');
     const hasCached = cachedExp || cachedMil;
-    if (hasCached) {
-      rows = mergeAndSort(cachedExp ?? [], cachedMil ?? []);
-    }
-
-    // Skip network pull if one is already in-flight or cooldown hasn't expired
-    if (!shouldPull(sid)) return;
-
-    // Background pull from both sheets in parallel
+    rows = mergeTransactions(cachedExp ?? [], cachedMil ?? []);
     loading = !hasCached;
-    syncStatus.set('yellow');
-    markPullStarted(sid);
-    Promise.all([
-      pullTransactions(sid, 'Expenses'),
-      pullTransactions(sid, 'Mileage'),
-    ])
-      .then(([pulledExp, pulledMil]) => {
-        if (gen !== pullGen) return; // stale — effect re-ran, discard
-        rows = mergeAndSort(pulledExp, pulledMil);
-        syncStatus.set('green');
-        markPullComplete(sid);
-        cacheTransactions(sid, 'Expenses', pulledExp);
-        cacheTransactions(sid, 'Mileage', pulledMil);
+    refreshYearTransactions(sid)
+      .then(({ expenses, mileage }) => {
+        if (!current) return;
+        rows = mergeTransactions(expenses, mileage);
       })
       .catch((err) => {
-        if (gen !== pullGen) return;
+        if (!current) return;
         console.error('[history] pull:', err);
-        syncStatus.set('red');
-        markPullFailed(sid);
         if (!hasCached) rows = [];
       })
-      .finally(() => { if (gen === pullGen) loading = false; });
+      .finally(() => { if (current) loading = false; });
+    return () => { current = false; };
   });
 
   // ---------------------------------------------------------------------------
@@ -115,12 +80,8 @@
 
   function transactionUrl(row) {
     const route = row._type === 'mileage' ? '/mileage' : '/expense';
-    const u = new URL(route, window.location.origin);
-    u.searchParams.set('biz',  $selectedBusiness.id ?? $selectedBusiness.folderId);
-    u.searchParams.set('year', selectedYear);
-    u.searchParams.set('txn',  row.id);
-    u.searchParams.set('returnTo', `/history?year=${selectedYear}`);
-    return u.toString();
+    return buildTransactionUrl(route, $selectedBusiness.id ?? $selectedBusiness.folderId,
+      selectedYear, row.id, `/history?year=${selectedYear}`);
   }
 
 </script>

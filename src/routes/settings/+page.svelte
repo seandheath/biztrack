@@ -40,16 +40,14 @@
     </h2>
     <div class="rounded-xl border divide-y overflow-hidden flex flex-col" style="border-color: var(--color-border); background-color: var(--color-surface-2);">
       {#each $businesses as business (business.name)}
-        <div
-          role="button"
-          tabindex="0"
+        <button
+          type="button"
           onclick={() => openBusiness(business)}
-          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') openBusiness(business); }}
-          class="flex items-center px-4 hover:opacity-70 transition-opacity cursor-pointer"
+          class="flex items-center justify-start px-4 hover:opacity-70 transition-opacity cursor-pointer"
           style="min-height: 48px;"
         >
           <span class="text-base truncate" style="color: var(--color-text);">{business.name}</span>
-        </div>
+        </button>
       {/each}
       <a
         href="/settings/business"

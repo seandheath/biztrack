@@ -20,6 +20,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { selectedBusiness } from '$lib/store.js';
+  import { transactionUrl } from '$lib/util.js';
   import { pullTransactions } from '$lib/services/sheets.js';
 
   let loaded = $state(false);
@@ -31,12 +32,8 @@
 
   function buildEditUrl(txn) {
     const year = new Date(txn.date + 'T00:00:00').getFullYear();
-    const u = new URL('/expense', window.location.origin);
-    u.searchParams.set('biz',      $selectedBusiness.id ?? $selectedBusiness.folderId);
-    u.searchParams.set('year',     String(year));
-    u.searchParams.set('txn',      txn.id);
-    u.searchParams.set('returnTo', '/review');
-    return u.toString();
+    return transactionUrl('/expense', $selectedBusiness.id ?? $selectedBusiness.folderId,
+      year, txn.id, '/review');
   }
 
   // ---------------------------------------------------------------------------

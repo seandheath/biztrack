@@ -7,7 +7,7 @@
  * refreshes from Drive.
  *
  * Cache key: bt_cache — single JSON blob containing businesses, configs,
- * transaction rows, and a last-sync timestamp.
+ * and transaction rows.
  */
 
 import { writable, get } from 'svelte/store';
@@ -15,7 +15,8 @@ import type { Writable } from 'svelte/store';
 import * as storage from './storage.js';
 import { businesses, selectedBusiness, mileageFavorites, defaultDrivers, businessConfig } from './store.js';
 import type { Business, SyncCache, SyncStatus } from './types.js';
-import type { TransactionRow } from './services/sheets.js';
+import { pullTransactions, type TransactionRow } from './services/sheets.js';
+import { AuthError, getSessionVersion } from './auth.js';
 
 type SheetName = 'Expenses' | 'Mileage';
 
@@ -27,32 +28,49 @@ type SheetName = 'Expenses' | 'Mileage';
 
 const PULL_COOLDOWN_MS = 60_000;
 const _lastPull = new Map<string, number>();
-const _pullInFlight = new Set<string>();
+type YearTransactions = { expenses: TransactionRow[]; mileage: TransactionRow[] };
+const _pullInFlight = new Map<string, Promise<YearTransactions>>();
 
-/**
- * Returns true when a network pull should be initiated for this spreadsheet.
- * False when a pull is already in-flight or the cooldown hasn't expired.
- */
-export function shouldPull(spreadsheetId: string): boolean {
-  if (_pullInFlight.has(spreadsheetId)) return false;
-  const ts = _lastPull.get(spreadsheetId);
-  return !ts || (Date.now() - ts >= PULL_COOLDOWN_MS);
+/** Tag and sort ledger tabs for the home and history lists. */
+export function mergeTransactions(expenses: TransactionRow[], mileage: TransactionRow[]) {
+  return [
+    ...expenses.map(row => ({ ...row, _type: 'expense' as const })),
+    ...mileage.map(row => ({ ...row, _type: 'mileage' as const })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
 }
 
-/** Mark a pull as started — prevents duplicate pulls for the same spreadsheet. */
-export function markPullStarted(spreadsheetId: string): void {
-  _pullInFlight.add(spreadsheetId);
-}
+/** Own the complete refresh lifecycle, independent of the page that requested it. */
+export function refreshYearTransactions(spreadsheetId: string): Promise<YearTransactions> {
+  const pending = _pullInFlight.get(spreadsheetId);
+  if (pending) return pending;
+  const expenses = getCachedTransactions(spreadsheetId, 'Expenses');
+  const mileage = getCachedTransactions(spreadsheetId, 'Mileage');
+  const lastPull = _lastPull.get(spreadsheetId);
+  if (expenses && mileage && lastPull !== undefined && Date.now() - lastPull < PULL_COOLDOWN_MS) {
+    return Promise.resolve({ expenses, mileage });
+  }
 
-/** Mark a pull as successfully completed — starts the cooldown timer. */
-export function markPullComplete(spreadsheetId: string): void {
-  _pullInFlight.delete(spreadsheetId);
-  _lastPull.set(spreadsheetId, Date.now());
-}
-
-/** Mark a pull as failed — clears in-flight without starting cooldown (allows retry). */
-export function markPullFailed(spreadsheetId: string): void {
-  _pullInFlight.delete(spreadsheetId);
+  const session = getSessionVersion();
+  const isCurrent = () => session === getSessionVersion() && _pullInFlight.get(spreadsheetId) === request;
+  syncStatus.set('yellow');
+  const request = Promise.all([
+    pullTransactions(spreadsheetId, 'Expenses'),
+    pullTransactions(spreadsheetId, 'Mileage'),
+  ]).then(([expenses, mileage]) => {
+    if (!isCurrent()) throw new AuthError('The session changed during the refresh.');
+    cacheTransactions(spreadsheetId, 'Expenses', expenses);
+    cacheTransactions(spreadsheetId, 'Mileage', mileage);
+    _lastPull.set(spreadsheetId, Date.now());
+    syncStatus.set('green');
+    return { expenses, mileage };
+  }).catch(error => {
+    if (isCurrent()) syncStatus.set('red');
+    throw error;
+  }).finally(() => {
+    if (_pullInFlight.get(spreadsheetId) === request) _pullInFlight.delete(spreadsheetId);
+  });
+  _pullInFlight.set(spreadsheetId, request);
+  return request;
 }
 
 /**
@@ -158,8 +176,6 @@ export function writeCache(): void {
     defaultDrivers: get(defaultDrivers),
     businessConfigs: existing?.businessConfigs ?? {},
     transactions: existing?.transactions ?? {},
-    lastSyncTimestamp: Date.now(),
-    lastSyncError: null,
   };
 
   // Cache the current businessConfig keyed by folderId
@@ -193,12 +209,9 @@ export function cacheTransactions(spreadsheetId: string, sheetName: SheetName, r
     defaultDrivers: get(defaultDrivers),
     businessConfigs: {},
     transactions: {},
-    lastSyncTimestamp: Date.now(),
-    lastSyncError: null,
   };
   const key = `${spreadsheetId}::${sheetName}`;
   existing.transactions = { ...existing.transactions, [key]: rows };
-  existing.lastSyncTimestamp = Date.now();
   _writeCache(existing);
 }
 
@@ -213,7 +226,6 @@ export function removeCachedTransaction(spreadsheetId: string, sheetName: SheetN
   const rows = existing.transactions?.[key];
   if (!rows) return;
   existing.transactions = { ...existing.transactions, [key]: rows.filter(r => r.id !== uuid) };
-  existing.lastSyncTimestamp = Date.now();
   _writeCache(existing);
 }
 
@@ -234,7 +246,6 @@ export function updateCachedTransaction(spreadsheetId: string, sheetName: SheetN
     rows.push(row);
   }
   existing.transactions = { ...existing.transactions, [key]: rows };
-  existing.lastSyncTimestamp = Date.now();
   _writeCache(existing);
 }
 

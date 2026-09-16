@@ -9,7 +9,7 @@
 
 import { apiFetch } from './auth.js';
 import { throwApiError } from './api-error.js';
-import type { DriveFile, DriveFileMeta } from './types.js';
+import type { DriveFile } from './types.js';
 
 const FILES_URL = 'https://www.googleapis.com/drive/v3/files';
 const UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files';
@@ -47,47 +47,33 @@ export async function createFolder(name: string, parentId: string): Promise<Driv
   return { id: data.id, name: data.name };
 }
 
-/**
- * Lists names of all non-trashed files (non-folder) directly inside a folder.
- * Used to enumerate existing receipt filenames for increment generation.
- *
- * @param parentId - Parent folder ID
- */
-export async function listFileNames(parentId: string): Promise<string[]> {
-  const q = `'${parentId}' in parents and mimeType!='${FOLDER_MIME}' and trashed=false`;
-  const allFiles: Array<{ name: string }> = [];
+/** Read every page of a Drive file query; used by receipt and folder listings. */
+async function listFiles(query: string, context: string): Promise<DriveFile[]> {
+  const files: DriveFile[] = [];
   let pageToken = '';
   do {
-    const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(name),nextPageToken&pageSize=1000&${ALL_DRIVES}`
+    const url = `${FILES_URL}?q=${encodeURIComponent(query)}&fields=files(id,name),nextPageToken&pageSize=1000&${ALL_DRIVES}`
       + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
     const response = await apiFetch(url);
-    if (!response.ok) await _throwDriveError(response, 'listFileNames');
+    if (!response.ok) await _throwDriveError(response, context);
     const data = await response.json();
-    allFiles.push(...(data.files ?? []));
+    files.push(...(data.files ?? []));
     pageToken = data.nextPageToken ?? '';
   } while (pageToken);
-  return allFiles.map((f) => f.name);
+  return files;
 }
 
-/**
- * Lists all non-trashed folders directly inside a parent folder.
- *
- * @param parentId - Parent folder ID
- */
-export async function listFolders(parentId: string): Promise<DriveFile[]> {
-  const q = `'${parentId}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`;
-  const allFiles: DriveFile[] = [];
-  let pageToken = '';
-  do {
-    const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id,name),nextPageToken&pageSize=1000&${ALL_DRIVES}`
-      + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
-    const response = await apiFetch(url);
-    if (!response.ok) await _throwDriveError(response, 'listFolders');
-    const data = await response.json();
-    allFiles.push(...(data.files ?? []));
-    pageToken = data.nextPageToken ?? '';
-  } while (pageToken);
-  return allFiles;
+/** Existing receipt names, used to generate a unique upload filename. */
+export async function listFileNames(parentId: string): Promise<string[]> {
+  const files = await listFiles(
+    `'${parentId}' in parents and mimeType!='${FOLDER_MIME}' and trashed=false`, 'listFileNames',
+  );
+  return files.map(file => file.name);
+}
+
+/** Non-trashed folders directly inside a parent folder. */
+export function listFolders(parentId: string): Promise<DriveFile[]> {
+  return listFiles(`'${parentId}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`, 'listFolders');
 }
 
 /**
@@ -111,20 +97,8 @@ export async function listSharedDrives(): Promise<DriveFile[]> {
 /**
  * Lists all non-trashed folders that have been shared with the current user.
  */
-export async function listSharedFolders(): Promise<DriveFile[]> {
-  const q = `sharedWithMe=true and mimeType='${FOLDER_MIME}' and trashed=false`;
-  const allFiles: DriveFile[] = [];
-  let pageToken = '';
-  do {
-    const url = `${FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id,name),nextPageToken&pageSize=1000&${ALL_DRIVES}`
-      + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
-    const response = await apiFetch(url);
-    if (!response.ok) await _throwDriveError(response, 'listSharedFolders');
-    const data = await response.json();
-    allFiles.push(...(data.files ?? []));
-    pageToken = data.nextPageToken ?? '';
-  } while (pageToken);
-  return allFiles;
+export function listSharedFolders(): Promise<DriveFile[]> {
+  return listFiles(`sharedWithMe=true and mimeType='${FOLDER_MIME}' and trashed=false`, 'listSharedFolders');
 }
 
 /**
@@ -144,16 +118,6 @@ export async function findFile(name: string, parentId: string): Promise<string |
   if (!response.ok) await _throwDriveError(response, 'findFile');
   const data = await response.json();
   return data.files?.[0]?.id ?? null;
-}
-
-/**
- * Returns metadata for a specific file or folder.
- */
-export async function getFileMeta(fileId: string): Promise<DriveFileMeta> {
-  const url = `${FILES_URL}/${encodeURIComponent(fileId)}?fields=id,name,parents&${ALL_DRIVES}`;
-  const response = await apiFetch(url);
-  if (!response.ok) await _throwDriveError(response, 'getFileMeta');
-  return response.json();
 }
 
 // ---------------------------------------------------------------------------

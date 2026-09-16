@@ -177,7 +177,7 @@ export async function saveConfig(business: Business, config: BusinessConfig): Pr
  * Saves a new mileage favorite to the user's profile.json.
  * Favorites are user-owned and keyed by business folderId — independent of config.json.
  */
-export async function saveMileageFavorite(business: Business, _cfg: unknown, favorite: MileageFavorite): Promise<void> {
+export async function saveMileageFavorite(business: Business, favorite: MileageFavorite): Promise<void> {
   const folderId = business.folderId;
   mileageFavorites.update((all) => {
     const current = Array.isArray(all[folderId]) ? all[folderId] : [];
@@ -198,7 +198,7 @@ export async function saveMileageFavorite(business: Business, _cfg: unknown, fav
  * Updates an existing mileage favorite in-place (matched by originalName) in the user's profile.json.
  * Supports renaming: pass the old name as originalName and the new name inside favorite.
  */
-export async function updateMileageFavorite(business: Business, _cfg: unknown, originalName: string, favorite: MileageFavorite): Promise<void> {
+export async function updateMileageFavorite(business: Business, originalName: string, favorite: MileageFavorite): Promise<void> {
   const folderId = business.folderId;
   mileageFavorites.update((all) => {
     const current = Array.isArray(all[folderId]) ? all[folderId] : [];
@@ -211,7 +211,7 @@ export async function updateMileageFavorite(business: Business, _cfg: unknown, o
 /**
  * Deletes a mileage favorite by name from the user's profile.json.
  */
-export async function deleteMileageFavorite(business: Business, _cfg: unknown, name: string): Promise<void> {
+export async function deleteMileageFavorite(business: Business, name: string): Promise<void> {
   const folderId = business.folderId;
   mileageFavorites.update((all) => {
     const current = Array.isArray(all[folderId]) ? all[folderId] : [];
@@ -332,55 +332,34 @@ export async function ensureYearFolder(business: Business, year: number): Promis
 }
 
 async function _doEnsureYearFolder(business: Business, year: number): Promise<Business> {
-  // Check Drive for an existing year folder before creating one.
-  // Handles stale local cache after page reload (e.g. SW controllerchange reload).
   const existingFolderId = await findFile(String(year), business.folderId);
+  const yearFolderId = existingFolderId ?? (await createFolder(String(year), business.folderId)).id;
+  const safeName = driveFileName(business.name);
+  let sheetId: string | undefined;
+  let receiptFolderId: string | undefined;
+
   if (existingFolderId) {
-    // Recover existing sheet and receipts folder IDs from Drive
-    const safeName = driveFileName(business.name);
-    let [existingSheetId, existingReceiptFolderId] = await Promise.all([
-      findFile(`${year}_${safeName}_expenses`, existingFolderId),
-      findFile(`${year}_${safeName}_Receipts`, existingFolderId),
+    const [foundSheet, foundReceipts] = await Promise.all([
+      findFile(`${year}_${safeName}_expenses`, yearFolderId),
+      findFile(`${year}_${safeName}_Receipts`, yearFolderId),
     ]);
-
-    // Sheet missing (was deleted) and no cached ID — create a fresh one
-    if (!existingSheetId && !business.sheetIds?.[year]) {
-      const { spreadsheetId } = await initSpreadsheet(`${year}_${safeName}_expenses`);
-      await moveFile(spreadsheetId, existingFolderId, 'root');
-      existingSheetId = spreadsheetId;
-    }
-
-    // Receipts folder missing and no cached ID — create it
-    if (!existingReceiptFolderId && !business.receiptFolderIds?.[year]) {
-      const { id } = await createFolder(`${year}_${safeName}_Receipts`, existingFolderId);
-      existingReceiptFolderId = id;
-    }
-
-    return {
-      ...business,
-      yearFolders:      { ...business.yearFolders,      [year]: existingFolderId },
-      sheetIds:         { ...business.sheetIds,         [year]: existingSheetId         ?? business.sheetIds?.[year] },
-      receiptFolderIds: { ...business.receiptFolderIds, [year]: existingReceiptFolderId ?? business.receiptFolderIds?.[year] },
-    };
+    sheetId = foundSheet ?? business.sheetIds?.[year];
+    receiptFolderId = foundReceipts ?? business.receiptFolderIds?.[year];
   }
 
-  // No existing folder — create the full year structure
-  const { id: yearFolderId } = await createFolder(String(year), business.folderId);
-
-  // Create the expense sheet — lands in Drive root, must be moved immediately
-  const safeName = driveFileName(business.name);
-  const { spreadsheetId } = await initSpreadsheet(`${year}_${safeName}_expenses`);
-
-  // Move sheet from Drive root into the year folder
-  await moveFile(spreadsheetId, yearFolderId, 'root');
-
-  // Create the receipts folder inside the year folder
-  const { id: receiptFolderId } = await createFolder(`${year}_${safeName}_Receipts`, yearFolderId);
+  if (!sheetId) {
+    const { spreadsheetId } = await initSpreadsheet(`${year}_${safeName}_expenses`);
+    await moveFile(spreadsheetId, yearFolderId, 'root');
+    sheetId = spreadsheetId;
+  }
+  if (!receiptFolderId) {
+    receiptFolderId = (await createFolder(`${year}_${safeName}_Receipts`, yearFolderId)).id;
+  }
 
   return {
     ...business,
     yearFolders:      { ...business.yearFolders,      [year]: yearFolderId },
-    sheetIds:         { ...business.sheetIds,         [year]: spreadsheetId },
+    sheetIds:         { ...business.sheetIds,         [year]: sheetId },
     receiptFolderIds: { ...business.receiptFolderIds, [year]: receiptFolderId },
   };
 }

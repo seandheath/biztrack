@@ -26,7 +26,7 @@
   import { listFileNames, uploadFile, findFile } from '$lib/drive.js';
   import { pushTransactions, updateByUUID, deleteByUUID, batchSetCategory, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.svelte.js';
-  import { todayISO, friendlyError } from '$lib/util.js';
+  import { todayISO, friendlyError, transactionUrl } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
   import { syncStatus, cacheTransactions, invalidatePull, removeCachedTransaction, updateCachedTransaction } from '$lib/sync.js';
   import { ensureYearFolder, loadBusinessData as _loadBusinessData } from '$lib/business.js';
@@ -116,7 +116,6 @@
   let returnTo         = $state('');
   let shareLoading     = $state(false);
   let shareLoadError   = $state('');
-  let shareRowNum      = $state(/** @type {number|null} */(null));
   let shareSheetId     = $state('');
   let shareSubmittedBy = $state('');
   let shareTxnId       = $state('');
@@ -229,27 +228,33 @@
       const spreadsheetId = biz.sheetIds?.[year];
       if (!spreadsheetId) throw new Error(`No sheet found for ${year}.`);
 
-      if (shareMode) {
-        // Editing a shared expense
-        const common = {
-          date:           expDate,
-          vendor:         expVendor.trim(),
-          paymentMethod:  expPayment,
-          receipt: receiptFilename || existingReceipt || '',
-          notes:          expNotes.trim(),
-          submittedBy:    shareSubmittedBy,
-        };
-
-        if (splitMode) {
-          // Split: delete original row, push multiple new rows
-          const validLines = splits.filter((s) => s.amount && s.category);
-          const rows = validLines.map((split) => ({
+      const common = {
+        date: expDate,
+        vendor: expVendor.trim(),
+        paymentMethod: expPayment,
+        receipt: receiptFilename || (shareMode ? existingReceipt : '') || '',
+        notes: expNotes.trim(),
+        submittedBy: shareMode ? shareSubmittedBy : ($userEmail ?? ''),
+      };
+      const rows = splitMode
+        ? splits.filter(s => s.amount && s.category).map(split => ({
             ...common,
-            id:          crypto.randomUUID(),
+            id: crypto.randomUUID(),
             description: split.description.trim(),
-            amount:      split.amount,
-            category:    split.category,
-          }));
+            amount: split.amount,
+            category: split.category,
+          }))
+        : [{
+            ...common,
+            id: shareMode ? shareTxnId : crypto.randomUUID(),
+            description: expDesc.trim(),
+            amount: String(amount),
+            category: expCategory,
+          }];
+
+      if (shareMode) {
+        if (splitMode) {
+          // Split replacement keeps its existing persistence ordering.
           try {
             // Always delete original from its source sheet
             await deleteByUUID(shareSheetId, 'Expenses', shareTxnId);
@@ -266,7 +271,7 @@
             }
             throw err;
           }
-          showToast(`Split into ${validLines.length} expenses!`, 'success');
+          showToast(`Split into ${rows.length} expenses!`, 'success');
           // Update local cache — remove original, invalidate so destination pulls fresh data
           removeCachedTransaction(shareSheetId, 'Expenses', shareTxnId);
           invalidatePull(spreadsheetId);
@@ -275,13 +280,7 @@
           shareMode = false;
         } else {
           // Single-row update
-          const updatedRow = {
-            ...common,
-            id:             shareTxnId,
-            description:    expDesc.trim(),
-            amount:         String(amount),
-            category:       expCategory,
-          };
+          const [updatedRow] = rows;
           try {
             if (spreadsheetId !== shareSheetId) {
               // Date changed to a different year — move row between sheets
@@ -331,52 +330,15 @@
           shareMode = false;
         }
       } else {
-        // New expense — push directly to Sheets
-        const common = {
-          date:           expDate,
-          vendor:         expVendor.trim(),
-          paymentMethod:  expPayment,
-          receipt: receiptFilename || '',
-          notes:          expNotes.trim(),
-          submittedBy:    $userEmail ?? '',
-        };
-
-        let txnId;
-        if (splitMode) {
-          const validLines = splits.filter((s) => s.amount && s.category);
-          const rows = validLines.map((split) => ({
-            ...common,
-            id:          crypto.randomUUID(),
-            description: split.description.trim(),
-            amount:      split.amount,
-            category:    split.category,
-          }));
-          try {
-            await pushTransactions(spreadsheetId, 'Expenses', rows);
-          } catch (err) {
-            if (!navigator.onLine && !(err instanceof AuthError)) {
-              for (const row of rows)
-                enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'create', row });
-              showToast('Saved offline — will sync when back online', 'success');
-            } else { throw err; }
-          }
-        } else {
-          txnId = crypto.randomUUID();
-          const row = {
-            ...common,
-            id:          txnId,
-            description: expDesc.trim(),
-            amount:      String(amount),
-            category:    expCategory,
-          };
-          try {
-            await pushTransactions(spreadsheetId, 'Expenses', [row]);
-          } catch (err) {
-            if (!navigator.onLine && !(err instanceof AuthError)) {
+        // Single and split creates share the same batch-write/offline path.
+        try {
+          await pushTransactions(spreadsheetId, 'Expenses', rows);
+        } catch (err) {
+          if (!navigator.onLine && !(err instanceof AuthError)) {
+            for (const row of rows)
               enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'create', row });
-              showToast('Saved offline — will sync when back online', 'success');
-            } else { throw err; }
-          }
+            showToast('Saved offline — will sync when back online', 'success');
+          } else { throw err; }
         }
 
         // Update vendor + payment method autocomplete caches
@@ -392,12 +354,12 @@
         }
 
         // Show share panel (only in single mode — split rows share no single txnId)
-        if (!splitMode && txnId) {
-          lastSavedTxnId = txnId;
+        if (!splitMode) {
+          lastSavedTxnId = rows[0].id;
           lastSavedYear  = year;
         }
 
-        showToast(splitMode ? `${splits.filter((s) => s.amount && s.category).length} expenses saved!` : 'Expense saved!', 'success');
+        showToast(splitMode ? `${rows.length} expenses saved!` : 'Expense saved!', 'success');
 
         // Background re-pull to update cache
         invalidatePull(spreadsheetId);
@@ -475,29 +437,21 @@
   function handleSplitAmountInput(e, i) {
     const digits = e.target.value.replace(/\D/g, '');
     const val = digits ? (parseInt(digits, 10) / 100).toFixed(2) : '';
-    splits = splits.map((s, idx) => idx === i ? { ...s, amount: val } : s);
+    splits[i].amount = val;
     e.target.value = val;
   }
 
   function handleSplitAmountBlur(i) {
     const val = parseFloat(splits[i].amount);
-    if (!isNaN(val)) splits = splits.map((s, idx) => idx === i ? { ...s, amount: val.toFixed(2) } : s);
+    if (!isNaN(val)) splits[i].amount = val.toFixed(2);
   }
 
   // ---------------------------------------------------------------------------
   // Share helpers
   // ---------------------------------------------------------------------------
 
-  function buildShareUrl(bizId, year, txnId) {
-    const u = new URL('/expense', window.location.origin);
-    u.searchParams.set('biz',  bizId);
-    u.searchParams.set('year', String(year));
-    u.searchParams.set('txn',  txnId);
-    return u.toString();
-  }
-
   async function doShare() {
-    const url = buildShareUrl($selectedBusiness.id ?? $selectedBusiness.folderId, lastSavedYear, lastSavedTxnId);
+    const url = transactionUrl('/expense', $selectedBusiness.id ?? $selectedBusiness.folderId, lastSavedYear, lastSavedTxnId);
     try {
       if (navigator.share) {
         await navigator.share({ title: 'Complete this expense', url });
@@ -512,7 +466,7 @@
   }
 
   async function doCopyShareLink() {
-    const url = buildShareUrl($selectedBusiness.id ?? $selectedBusiness.folderId, lastSavedYear, lastSavedTxnId);
+    const url = transactionUrl('/expense', $selectedBusiness.id ?? $selectedBusiness.folderId, lastSavedYear, lastSavedTxnId);
     await navigator.clipboard.writeText(url);
     showToast('Link copied!', 'success');
     lastSavedTxnId = '';
@@ -553,7 +507,6 @@
 
         const rowNum = await findRowByTxnId(sheetId, txnId);
         if (rowNum === null) throw new Error('Transaction not found.');
-        shareRowNum = rowNum;
 
         const row = await readRow(sheetId, 'Expenses', rowNum);
         expDate          = row.date          || todayISO();
@@ -715,8 +668,7 @@
               <div class="flex items-center gap-2">
                 <input
                   type="text"
-                  value={split.description}
-                  oninput={(e) => splits = splits.map((s, idx) => idx === i ? { ...s, description: e.target.value } : s)}
+                  bind:value={split.description}
                   placeholder="Description (optional)"
                   class="flex-1 text-sm"
                   style="min-height: 36px;"
@@ -750,8 +702,7 @@
               />
               <!-- Category -->
               <select
-                  value={split.category}
-                  onchange={(e) => splits = splits.map((s, idx) => idx === i ? { ...s, category: e.target.value } : s)}
+                  bind:value={split.category}
                   class="w-full text-sm"
                   style="min-height: 36px;"
                 >

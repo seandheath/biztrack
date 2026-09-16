@@ -3,8 +3,8 @@
    * Home screen — transaction log.
    *
    * Shows the most recent expense entries for the selected business (current year),
-   * newest first. Rows are read-only; tapping expands a detail view with a link
-   * to /history for editing. Two bottom buttons navigate to the entry form routes.
+   * newest first. Tapping a row opens its entry form for editing.
+   * Two bottom buttons navigate to the entry form routes.
    *
    * Android Web Share Target receipts are detected on mount and redirect to /expense.
    */
@@ -12,8 +12,8 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { businesses, selectedBusiness, pendingReceipt } from '$lib/store.js';
-  import { pullTransactions } from '$lib/services/sheets.js';
-  import { syncStatus, getCachedTransactions, cacheTransactions, shouldPull, markPullStarted, markPullComplete, markPullFailed } from '$lib/sync.js';
+  import { transactionUrl as buildTransactionUrl } from '$lib/util.js';
+  import { getCachedTransactions, mergeTransactions, refreshYearTransactions } from '$lib/sync.js';
   import BusinessDropdown from '../components/BusinessDropdown.svelte';
 
   // ---------------------------------------------------------------------------
@@ -26,72 +26,28 @@
   /** Count of uncategorized expense transactions — drives the review banner */
   let uncategorizedCount = $state(0);
 
-  let loading = $state(false);
-
-  /**
-   * Tag each row with its type and merge two arrays into a date-sorted list.
-   * @param {import('$lib/services/sheets.js').TransactionRow[]} expenses
-   * @param {import('$lib/services/sheets.js').TransactionRow[]} mileage
-   */
-  function mergeAndSort(expenses, mileage) {
-    const tagged = [
-      ...expenses.map((r) => ({ ...r, _type: /** @type {const} */ ('expense') })),
-      ...mileage.map((r)  => ({ ...r, _type: /** @type {const} */ ('mileage') })),
-    ];
-    return tagged.sort((a, b) => b.date.localeCompare(a.date));
-  }
-
-  // Generation counter for stale-pull detection — when the $effect re-runs
-  // (e.g. selectedBusiness changes), previous in-flight results are discarded.
-  let pullGen = 0;
-
   $effect(() => {
     const biz = $selectedBusiness;
-    const gen = ++pullGen;
-    if (!biz) { rows = []; uncategorizedCount = 0; return; }
-    const spreadsheetId = biz.sheetIds?.[new Date().getFullYear()];
-    if (!spreadsheetId) { rows = []; return; }
-
-    // Load cached rows immediately — no spinner, no empty-state flash
-    const cachedExp = getCachedTransactions(spreadsheetId, 'Expenses');
-    const cachedMil = getCachedTransactions(spreadsheetId, 'Mileage');
+    const sid = biz?.sheetIds?.[new Date().getFullYear()];
+    if (!sid) { rows = []; uncategorizedCount = 0; return; }
+    let current = true;
+    const cachedExp = getCachedTransactions(sid, 'Expenses');
+    const cachedMil = getCachedTransactions(sid, 'Mileage');
     const hasCached = cachedExp || cachedMil;
-    if (hasCached) {
-      const merged = mergeAndSort(cachedExp ?? [], cachedMil ?? []);
-      rows = merged;
-      uncategorizedCount = (cachedExp ?? []).filter((r) => !r.category || r.category === 'Uncategorized').length;
-    }
-
-    // Skip network pull if one is already in-flight or cooldown hasn't expired.
-    // On full page reload modules reinitialize so shouldPull() returns true.
-    // On in-app navigation the cooldown (60 s) prevents redundant fetches.
-    if (!shouldPull(spreadsheetId)) return;
-
-    // Background pull from both sheets in parallel
-    loading = !hasCached;
-    syncStatus.set('yellow');
-    markPullStarted(spreadsheetId);
-    Promise.all([
-      pullTransactions(spreadsheetId, 'Expenses'),
-      pullTransactions(spreadsheetId, 'Mileage'),
-    ])
-      .then(([pulledExp, pulledMil]) => {
-        if (gen !== pullGen) return; // stale — effect re-ran, discard
-        rows = mergeAndSort(pulledExp, pulledMil);
-        uncategorizedCount = pulledExp.filter((r) => !r.category || r.category === 'Uncategorized').length;
-        syncStatus.set('green');
-        markPullComplete(spreadsheetId);
-        cacheTransactions(spreadsheetId, 'Expenses', pulledExp);
-        cacheTransactions(spreadsheetId, 'Mileage', pulledMil);
+    rows = mergeTransactions(cachedExp ?? [], cachedMil ?? []);
+    uncategorizedCount = (cachedExp ?? []).filter(r => !r.category || r.category === 'Uncategorized').length;
+    refreshYearTransactions(sid)
+      .then(({ expenses, mileage }) => {
+        if (!current) return;
+        rows = mergeTransactions(expenses, mileage);
+        uncategorizedCount = expenses.filter(r => !r.category || r.category === 'Uncategorized').length;
       })
       .catch((err) => {
-        if (gen !== pullGen) return;
+        if (!current) return;
         console.error('[home] pull:', err);
-        syncStatus.set('red');
-        markPullFailed(spreadsheetId);
         if (!hasCached) rows = [];
-      })
-      .finally(() => { if (gen === pullGen) loading = false; });
+      });
+    return () => { current = false; };
   });
 
   // ---------------------------------------------------------------------------
@@ -101,11 +57,8 @@
   function transactionUrl(row) {
     const year = new Date(row.date + 'T00:00:00').getFullYear();
     const route = row._type === 'mileage' ? '/mileage' : '/expense';
-    const u = new URL(route, window.location.origin);
-    u.searchParams.set('biz',  $selectedBusiness.id ?? $selectedBusiness.folderId);
-    u.searchParams.set('year', String(year));
-    u.searchParams.set('txn',  row.id);
-    return u.toString();
+    return buildTransactionUrl(route, $selectedBusiness.id ?? $selectedBusiness.folderId,
+      year, row.id);
   }
 
   // ---------------------------------------------------------------------------

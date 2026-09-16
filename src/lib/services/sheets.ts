@@ -196,7 +196,7 @@ function _valuesToRow(values: string[], sheetName: SheetName): TransactionRow {
   }
 }
 
-/** Reads all values from the UUID column (J for Expenses, H for Mileage). */
+/** Reads all values from the UUID column (J for Expenses, G for Mileage). */
 async function _readIdColumn(
   spreadsheetId: string,
   sheetName: SheetName,
@@ -432,7 +432,7 @@ export async function batchSetCategory(
  * Reads all data rows from a sheet tab.
  *
  * Returns rows with a non-empty UUID field only. Always fetches the full sheet
- * so the caller can detect deletions by comparing returned UUIDs against Dexie.
+ * so callers replace cached rows and reflect deletions.
  *
  * NOTE: Sheets has no server-side filtering; all rows are fetched in one call
  * (A:Z). For typical usage (hundreds of rows/year) this is fast enough.

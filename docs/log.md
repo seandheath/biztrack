@@ -1,5 +1,20 @@
 # BizTrack — Decision Log
 
+This log preserves historical decisions, including superseded designs. The
+[current specification](specification.md) describes the implementation to maintain;
+older entries below are context, not instructions to restore removed features.
+
+## 2026-09-16 — Consolidate repeated workflows
+
+Keep the static app, Google APIs, persisted data formats, and existing UI. Share
+home/history refresh ownership, Drive file pagination, and transaction-link
+construction. Use one payload per entry form and Svelte's native reactive bindings.
+Remove unused Picker credentials, exports, and state. Keep auth and durable queue
+protections. Regression checks and TypeScript checks run before deployment.
+
+Cross-year moves and split replacements remain separate multi-request writes;
+recoverable compound writes need a dedicated correctness change.
+
 ## 2026-09-16 — Preserve PWA work through Google reconnection
 
 Keep static hosting and Google's browser token model. Preload GIS, validate the account before using cached data, and preserve mounted forms when authorization expires. API calls share an explicit reconnect wait and retry only a rejected HTTP-401 request once. Sign Out clears local data; Disconnect separately revokes the Google grant. Remove service-worker Google API caching and replace forced update reloads with a deferred reload action.

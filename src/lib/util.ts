@@ -10,6 +10,17 @@ export function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Shared transaction links retain the same parameters for editing and sharing. */
+export function transactionUrl(
+  route: '/expense' | '/mileage', businessId: string, year: string | number,
+  transactionId: string, returnTo?: string,
+): string {
+  const url = new URL(route, window.location.origin);
+  url.search = new URLSearchParams({ biz: businessId, year: String(year), txn: transactionId }).toString();
+  if (returnTo) url.searchParams.set('returnTo', returnTo);
+  return url.toString();
+}
+
 /**
  * Maps common API error codes to user-friendly messages.
  */

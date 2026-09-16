@@ -1,7 +1,7 @@
 /** Google's browser token model: reconnect explicitly, without discarding work. */
 import { GOOGLE_CLIENT_ID, DRIVE_SCOPE } from './constants.js';
 import type { TokenUpdate } from './types.js';
-export { DRIVE_SCOPE, GOOGLE_API_KEY, GOOGLE_APP_ID } from './constants.js';
+export { DRIVE_SCOPE } from './constants.js';
 
 const TOKEN = 'bt_at';
 const EXPIRY = 'bt_exp';
@@ -51,7 +51,6 @@ function notify(): void {
 
 /** Email is retained through expiry, and is verified before reconnecting work. */
 export function getEmail(): string | null { return email; }
-export function getToken(): string | null { return verified ? token : null; }
 export function getSessionVersion(): number { return session; }
 export function hasPendingOperations(): boolean { return activeRequests > 0 || !!popup || !!reconnect; }
 export function isTokenValid(): boolean { return verified && !!token && !!expiry && expiry > new Date(); }

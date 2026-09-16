@@ -14,17 +14,6 @@
 export const GOOGLE_CLIENT_ID: string = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 /**
- * API key restricted to Google Picker API.
- * Public by design (spec §9.3) — kept out of source control via .env.
- */
-export const GOOGLE_API_KEY: string = import.meta.env.VITE_GOOGLE_API_KEY;
-
-/**
- * Google Cloud project number (numeric string), required by the Picker API.
- */
-export const GOOGLE_APP_ID: string = import.meta.env.VITE_GOOGLE_APP_ID;
-
-/**
  * Drive OAuth scope:
  *   drive — full read/write access to all files and folders.
  *
@@ -33,20 +22,6 @@ export const GOOGLE_APP_ID: string = import.meta.env.VITE_GOOGLE_APP_ID;
  * cannot read or write those files, blocking import and multi-user workflows.
  */
 export const DRIVE_SCOPE: string = 'https://www.googleapis.com/auth/drive';
-
-// ---------------------------------------------------------------------------
-// IRS standard mileage rates
-// ---------------------------------------------------------------------------
-
-/**
- * IRS standard mileage rates by year (USD per mile).
- * Update 2026 when the IRS announces the rate.
- */
-export const IRS_RATES: Record<number, number> = {
-  2024: 0.67,
-  2025: 0.70,
-  2026: 0.70,
-};
 
 // ---------------------------------------------------------------------------
 // Default expense categories — Schedule C + Schedule E combined

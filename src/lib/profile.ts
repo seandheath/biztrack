@@ -2,7 +2,7 @@
  * Cross-device profile sync via Google Drive.
  *
  * Maintains a BizTrack/ folder in the user's Drive root containing
- * profile.json — an array of business objects (folder IDs, sheet IDs, etc.).
+ * profile.json — a business index plus personal favorites and default drivers.
  * This lets a user sign in on a new device and automatically recover their
  * business list without re-adding everything manually.
  *

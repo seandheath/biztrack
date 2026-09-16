@@ -1,14 +1,15 @@
 {
   "name": "biztrack",
-  "version": "0.1.122",
+  "version": "0.1.123",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/auth.mjs",
+    "test": "node tests/auth.mjs && node tests/cleanup.mjs",
     "dev": "vite dev",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check": "svelte-kit sync && tsc --noEmit"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.10",

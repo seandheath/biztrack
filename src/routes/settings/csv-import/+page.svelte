@@ -1,5 +1,5 @@
 <script>
-  import { selectedBusiness, businessConfig, userEmail, businesses, paymentMethodCache } from '$lib/store.js';
+  import { selectedBusiness, userEmail, businesses, paymentMethodCache } from '$lib/store.js';
   import Autocomplete from '../../../components/Autocomplete.svelte';
   import { pushTransactions, pullTransactions } from '$lib/services/sheets.js';
   import { ensureYearFolder } from '$lib/business.js';
@@ -148,7 +148,7 @@
   }
 
   /**
-   * Enqueues all parsed rows as expense transactions, skipping duplicates.
+   * Appends parsed rows to Sheets in yearly batches, skipping duplicates.
    * Dedup key: date|vendor|amount within the selected business.
    */
   async function handleImport() {
@@ -162,10 +162,7 @@
       // Build dedup set from existing transactions for each year in the import.
       const years = [...new Set(parsedRows.map((r) => parseInt(r.date.slice(0, 4), 10)))];
 
-      // Ensure a Drive spreadsheet exists for every year in the import.
-      // Without this, prior-year transactions (e.g. 2025 imported in 2026) would
-      // be enqueued but never synced — _flushCreates silently skips entries whose
-      // year has no sheetId.
+      // Ensure a destination spreadsheet for every year represented in the import.
       let biz = $selectedBusiness;
       for (const year of years) {
         if (!biz.yearFolders?.[year] || !biz.sheetIds?.[year]) {

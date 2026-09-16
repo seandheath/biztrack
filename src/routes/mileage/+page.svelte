@@ -14,7 +14,6 @@
   import {
     businesses,
     selectedBusiness,
-    businessConfig,
     mileageFavorites,
     userEmail,
     updateBusiness,
@@ -60,7 +59,6 @@
   let editMode      = $state(false);
   let editLoading   = $state(false);
   let editLoadError = $state('');
-  let editRowNum    = $state(/** @type {number|null} */(null));
   let editSheetId   = $state('');
   let editTxnId     = $state('');
   /** Route to navigate to after a successful edit-mode save (e.g. '/history'). */
@@ -92,7 +90,7 @@
    * Effective miles to store — doubled when round trip is checked.
    * Returns a string so it can be passed directly to the row.
    */
-  let milEffectiveMiles = $derived(() => {
+  let milEffectiveMiles = $derived.by(() => {
     const m = parseFloat(milMiles);
     if (isNaN(m)) return milMiles;
     return milRoundTrip ? String(m * 2) : milMiles;
@@ -102,7 +100,7 @@
    * Existing favorite whose from/to/miles/roundTrip all match the current form state.
    * When non-null, offer "Update" instead of "Save as Favorite".
    */
-  let milMatchedFavorite = $derived(() => {
+  let milMatchedFavorite = $derived.by(() => {
     const favs = $mileageFavorites[$selectedBusiness?.folderId] ?? [];
     const from = milFrom.trim();
     const to   = milTo.trim();
@@ -120,7 +118,7 @@
   let milUpdating = $state(false);
 
   // Sync the editable update-name field whenever the matched favorite changes.
-  $effect(() => { milUpdateFavName = milMatchedFavorite()?.name ?? ''; });
+  $effect(() => { milUpdateFavName = milMatchedFavorite?.name ?? ''; });
 
   // Reset duplicate confirmation when any matched field changes.
   $effect(() => {
@@ -261,7 +259,7 @@
       // Duplicate check — first tap shows warning, second tap proceeds
       if (!confirmDuplicate) {
         const cached = getCachedTransactions(spreadsheetId, 'Mileage') ?? [];
-        const eff = milEffectiveMiles();
+        const eff = milEffectiveMiles;
         const isDup = cached.some((r) =>
           (editMode ? r.id !== editTxnId : true) &&
           r.date === milDate &&
@@ -278,28 +276,29 @@
       }
       confirmDuplicate = false;
 
+      const row = {
+        id:      editMode ? editTxnId : crypto.randomUUID(),
+        date:    milDate,
+        from:    milFrom.trim(),
+        to:      milTo.trim(),
+        purpose: milPurpose.trim(),
+        miles:   milEffectiveMiles,
+        savedBy: $userEmail ?? '',
+        driver:  milDriver.trim(),
+      };
+
       if (editMode) {
-        const updatedRow = {
-          id:      editTxnId,
-          date:    milDate,
-          from:    milFrom.trim(),
-          to:      milTo.trim(),
-          purpose: milPurpose.trim(),
-          miles:   milEffectiveMiles(),
-          savedBy: $userEmail ?? '',
-          driver:  milDriver.trim(),
-        };
         try {
           if (spreadsheetId !== editSheetId) {
             // Date changed to a different year — move row between sheets
             await deleteByUUID(editSheetId, 'Mileage', editTxnId);
-            await pushTransactions(spreadsheetId, 'Mileage', [updatedRow]);
+            await pushTransactions(spreadsheetId, 'Mileage', [row]);
           } else {
-            await updateByUUID(spreadsheetId, 'Mileage', updatedRow);
+            await updateByUUID(spreadsheetId, 'Mileage', row);
           }
         } catch (err) {
           if (!navigator.onLine && !(err instanceof AuthError)) {
-            enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'update', row: updatedRow });
+            enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'update', row });
             showToast('Saved offline — will sync when back online', 'success');
             goto(returnTo || '/');
             return;
@@ -311,27 +310,17 @@
           removeCachedTransaction(editSheetId, 'Mileage', editTxnId);
           invalidatePull(editSheetId);
         }
-        updateCachedTransaction(spreadsheetId, 'Mileage', updatedRow);
+        updateCachedTransaction(spreadsheetId, 'Mileage', row);
         invalidatePull(spreadsheetId);
         goto(returnTo || '/');
         return;
       }
 
-      const newRow = {
-        id:      crypto.randomUUID(),
-        date:    milDate,
-        from:    milFrom.trim(),
-        to:      milTo.trim(),
-        purpose: milPurpose.trim(),
-        miles:   milEffectiveMiles(),
-        savedBy: $userEmail ?? '',
-        driver:  milDriver.trim(),
-      };
       try {
-        await pushTransactions(spreadsheetId, 'Mileage', [newRow]);
+        await pushTransactions(spreadsheetId, 'Mileage', [row]);
       } catch (err) {
         if (!navigator.onLine && !(err instanceof AuthError)) {
-          enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'create', row: newRow });
+          enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'create', row });
           showToast('Saved offline — will sync when back online', 'success');
           milErrors = {};
           saveFavOpen = false; saveFavName = '';
@@ -406,7 +395,6 @@
     saveFavSaving = true;
     try {
       const biz = $selectedBusiness;
-      const cfg = $businessConfig;
       const fav = {
         name:      saveFavName.trim(),
         from:      milFrom.trim(),
@@ -416,7 +404,7 @@
         miles:     parseFloat(milMiles),
         roundTrip: milRoundTrip,
       };
-      await saveMileageFavorite(biz, cfg, fav);
+      await saveMileageFavorite(biz, fav);
       saveFavOpen = false;
       saveFavName = '';
       showToast('Favorite saved!', 'success');
@@ -429,11 +417,11 @@
   }
 
   async function handleUpdateFavorite() {
-    const matched = milMatchedFavorite();
+    const matched = milMatchedFavorite;
     if (!matched || !milUpdateFavName.trim()) return;
     milUpdating = true;
     try {
-      await updateMileageFavorite($selectedBusiness, $businessConfig, matched.name, {
+      await updateMileageFavorite($selectedBusiness, matched.name, {
         name:      milUpdateFavName.trim(),
         from:      milFrom.trim(),
         to:        milTo.trim(),
@@ -477,7 +465,6 @@
 
         const rowNum = await findRowByTxnId(sheetId, txnId, 'Mileage');
         if (rowNum === null) throw new Error('Mileage entry not found.');
-        editRowNum = rowNum;
 
         const row = await readRow(sheetId, 'Mileage', rowNum);
         milDate    = row.date    || todayISO();
@@ -606,8 +593,8 @@
           Round trip
         </button>
       </div>
-      {#if milRoundTrip && milEffectiveMiles() !== milMiles && milEffectiveMiles() !== ''}
-        <span class="text-xs -mt-2" style="color: var(--color-text-muted);">Total: {milEffectiveMiles()} mi</span>
+      {#if milRoundTrip && milEffectiveMiles !== milMiles && milEffectiveMiles !== ''}
+        <span class="text-xs -mt-2" style="color: var(--color-text-muted);">Total: {milEffectiveMiles} mi</span>
       {/if}
 
       <!-- Purpose (optional) -->
@@ -642,7 +629,7 @@
 
       <!-- Save / Update Favorite -->
       {#if milCanSaveFav}
-        {#if milMatchedFavorite()}
+        {#if milMatchedFavorite}
           <!-- Matched an existing favorite — show editable name + Update button -->
           <div class="flex gap-2 items-center">
             <input

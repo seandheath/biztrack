@@ -2,11 +2,10 @@
   import Spinner from '../../../components/Spinner.svelte';
   /**
    * Mileage Favorites management screen.
-   * Lists saved routes from config.json and allows deletion.
-   * Favorites are added from the mileage entry form on the main screen.
+   * Lists personal saved routes from profile.json and allows deletion.
+   * Favorites are added from the mileage entry form.
    */
 
-  import { goto } from '$app/navigation';
   import { selectedBusiness, mileageFavorites } from '$lib/store.js';
   import { deleteMileageFavorite } from '$lib/business.js';
   import { get } from 'svelte/store';
@@ -28,7 +27,7 @@
     deletingName = name;
     error = '';
     try {
-      await deleteMileageFavorite(biz, null, name);
+      await deleteMileageFavorite(biz, name);
     } catch (err) {
       console.error('[favorites] delete:', err);
       error = 'Failed to delete. Check your connection and try again.';
@@ -75,7 +74,7 @@
           No favorites saved yet.
         </p>
         <p class="mt-1 text-sm" style="color: var(--color-text-muted);">
-          Fill in a mileage entry on the main screen and tap "Save as Favorite".
+          Fill in a mileage entry and tap "Save as Favorite".
         </p>
       </div>
 
