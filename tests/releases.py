@@ -98,12 +98,19 @@ with tempfile.TemporaryDirectory() as tmp:
     assert (second / "beta/index.html").read_text().endswith("beta two")
     chooser = (second / "index.html").read_text()
     assert chooser.index('href="/v/1.2.4/"') < chooser.index('href="/v/1.2.3/"')
+    assert 'class="button primary" href="/v/1.2.4/"' in chooser
+    assert '<details class="catalog">' in chooser
     assert '<link rel="manifest"' not in chooser
-    for icon in ("icon.svg", "icon-180.png"):
+    for icon in ("favicon.ico", "icon.svg", "icon-180.png"):
         assert f'href="/{icon}"' in chooser
         assert (second / icon).read_bytes() == (ROOT / "static" / icon).read_bytes()
     assert 'href="/beta/history/"' in (second / "history/index.html").read_text()
     assert (second / "404.html").is_file()
+    r.write_site(tmp / "empty", [], beta)
+    empty = (tmp / "empty/index.html").read_text()
+    assert 'class="button primary" href="/beta/"' in empty
+    assert '<details class="catalog">' not in empty
+    assert 'href="/v/' not in empty
     rejects(lambda: r.assemble(second))
     r.releases = lambda: [{"tag_name": "v9.9.9", "draft": False, "immutable": True}]
     try:

@@ -1,6 +1,6 @@
 {
   "name": "biztrack",
-  "version": "0.1.126",
+  "version": "0.1.127",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
@@ -9,6 +9,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
+    "preview:site": "python3 scripts/preview-site.py",
     "check": "svelte-kit sync && tsc --noEmit"
   },
   "devDependencies": {

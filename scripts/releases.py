@@ -150,7 +150,8 @@ def page(title, body, script=""):
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(title)}</title><link rel="stylesheet" href="/style.css">
-<link rel="icon" type="image/svg+xml" href="/icon.svg"><link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png"></head>
+<link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" type="image/svg+xml" href="/icon.svg" sizes="any"><link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png"></head>
 <body><main>{body}</main>{script}</body></html>\n'''
 
 
@@ -158,29 +159,53 @@ def write_site(site, versions, beta):
     site.mkdir(parents=True, exist_ok=True)
     for source in (ROOT / "site").iterdir():
         shutil.copy2(source, site / source.name)
-    for name in ("CNAME", ".nojekyll", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png", "icon-120.png"):
+    for name in ("CNAME", ".nojekyll", "favicon.ico", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png", "icon-120.png"):
         shutil.copy2(ROOT / "static" / name, site / name)
+    versions = sorted(versions, key=lambda info: tuple(map(int, info["version"].split('.'))), reverse=True)
+    repo_url = f"https://github.com/{REPO}"
     rows = []
-    for info in sorted(versions, key=lambda info: tuple(map(int, info["version"].split('.'))), reverse=True):
+    for info in versions:
         version = info["version"]
         tag = f"v{version}"
-        repo_url = f"https://github.com/{REPO}"
-        rows.append(f'<li><a href="/v/{version}/">{version}</a> · '
-                    f'<a href="{repo_url}/releases/tag/{tag}">Release notes</a> · '
-                    f'<a href="{repo_url}/commit/{info["commit"]}">Source</a> · '
-                    f'<a href="{repo_url}/releases/download/{tag}/biztrack-{version}.zip">Download</a></li>')
-    body = f'''<h1>BizTrack</h1>
-<p>Expenses and mileage. Data stays on your device and in your Google Drive. No infrastructure setup needed.</p>
-<h2>Choose a version</h2>
-<p>Open a fixed version, then bookmark it or install it from your browser. It stays on that release until you choose another.</p>
-{('<ul>' + ''.join(rows) + '</ul>') if rows else '<p>No fixed releases yet.</p>'}
-<h2><a href="/beta/">Beta</a></h2>
-<p>Tracks main and updates automatically. Build <a href="https://github.com/{REPO}/commit/{beta['commit']}">{beta['commit'][:7]}</a>.</p>
-<p>Already using BizTrack? Continue in beta to keep your sign-in and pending changes. Sync there before switching versions. Fixed versions sign in separately and use the same Drive files.</p>
-<p>To pin a version on your phone, install it separately. Your old home-screen shortcut still opens this chooser.</p>
-<h2>Trust and updates</h2>
-<p>Published release archives are immutable. The site owner can still change what this website serves. Using the hosted app requires trusting its maintainers; you can inspect or host a release yourself.</p>
-<p><a href="/beta/privacy/">Privacy</a> · <a href="/beta/terms/">Terms</a> · <a href="https://github.com/{REPO}">GitHub</a></p>'''
+        rows.append(f'<li><a class="release-version" href="/v/{version}/">{version} <span aria-hidden="true">↗</span></a>'
+                    f'<div class="release-links"><a href="{repo_url}/releases/tag/{tag}">Notes</a>'
+                    f'<a href="{repo_url}/commit/{info["commit"]}">Source</a>'
+                    f'<a href="{repo_url}/releases/download/{tag}/biztrack-{version}.zip">Download</a></div></li>')
+    fixed = ""
+    if versions:
+        latest = versions[0]["version"]
+        fixed = f'''<section class="launch-card recommended">
+<span class="badge">Fixed release</span><h2>BizTrack <span class="version">{latest}</span></h2>
+<p>Updates when you choose.</p>
+<a class="button primary" href="/v/{latest}/">Open BizTrack <span aria-hidden="true">→</span></a>
+</section>'''
+    catalog = (f'<details class="catalog"><summary>All releases <span class="count">{len(versions)}</span></summary>'
+               f'<ul>{"".join(rows)}</ul></details>') if versions else '<p class="empty">Fixed releases coming soon.</p>'
+    body = f'''<header class="site-header">
+<a class="brand" href="/" aria-label="BizTrack home"><img src="/icon.svg" width="44" height="44" alt="">BizTrack</a>
+<a class="source-link" href="{repo_url}">GitHub <span aria-hidden="true">↗</span></a>
+</header>
+<div class="hero"><p class="eyebrow">Expense &amp; mileage tracker</p>
+<h1>Your business.<br><span>Your Google Drive.</span></h1>
+<p class="intro">On your device. In your Drive. No setup.</p></div>
+<div class="launch-grid{' single' if not versions else ''}">
+{fixed}
+<section class="launch-card beta">
+<span class="badge">{'Preview' if versions else 'Start here'}</span><h2>Beta</h2>
+<p>Latest changes. Updates automatically.</p>
+<a class="button {'secondary' if versions else 'primary'}" href="/beta/">Open beta <span aria-hidden="true">→</span></a>
+</section>
+</div>
+{catalog}
+<details class="install-help"><summary>Installing or switching versions?</summary>
+<p>Open a version, then use your browser’s install option or Safari’s Share → Add to Home Screen.</p>
+<p>Already using BizTrack? Open beta to keep your local data. Sync pending changes before switching; each fixed release signs in separately.</p>
+</details>
+<footer><span>Stored on your device &amp; Google Drive.</span><nav aria-label="More information">
+<a href="/beta/privacy/">Privacy</a><a href="/beta/terms/">Terms</a>
+<a href="{repo_url}/blob/main/docs/releases.md#existing-installations">About updates</a>
+<a href="{repo_url}/commit/{beta['commit']}">Beta source</a>
+</nav></footer>'''
     (site / "index.html").write_text(page("BizTrack versions", body, '<script src="/migrate.js" defer></script>'))
     (site / "404.html").write_text(page("Page not found — BizTrack", '<h1>Page not found</h1><p><a href="/">Choose a version</a></p>'))
     # Preserve old bookmarks and OAuth policy URLs. Query strings stay in-browser.

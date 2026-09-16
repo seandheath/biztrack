@@ -94,6 +94,16 @@ The client ID is public in the browser bundle. Never include an OAuth client sec
 npm run dev
 ```
 
+Preview the root version chooser using local version tags (Python 3; no app build or Google setup needed):
+
+```sh
+npm run preview:site
+```
+
+Open `http://localhost:8080`. Restart after edits; press Ctrl+C to stop. For another port, use `npm run preview:site -- --port 8081`.
+
+Run `git fetch --tags` to include remote tags. This previews the chooser only; it does not download builds or verify that tags have published GitHub releases.
+
 ### Tech stack
 
 SvelteKit 2, Svelte 5 runes, Tailwind CSS v4. `adapter-static` outputs directory indexes for each route. `@vite-pwa/sveltekit` uses `injectManifest` for the service worker.
