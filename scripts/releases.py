@@ -149,7 +149,8 @@ def publish(tag):
 def page(title, body, script=""):
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{html.escape(title)}</title><link rel="stylesheet" href="/style.css"></head>
+<title>{html.escape(title)}</title><link rel="stylesheet" href="/style.css">
+<link rel="icon" type="image/svg+xml" href="/icon.svg"><link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png"></head>
 <body><main>{body}</main>{script}</body></html>\n'''
 
 
@@ -157,7 +158,7 @@ def write_site(site, versions, beta):
     site.mkdir(parents=True, exist_ok=True)
     for source in (ROOT / "site").iterdir():
         shutil.copy2(source, site / source.name)
-    for name in ("CNAME", ".nojekyll", "icon-192.png", "icon-512.png", "icon-120.png"):
+    for name in ("CNAME", ".nojekyll", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png", "icon-120.png"):
         shutil.copy2(ROOT / "static" / name, site / name)
     rows = []
     for info in sorted(versions, key=lambda info: tuple(map(int, info["version"].split('.'))), reverse=True):

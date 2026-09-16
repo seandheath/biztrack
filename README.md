@@ -4,6 +4,24 @@ Static PWA for tracking expenses and mileage across multiple businesses. Runs in
 
 [User instructions](#for-users) · [Developer instructions](#for-developers)
 
+Mobile views with fictional business and transaction data.
+
+<p><img src="docs/screenshots/transactions.png" alt="Northstar Studio's sample expenses and mileage" width="260"></p>
+
+**Transactions:** View expenses and mileage for the selected business; tap an entry to edit it.
+
+---
+
+<p><img src="docs/screenshots/expense.png" alt="Sample $48.75 supplies purchase" width="260"></p>
+
+**Expense:** Record the vendor, amount, category, payment method, and an optional receipt.
+
+---
+
+<p><img src="docs/screenshots/mileage.png" alt="Sample 14.8-mile round trip" width="260"></p>
+
+**Mileage:** Record the route, distance, purpose, and driver; double the distance for a round trip.
+
 ## For users
 
 ### Get started

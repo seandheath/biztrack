@@ -99,6 +99,9 @@ with tempfile.TemporaryDirectory() as tmp:
     chooser = (second / "index.html").read_text()
     assert chooser.index('href="/v/1.2.4/"') < chooser.index('href="/v/1.2.3/"')
     assert '<link rel="manifest"' not in chooser
+    for icon in ("icon.svg", "icon-180.png"):
+        assert f'href="/{icon}"' in chooser
+        assert (second / icon).read_bytes() == (ROOT / "static" / icon).read_bytes()
     assert 'href="/beta/history/"' in (second / "history/index.html").read_text()
     assert (second / "404.html").is_file()
     rejects(lambda: r.assemble(second))
