@@ -15,6 +15,8 @@
   import { transactionUrl as buildTransactionUrl } from '$lib/util.js';
   import { getCachedTransactions, mergeTransactions, refreshYearTransactions } from '$lib/sync.js';
   import BusinessDropdown from '../components/BusinessDropdown.svelte';
+  import Toast from '../components/Toast.svelte';
+  import { toast } from '$lib/toast.svelte.js';
 
   // ---------------------------------------------------------------------------
   // Live state — pulled from Sheets (expenses + mileage merged)
@@ -222,3 +224,4 @@
   </div>
 {/if}
 
+<Toast message={toast.message} type={toast.type} visible={toast.visible} />

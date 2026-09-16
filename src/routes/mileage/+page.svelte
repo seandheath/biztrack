@@ -300,7 +300,7 @@
           if (!navigator.onLine && !(err instanceof AuthError)) {
             enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'update', row });
             showToast('Saved offline — will sync when back online', 'success');
-            goto(returnTo || '/');
+            goto('/');
             return;
           }
           throw err;
@@ -312,7 +312,7 @@
         }
         updateCachedTransaction(spreadsheetId, 'Mileage', row);
         invalidatePull(spreadsheetId);
-        goto(returnTo || '/');
+        goto('/');
         return;
       }
 
@@ -322,8 +322,7 @@
         if (!navigator.onLine && !(err instanceof AuthError)) {
           enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'create', row });
           showToast('Saved offline — will sync when back online', 'success');
-          milErrors = {};
-          saveFavOpen = false; saveFavName = '';
+          goto('/');
           return;
         }
         throw err;
@@ -370,6 +369,7 @@
           cacheTransactions(spreadsheetId, 'Mileage', pulled);
         })
         .catch(() => syncStatus.set('red'));
+      goto('/');
     } catch (err) {
       console.error('[mileage] submit:', err);
       showToast(friendlyError(err), 'error');

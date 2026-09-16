@@ -7,7 +7,7 @@
    *
    * Extracted from the former home page (/) as a dedicated route.
    * Business selection triggers config load + vendor cache sync + year folder ensure.
-   * Supports rapid entry: date, category, and payment method are preserved after submit.
+   * Returns to the main screen after saving.
    * Handles Android Web Share Target receipts via $pendingReceipt store.
    */
 
@@ -26,7 +26,7 @@
   import { listFileNames, uploadFile, findFile } from '$lib/drive.js';
   import { pushTransactions, updateByUUID, deleteByUUID, batchSetCategory, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.svelte.js';
-  import { todayISO, friendlyError, transactionUrl } from '$lib/util.js';
+  import { todayISO, friendlyError } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
   import { syncStatus, cacheTransactions, invalidatePull, removeCachedTransaction, updateCachedTransaction } from '$lib/sync.js';
   import { ensureYearFolder, loadBusinessData as _loadBusinessData } from '$lib/business.js';
@@ -99,20 +99,13 @@
     { description: '', amount: '', category: '' },
   ]);
 
-  /** Ref to vendor input for auto-focus after submit */
-  let vendorInputEl = $state(null);
-
   // ---------------------------------------------------------------------------
-  // Share state — post-save share panel + share URL edit mode
+  // Share URL edit mode
   // ---------------------------------------------------------------------------
-
-  /** txnId of the most recently saved expense; shows share panel when set. */
-  let lastSavedTxnId = $state('');
-  let lastSavedYear  = $state(0);
 
   /** True when the page loaded from a share URL and is editing an existing row. */
   let shareMode        = $state(false);
-  /** Route to navigate to after a successful edit-mode save (e.g. '/review'). */
+  /** Origin route for Review controls, skipping, and deleting. */
   let returnTo         = $state('');
   let shareLoading     = $state(false);
   let shareLoadError   = $state('');
@@ -265,8 +258,7 @@
               for (const row of rows)
                 enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'create', row });
               showToast('Saved offline — will sync when back online', 'success');
-              if (returnTo) { goto(returnTo); return; }
-              shareMode = false;
+              goto('/');
               return;
             }
             throw err;
@@ -276,8 +268,6 @@
           removeCachedTransaction(shareSheetId, 'Expenses', shareTxnId);
           invalidatePull(spreadsheetId);
           if (shareSheetId !== spreadsheetId) invalidatePull(shareSheetId);
-          if (returnTo) { goto(returnTo); return; }
-          shareMode = false;
         } else {
           // Single-row update
           const [updatedRow] = rows;
@@ -293,8 +283,7 @@
             if (!navigator.onLine && !(err instanceof AuthError)) {
               enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'update', row: updatedRow });
               showToast('Saved offline — will sync when back online', 'success');
-              if (returnTo) { goto(returnTo); return; }
-              shareMode = false;
+              goto('/');
               return;
             }
             throw err;
@@ -324,15 +313,13 @@
                 } catch (err) { console.warn('[expense] batchSetCategory:', err); }
               }
             }
-            goto(returnTo);
-            return;
           }
-          shareMode = false;
         }
       } else {
         // Single and split creates share the same batch-write/offline path.
         try {
           await pushTransactions(spreadsheetId, 'Expenses', rows);
+          showToast(splitMode ? `${rows.length} expenses saved!` : 'Expense saved!', 'success');
         } catch (err) {
           if (!navigator.onLine && !(err instanceof AuthError)) {
             for (const row of rows)
@@ -353,14 +340,6 @@
           );
         }
 
-        // Show share panel (only in single mode — split rows share no single txnId)
-        if (!splitMode) {
-          lastSavedTxnId = rows[0].id;
-          lastSavedYear  = year;
-        }
-
-        showToast(splitMode ? `${rows.length} expenses saved!` : 'Expense saved!', 'success');
-
         // Background re-pull to update cache
         invalidatePull(spreadsheetId);
         syncStatus.set('yellow');
@@ -370,24 +349,8 @@
             cacheTransactions(spreadsheetId, 'Expenses', pulled);
           })
           .catch(() => syncStatus.set('red'));
-
-        // Clear fields — preserve date, category, payment for rapid entry
-        expVendor   = '';
-        expDesc     = '';
-        expAmount   = '';
-        expNotes    = '';
-        expReceipt  = null;
-        expErrors   = {};
-        if (splitMode) {
-          splits = [
-            { description: '', amount: '', category: '' },
-            { description: '', amount: '', category: '' },
-          ];
-        }
-
-        // Auto-focus vendor for next entry
-        setTimeout(() => vendorInputEl?.focus(), 50);
       }
+      goto('/');
     } catch (err) {
       console.error('[expense] submit:', err);
       showToast(friendlyError(err), 'error');
@@ -444,32 +407,6 @@
   function handleSplitAmountBlur(i) {
     const val = parseFloat(splits[i].amount);
     if (!isNaN(val)) splits[i].amount = val.toFixed(2);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Share helpers
-  // ---------------------------------------------------------------------------
-
-  async function doShare() {
-    const url = transactionUrl('/expense', $selectedBusiness.id ?? $selectedBusiness.folderId, lastSavedYear, lastSavedTxnId);
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: 'Complete this expense', url });
-      } else {
-        await navigator.clipboard.writeText(url);
-        showToast('Link copied!', 'success');
-      }
-      lastSavedTxnId = '';
-    } catch {
-      // User cancelled share — leave panel open
-    }
-  }
-
-  async function doCopyShareLink() {
-    const url = transactionUrl('/expense', $selectedBusiness.id ?? $selectedBusiness.folderId, lastSavedYear, lastSavedTxnId);
-    await navigator.clipboard.writeText(url);
-    showToast('Link copied!', 'success');
-    lastSavedTxnId = '';
   }
 
   // ---------------------------------------------------------------------------
@@ -598,7 +535,7 @@
       <!-- Vendor -->
       <div class="flex flex-col gap-1">
         <label for="exp-vendor" class="text-sm font-medium" style="color: var(--color-text-muted);">Vendor / Payee</label>
-        <Autocomplete items={$vendorCache} id="exp-vendor" bind:value={expVendor} bind:inputEl={vendorInputEl} onpick={handleVendorPick} placeholder="Vendor/Payee" listboxPrefix="vendor" />
+        <Autocomplete items={$vendorCache} id="exp-vendor" bind:value={expVendor} onpick={handleVendorPick} placeholder="Vendor/Payee" listboxPrefix="vendor" />
         {#if expErrors.vendor}
           <span class="text-xs" style="color: var(--color-error);">{expErrors.vendor}</span>
         {/if}
@@ -847,46 +784,6 @@
       {/if}
 
     </form>
-
-    <!-- Share panel — appears after a successful new expense save -->
-    {#if lastSavedTxnId && $selectedBusiness?.id}
-      <div class="rounded-xl border p-4 flex flex-col gap-3"
-           style="border-color: var(--color-border); background-color: var(--color-surface-2);">
-        <p class="text-sm font-medium" style="color: var(--color-text);">Share for completion?</p>
-        <p class="text-xs" style="color: var(--color-text-muted);">
-          Send this link to someone to fill in missing details.
-        </p>
-        <div class="flex gap-2">
-          {#if typeof navigator !== 'undefined' && navigator.share}
-            <button
-              type="button"
-              onclick={doShare}
-              class="flex-1 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80"
-              style="min-height: 44px; background-color: var(--color-primary); color: var(--color-primary-text);"
-            >
-              Share Link
-            </button>
-          {/if}
-          <button
-            type="button"
-            onclick={doCopyShareLink}
-            class="flex-1 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80"
-            style="min-height: 44px; background-color: var(--color-surface-3, var(--color-border)); color: var(--color-text);"
-          >
-            Copy Link
-          </button>
-          <button
-            type="button"
-            onclick={() => lastSavedTxnId = ''}
-            class="rounded-xl px-3 text-sm transition-opacity hover:opacity-70"
-            style="min-height: 44px; color: var(--color-text-muted);"
-            aria-label="Dismiss"
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-    {/if}
 
   {/if}
 

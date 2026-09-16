@@ -152,6 +152,8 @@ try {
   }
 
   // Execute the actual form handlers, as the auth test does for layout startup.
+  const homeSource = await readFile(new URL('../src/routes/+page.svelte', import.meta.url), 'utf8');
+  const homeEffect = parse(homeSource).instance.content.body.find(n => n.expression?.callee?.name === '$effect');
   for (const kind of ['expense', 'mileage']) {
     const source = await readFile(new URL(`../src/routes/${kind}/+page.svelte`, import.meta.url), 'utf8');
     const script = parse(source).instance.content.body;
@@ -161,27 +163,51 @@ try {
       const node = script.find(n => n.type === 'FunctionDeclaration' && n.id.name === name);
       return source.slice(node.start, node.end);
     }).join('\n');
-    for (const mode of kind === 'expense' ? ['create', 'split', 'edit', 'offline', 'split-offline', 'failure'] : ['create', 'edit', 'offline', 'failure']) {
-      const writes = [], queued = [], messages = [];
+    const modes = ['create', 'edit', 'offline', 'edit-offline', 'failure', 'invalid', 'auth-failure', 'offline-auth-failure', 'offline-queue-failure'];
+    modes.push(...(kind === 'expense' ? ['split', 'split-offline', 'split-edit', 'split-edit-offline', 'split-edit-offline-queue-failure'] : ['duplicate']));
+    for (const mode of modes) for (const returnTo of mode.includes('edit') ? ['', '/history?year=2025', '/review'] : ['']) {
+      const writes = [], queued = [], messages = [], navigations = [], events = [];
       const offline = mode.includes('offline');
+      const editing = mode.includes('edit');
+      const split = mode.startsWith('split');
+      const year = new Date().getFullYear();
+      const date = `${year}-02-01`;
+      class AuthError extends Error {}
       const write = async (...args) => {
+        await Promise.resolve();
+        if (mode === 'offline-auth-failure') throw new AuthError('authorization failed');
         if (offline || mode === 'failure') throw new Error('write failed');
         writes.push(args);
+        events.push('write');
       };
       const noop = () => {};
       const context = vm.createContext({
         crypto, console: { error: noop }, setTimeout: noop, navigator: { onLine: !offline },
-        AuthError: class extends Error {}, ensureAuthorized: async () => {},
-        $selectedBusiness: { sheetIds: { 2026: 'sheet' }, receiptFolderIds: {} }, $userEmail: 'owner',
-        expDate: '2026-02-01', expVendor: ' Vendor ', expDesc: ' Description ', expAmount: '12.50', expCategory: 'Supplies', expPayment: 'Cash', expNotes: ' Notes ', expReceipt: null,
-        shareMode: mode === 'edit', splitMode: mode.startsWith('split'), shareTxnId: 'existing', shareSheetId: 'sheet', shareSubmittedBy: 'original-owner', existingReceipt: 'receipt.pdf', returnTo: '/history', applyToAll: false,
+        AuthError, ensureAuthorized: async () => { if (mode === 'auth-failure') throw new AuthError('authorization failed'); },
+        $selectedBusiness: { sheetIds: { [year]: 'sheet' }, receiptFolderIds: {} }, $userEmail: 'owner',
+        expDate: mode === 'invalid' ? '' : date, expVendor: ' Vendor ', expDesc: ' Description ', expAmount: '12.50', expCategory: 'Supplies', expPayment: 'Cash', expNotes: ' Notes ', expReceipt: null,
+        shareMode: editing, splitMode: split, shareTxnId: 'existing', shareSheetId: 'sheet', shareSubmittedBy: 'original-owner', existingReceipt: 'receipt.pdf', returnTo, applyToAll: returnTo === '/review',
         splits: [{ description: ' A ', amount: '10.00', category: 'Supplies' }, { description: ' B ', amount: '2.50', category: 'Meals' }, { description: '', amount: '', category: '' }],
-        milDate: '2026-02-01', milFrom: ' From ', milTo: ' To ', milPurpose: ' Purpose ', milMiles: '5', milRoundTrip: true, milDriver: ' Driver ',
-        editMode: mode === 'edit', editTxnId: 'existing', editSheetId: 'sheet', confirmDuplicate: false,
-        getCachedTransactions: () => [], pushTransactions: write, updateByUUID: (sid, tab, row) => write(sid, tab, [row]),
-        enqueue: entry => queued.push(entry), showToast: (...args) => messages.push(args), friendlyError: error => error.message,
-        invalidatePull: noop, removeCachedTransaction: noop, updateCachedTransaction: noop, cacheTransactions: noop, goto: noop,
-        syncStatus: { set: noop }, pullTransactions: async () => [],
+        milDate: mode === 'invalid' ? '' : date, milFrom: ' From ', milTo: ' To ', milPurpose: ' Purpose ', milMiles: '5', milRoundTrip: true, milDriver: ' Driver ',
+        editMode: editing, editTxnId: 'existing', editSheetId: 'sheet', confirmDuplicate: false,
+        getCachedTransactions: () => mode === 'duplicate' ? [{ date, from: 'From', to: 'To', miles: '10', driver: 'Driver' }] : [],
+        pushTransactions: write, updateByUUID: (sid, tab, row) => write(sid, tab, [row]), deleteByUUID: write,
+        enqueue: entry => {
+          if (mode.endsWith('queue-failure')) throw new Error('storage full');
+          queued.push(entry);
+          events.push('queue');
+        },
+        showToast: (...args) => messages.push(args), friendlyError: error => error.message,
+        invalidatePull: () => events.push('invalidate'), removeCachedTransaction: noop, updateCachedTransaction: noop, cacheTransactions: noop,
+        goto: destination => { navigations.push(destination); events.push('navigate'); },
+        syncStatus: { set: noop }, pullTransactions: async () => [{ id: 'other', vendor: ' Vendor ', category: 'Uncategorized' }],
+        batchSetCategory: async (sid, ids, category) => {
+          await Promise.resolve();
+          assert.equal(sid, 'sheet');
+          assert.deepEqual(Array.from(ids), ['other']);
+          assert.equal(category, 'Supplies');
+          events.push('categorize');
+        },
         vendorCache: { update: noop }, paymentMethodCache: { update: noop }, destinationCache: { update: noop }, originCache: { update: noop }, driverCache: { update: noop },
       });
       if (kind === 'mileage') {
@@ -189,27 +215,59 @@ try {
         context.milEffectiveMiles = vm.runInContext(`(${source.slice(derived.start, derived.end)})()`, context);
       }
       await vm.runInContext(`${functions}\n${handler}();`, context);
-      if (mode === 'failure') {
-        assert.equal(queued.length, 0, 'an online failure must not enqueue an ambiguous write');
-        assert.ok(messages.some(([message, type]) => message === 'write failed' && type === 'error'));
+      if (mode === 'duplicate') {
+        assert.deepEqual(navigations, [], 'duplicate confirmation must stay on the form');
+        assert.equal(writes.length, 0);
+        assert.equal(context.confirmDuplicate, true);
+        await vm.runInContext(`${handler}();`, context);
+      }
+      if (mode.endsWith('failure') || mode === 'invalid') {
+        assert.deepEqual(navigations, [], `${kind} ${mode} must stay on the form`);
+        assert.equal(writes.length, 0);
+        assert.equal(queued.length, 0);
+        if (mode !== 'invalid') {
+          const error = mode.endsWith('queue-failure') ? 'storage full' : mode.endsWith('auth-failure') ? 'authorization failed' : 'write failed';
+          assert.ok(messages.some(([message, type]) => message === error && type === 'error'));
+        }
         assert.equal(kind === 'expense' ? context.expVendor : context.milFrom, kind === 'expense' ? ' Vendor ' : ' From ');
         continue;
       }
-      const rows = offline ? queued.map(entry => entry.row) : writes[0]?.[2];
-      assert.equal(rows?.length, mode.startsWith('split') ? 2 : 1);
+      assert.deepEqual(navigations, ['/'], `${kind} ${mode} from ${returnTo} must return home once`);
+      assert.ok(events.indexOf('navigate') > events.lastIndexOf(offline ? 'queue' : 'write'));
+      if (!offline) {
+        assert.ok(events.includes('invalidate'));
+        assert.ok(events.indexOf('invalidate') < events.indexOf('navigate'), 'refresh must be invalidated before returning home');
+      }
+      if (kind === 'expense' && editing && !split && !offline && returnTo === '/review') {
+        assert.ok(events.includes('categorize'));
+        assert.ok(events.indexOf('categorize') < events.indexOf('navigate'), 'bulk categorization must finish before returning home');
+      }
+      if (offline) assert.match(messages.at(-1)[0], /Saved offline/);
+      const rows = offline ? queued.filter(entry => entry.operation !== 'delete').map(entry => entry.row) : writes.at(-1)?.[2];
+      assert.equal(rows?.length, split ? 2 : 1);
       assert.equal(new Set(rows.map(row => row.id)).size, rows.length);
       if (kind === 'expense') {
-        assert.deepEqual(Array.from(rows, row => row.amount), mode.startsWith('split') ? ['10.00', '2.50'] : ['12.5']);
+        assert.deepEqual(Array.from(rows, row => row.amount), split ? ['10.00', '2.50'] : ['12.5']);
         assert.equal(rows[0].vendor, 'Vendor');
-        assert.equal(rows[0].submittedBy, mode === 'edit' ? 'original-owner' : 'owner');
-        assert.equal(rows[0].receipt, mode === 'edit' ? 'receipt.pdf' : '');
-        if (mode !== 'edit') assert.equal(context.expVendor, '');
+        assert.equal(rows[0].submittedBy, editing ? 'original-owner' : 'owner');
+        assert.equal(rows[0].receipt, editing ? 'receipt.pdf' : '');
       } else {
         assert.equal(rows[0].miles, '10');
         assert.equal(rows[0].driver, 'Driver');
         assert.equal(context.milFrom, ' From ', 'mileage keeps its fields after saving');
       }
-      if (mode === 'edit') assert.equal(rows[0].id, 'existing');
+      if (editing && !split) assert.equal(rows[0].id, 'existing');
+      if (mode === 'create') {
+        context.$effect = effect => effect();
+        context.mergeTransactions = sync.mergeTransactions;
+        context.refreshYearTransactions = async sid => {
+          assert.equal(sid, 'sheet');
+          return { expenses: kind === 'expense' ? rows : [], mileage: kind === 'mileage' ? rows : [] };
+        };
+        vm.runInContext(homeSource.slice(homeEffect.start, homeEffect.end), context);
+        await tick();
+        assert.deepEqual(Array.from(context.rows, row => [row.id, row._type]), [[rows[0].id, kind]], 'home refresh must display the saved current-year entry');
+      }
     }
   }
   console.log('Cleanup regression checks passed.');
