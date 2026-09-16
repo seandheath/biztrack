@@ -1,4 +1,5 @@
 <script>
+  import { ensureAuthorized, AuthError } from '$lib/auth.js';
   import Spinner from '../../components/Spinner.svelte';
   /**
    * Mileage entry form.
@@ -245,6 +246,7 @@
 
     milSubmitting = true;
     try {
+      await ensureAuthorized();
       const year = new Date(milDate + 'T00:00:00').getFullYear();
       let biz = $selectedBusiness;
 
@@ -296,7 +298,7 @@
             await updateByUUID(spreadsheetId, 'Mileage', updatedRow);
           }
         } catch (err) {
-          if (!navigator.onLine) {
+          if (!navigator.onLine && !(err instanceof AuthError)) {
             enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'update', row: updatedRow });
             showToast('Saved offline — will sync when back online', 'success');
             goto(returnTo || '/');
@@ -328,7 +330,7 @@
       try {
         await pushTransactions(spreadsheetId, 'Mileage', [newRow]);
       } catch (err) {
-        if (!navigator.onLine) {
+        if (!navigator.onLine && !(err instanceof AuthError)) {
           enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'create', row: newRow });
           showToast('Saved offline — will sync when back online', 'success');
           milErrors = {};

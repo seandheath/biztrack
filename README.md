@@ -25,7 +25,7 @@ Zero-backend PWA for tracking business expenses and mileage across multiple LLCs
 | Framework | SvelteKit 2 + Svelte 5 (runes API) |
 | Output | `adapter-static` — pure SPA, `fallback: '404.html'` |
 | Styling | Tailwind CSS v4, CSS custom properties for theming |
-| Auth | Google Identity Services (GIS) token model — memory-only, no backend |
+| Auth | Google Identity Services (GIS) token model — short-lived token reuse and explicit reconnect, no backend |
 | Storage | Google Drive (files) + Google Sheets (ledger) via raw `fetch()` |
 | Folder Selection | Custom FolderBrowser component (Drive API v3 direct) |
 | PWA | `@vite-pwa/sveltekit`, `injectManifest`, Web Share Target (Android) |
@@ -87,6 +87,29 @@ VITE_GOOGLE_CLIENT_ID=<your OAuth client ID>
 VITE_GOOGLE_API_KEY=<your API key>
 VITE_GOOGLE_APP_ID=<your GCP project number>
 ```
+
+---
+
+## Google reconnection
+
+The app reuses a saved access token until Google expires it (usually about an hour).
+On returning with expired access, reconnect before viewing your business data.
+During entry, reconnecting preserves the mounted form and receipt; waiting API calls
+resume after the same Google account is verified. Only a request rejected with HTTP
+401 is retried, once. Network failures do not automatically replay writes.
+
+**Sign Out** clears this device without revoking Google permission. **Disconnect
+Google Drive** also revokes the grant, including its use on other devices. Pending
+offline changes must be synced or explicitly discarded before either action.
+
+Local storage contains tokens, the account email, cached business data, and existing
+offline writes. This is not an encrypted vault; protect your browser profile and sign
+out on shared devices. Reconnection preserves work in the current page, not after a
+browser termination or manual reload. App updates offer a safe reload instead of
+interrupting an entry form.
+
+Run `npm test` for the auth regression check. Google Testing mode still expires
+consent after seven days; see the setup guide for production configuration.
 
 ---
 

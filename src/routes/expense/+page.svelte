@@ -1,10 +1,6 @@
-<script module>
-  // Vendor → {category, paymentMethod} defaults derived from the current sheet.
-  // Module-level so it survives SvelteKit client-side navigations within the session.
-  let vendorDefaults = {};
-</script>
-
 <script>
+  let vendorDefaults = {};
+  import { ensureAuthorized, AuthError } from '$lib/auth.js';
   import Spinner from '../../components/Spinner.svelte';
   /**
    * Expense entry form.
@@ -207,6 +203,7 @@
 
     expSubmitting = true;
     try {
+      await ensureAuthorized();
       const year = new Date(expDate + 'T00:00:00').getFullYear();
       let biz = $selectedBusiness;
 
@@ -258,7 +255,7 @@
             await deleteByUUID(shareSheetId, 'Expenses', shareTxnId);
             await pushTransactions(spreadsheetId, 'Expenses', rows);
           } catch (err) {
-            if (!navigator.onLine) {
+            if (!navigator.onLine && !(err instanceof AuthError)) {
               enqueue({ spreadsheetId: shareSheetId, sheetName: 'Expenses', operation: 'delete', row: { id: shareTxnId } });
               for (const row of rows)
                 enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'create', row });
@@ -294,7 +291,7 @@
               await updateByUUID(spreadsheetId, 'Expenses', updatedRow);
             }
           } catch (err) {
-            if (!navigator.onLine) {
+            if (!navigator.onLine && !(err instanceof AuthError)) {
               enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'update', row: updatedRow });
               showToast('Saved offline — will sync when back online', 'success');
               if (returnTo) { goto(returnTo); return; }
@@ -357,7 +354,7 @@
           try {
             await pushTransactions(spreadsheetId, 'Expenses', rows);
           } catch (err) {
-            if (!navigator.onLine) {
+            if (!navigator.onLine && !(err instanceof AuthError)) {
               for (const row of rows)
                 enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'create', row });
               showToast('Saved offline — will sync when back online', 'success');
@@ -375,7 +372,7 @@
           try {
             await pushTransactions(spreadsheetId, 'Expenses', [row]);
           } catch (err) {
-            if (!navigator.onLine) {
+            if (!navigator.onLine && !(err instanceof AuthError)) {
               enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'create', row });
               showToast('Saved offline — will sync when back online', 'success');
             } else { throw err; }

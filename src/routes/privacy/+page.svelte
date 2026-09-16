@@ -4,7 +4,7 @@
 
 <div class="max-w-2xl mx-auto px-6 py-12" style="color: var(--color-text); font-family: system-ui, sans-serif;">
   <h1 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.25rem;">Privacy Policy</h1>
-  <p style="color: var(--color-text-muted); margin-bottom: 2rem;">Last updated: March 2026</p>
+  <p style="color: var(--color-text-muted); margin-bottom: 2rem;">Last updated: September 2026</p>
 
   <section style="margin-bottom: 2rem;">
     <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Overview</h2>
@@ -18,12 +18,17 @@
 
   <section style="margin-bottom: 2rem;">
     <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Google Account Access</h2>
-    <p>BizTrack uses Google Sign-In and requests the <code style="background: var(--color-surface-3); padding: 0.1em 0.3em; border-radius: 3px;">drive</code> permission scope. This scope allows BizTrack to read and write files in your Google Drive so it can manage business folders you select — including folders on Shared Drives created by other users. BizTrack only accesses the specific folders you choose; it does not scan or modify unrelated files. Your access token is held in browser memory only and is never written to disk or transmitted to any server other than Google's.</p>
+    <p>BizTrack uses Google Sign-In and requests the <code style="background: var(--color-surface-3); padding: 0.1em 0.3em; border-radius: 3px;">drive</code> permission scope. This scope allows BizTrack to read and write files in your Google Drive so it can manage business folders you select — including folders on Shared Drives created by other users. BizTrack only accesses the specific folders you choose; it does not scan or modify unrelated files. Your short-lived access token and its expiry are saved in this browser so they can be reused until Google expires the token. Tokens are sent only to Google; BizTrack operates no authentication server and stores no refresh tokens. The granted permission technically allows access across your Drive, although BizTrack uses it for its app folder and the business folders you select.</p>
   </section>
 
   <section style="margin-bottom: 2rem;">
     <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Local Storage</h2>
-    <p>BizTrack stores a small amount of data in your browser's local storage as a convenience cache: the list of businesses you've added and a cache of vendor names for autocomplete. This data never leaves your device and can be cleared by clearing your browser's site data.</p>
+    <p>BizTrack stores your account email, access token, business configuration, cached transaction records, preferences, and any pending offline changes in this browser. Pending changes are sent to Google when synced. Receipts received through the Android share feature can be held temporarily in the browser cache. These local copies are not encrypted by BizTrack and may be accessible to someone with access to your browser profile. Reconnecting before viewing the workspace is an app interface control, not encryption.</p>
+  </section>
+
+  <section style="margin-bottom: 2rem;">
+    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Sign Out and Disconnect</h2>
+    <p>Sign Out clears account data from this device without revoking Google permission. Disconnect Google Drive also asks Google to revoke BizTrack's grant, which can affect your other devices. Neither action deletes your Drive files. Sync pending changes first, or explicitly choose to discard them. Clearing browser site data also removes local copies and any unsynced work. Unfinished forms survive reconnection within the page, but are not backed up across browser termination or manual reload.</p>
   </section>
 
   <section style="margin-bottom: 2rem;">
@@ -38,7 +43,6 @@
       <li>Google Identity Services (authentication)</li>
       <li>Google Drive API (file storage)</li>
       <li>Google Sheets API (expense ledger)</li>
-      <li>Google Picker API (folder selection)</li>
     </ul>
     <p style="margin-top: 0.75rem;">Your use of these services is governed by <a href="https://policies.google.com/privacy" style="color: var(--color-primary);">Google's Privacy Policy</a>.</p>
   </section>

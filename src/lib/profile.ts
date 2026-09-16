@@ -6,12 +6,12 @@
  * This lets a user sign in on a new device and automatically recover their
  * business list without re-adding everything manually.
  *
- * Uses drive.file scope only (no extra permissions required).
+ * Uses the app's Drive permission (no additional scope required).
  * The BizTrack folder ID is cached in localStorage to avoid a Drive
  * round-trip on every page navigation or app reopen.
  */
 
-import { apiFetch } from './auth.js';
+import { apiFetch, AuthError } from './auth.js';
 import { findFile, createFolder, downloadJson, uploadJson, updateJson } from './drive.js';
 import type { Business, MileageFavorite, ProfileData } from './types.js';
 
@@ -30,9 +30,7 @@ let _profileFileId: string | null = null;
  * Finds or creates the root BizTrack folder in the user's Drive root.
  * Result is cached in localStorage across tab closes.
  *
- * Only app-created files are visible under drive.file scope, so findFile
- * will return the folder we previously created — no ambiguity with
- * user-created folders of the same name.
+ * Finds the named app folder in this account's Drive root when no cached ID exists.
  */
 export async function ensureBizTrackFolder(): Promise<string> {
   try {
@@ -47,11 +45,15 @@ export async function ensureBizTrackFolder(): Promise<string> {
           const data = await resp.json();
           if (!data.trashed) return cached;
         }
-      } catch { /* Network/auth error — fall through to find-or-create */ }
+      } catch (error) {
+        if (error instanceof AuthError) throw error;
+      }
       // Cache is stale — clear and fall through
       localStorage.removeItem(LS_FOLDER_KEY);
     }
-  } catch { /* localStorage unavailable */ }
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+  }
 
   if (_ensureFolderInFlight) return _ensureFolderInFlight;
 
@@ -126,4 +128,5 @@ export async function saveProfile(
 /** Clears the cached profile file ID. Call on sign-out. */
 export function clearProfileCache(): void {
   _profileFileId = null;
+  _ensureFolderInFlight = null;
 }

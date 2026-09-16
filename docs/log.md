@@ -1,5 +1,12 @@
 # BizTrack — Decision Log
 
+## 2026-09-16 — Preserve PWA work through Google reconnection
+
+Keep static hosting and Google's browser token model. Preload GIS, validate the account before using cached data, and preserve mounted forms when authorization expires. API calls share an explicit reconnect wait and retry only a rejected HTTP-401 request once. Sign Out clears local data; Disconnect separately revokes the Google grant. Remove service-worker Google API caching and replace forced update reloads with a deferred reload action.
+
+This supersedes the historical memory-only token storage, permanent Testing-mode, and `drive.file` descriptions below. Current credentials and cached data are browser-local; the app requests full `drive` scope and has no backend. Google Console publishing status still requires an owner check.
+
+
 ---
 
 ## 2026-03-27 — sessionStorage token persistence (revision of memory-only decision)

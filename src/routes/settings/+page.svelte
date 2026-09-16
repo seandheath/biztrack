@@ -1,14 +1,28 @@
 <script>
   import { goto } from '$app/navigation';
   import { userEmail, businesses, selectedBusiness } from '$lib/store.js';
-  import { revokeToken } from '$lib/auth.js';
+  import { signOut, revokeToken } from '$lib/auth.js';
+  import { queueLength } from '$lib/services/offline-queue.js';
+  let accountBusy = $state(false);
+  let accountError = $state('');
 
   // Injected by vite.config.js at build time
   /* global __APP_VERSION__ */
   const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
 
-  function signOut() {
-    revokeToken();
+  async function endSession(disconnect) {
+    const pending = queueLength();
+    if (pending && !window.confirm(`${pending} pending change(s) have not synced. Discard them and ${disconnect ? 'disconnect' : 'sign out'}? Cancel to reconnect and sync first.`)) return;
+    if (disconnect && !window.confirm('Revoke BizTrack’s Google Drive access? Other devices using this Google grant will also need to reconnect. Your Drive files will remain.')) return;
+    accountBusy = true;
+    accountError = '';
+    try {
+      if (disconnect) await revokeToken(pending > 0);
+      else await signOut(pending > 0);
+      window.location.replace(disconnect ? '/?disconnected=1' : '/');
+    } catch (error) {
+      accountError = error.message || 'Could not complete this action. Please try again.';
+    } finally { accountBusy = false; }
   }
 
   function openBusiness(business) {
@@ -64,7 +78,8 @@
       </div>
       <!-- Sign out -->
       <button
-        onclick={signOut}
+        onclick={() => endSession(false)}
+        disabled={accountBusy}
         class="w-full flex items-center px-4 text-left hover:opacity-70 transition-opacity"
         style="color: var(--color-error); min-height: 48px;"
       >
@@ -73,7 +88,15 @@
         </svg>
         <span class="text-base">Sign Out</span>
       </button>
+      <button
+        onclick={() => endSession(true)}
+        disabled={accountBusy}
+        class="w-full px-4 text-left disabled:opacity-50"
+        style="color: var(--color-error); min-height: 48px;"
+      >Disconnect Google Drive</button>
     </div>
+    <p class="text-xs px-1" style="color: var(--color-text-muted);">Sign Out clears this device. Disconnect also revokes Google permission.</p>
+    {#if accountError}<p role="alert">{accountError}</p>{/if}
   </section>
 
   <!-- Data -->

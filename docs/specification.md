@@ -150,32 +150,28 @@ Examples:
 
 ### 4.1 Google Sign-In
 
-- Users authenticate via Google Identity Services (GIS) using the **token model** (implicit grant).
-- The app requests a single OAuth scope: `https://www.googleapis.com/auth/drive.file` — this covers all Drive and Sheets operations on files the app creates or files selected via the Google Picker.
-- No backend server is required. The access token is returned directly to the browser via popup.
+- Keep the GIS browser token model and direct Google API access, with no backend.
+- The current app requests `https://www.googleapis.com/auth/drive` for its shared-folder browser.
+- Preload GIS before enabling sign-in. Returning users use a saved login hint and `prompt: ''`; account selection is used after explicitly signing out.
+- Verify the returned account via Drive About before loading caches or resuming work. A different account cannot resume another user's workspace.
 
 ### 4.2 Token Lifecycle
 
-- Access tokens expire after **3,600 seconds** (1 hour) with no automatic refresh in the browser.
-- The app tracks token expiry time and shows a "Session expiring — tap to continue" prompt before expiration.
-- Re-authorization uses `requestAccessToken()` with `prompt: ''` and `login_hint` for a near-instant popup.
-- All API calls catch 401 errors as a fallback trigger for re-authorization.
-- Token and user info (email, name) are stored in memory only — not persisted to localStorage.
+- Persist the access token, expiry, and account hint locally. Google controls the expiry (typically about one hour); there is no browser refresh token.
+- Reuse a still-valid saved token after verifying its account. Require reconnect before exposing expired workspaces on return.
+- Keep forms mounted through expiry and reconnect, including receipt attachments. During an active visit, show a reconnect banner; pending calls wait for explicit user interaction.
+- Check authorization before starting expense/mileage saves. On HTTP 401, reconnect and retry only that request, once. Never automatically replay ambiguous network failures or the entire save sequence.
+- Cancellation preserves unfinished forms in the current page. Browser termination/manual reload recovery is not provided.
+- Sign Out clears local account state without revoking the grant. Disconnect explicitly revokes access and reports failure. Unsynced changes require sync or explicit discard first.
+- App updates offer a deferred reload; entry forms and pending operations block that reload.
 
-### 4.3 Google Picker for Folder Selection
+### 4.3 Folder Selection
 
-- The Google Picker API renders an in-app iframe for browsing and selecting Drive folders.
-- When a user selects a folder via the Picker, the `drive.file` scope grants the app access to that folder and allows creating new files/subfolders inside it.
-- Requires three parameters: OAuth access token, API key (from Cloud Console), and numeric App ID (Cloud project number).
-- The Picker is used only during business setup in Settings — not during day-to-day expense entry.
+The app uses its own Drive API folder browser for My Drive, Shared Drives, and shared folders. A narrower `drive.file` grant would require a separate selection/discovery redesign.
 
 ### 4.4 OAuth Verification Strategy
 
-- The Google Cloud project uses **Testing mode** permanently (supports up to 100 explicitly listed test users).
-- No OAuth verification, CASA security audit, or demo video required.
-- Users see a one-time "app isn't verified" interstitial on first sign-in and click through.
-- Testing mode imposes a 7-day authorization expiry, after which users see a full consent re-prompt.
-- Alternative: publishing to Production with only `drive.file` requires basic brand verification (2-3 days, free, no audit) since `drive.file` is classified as non-sensitive.
+Check the actual Google Console audience and publishing status before deployment. Testing expires Drive consent after seven days. Production removes that testing limit, subject to the requirements applicable to the audience and restricted scope; it does not extend access-token lifetime. See `google_cloud_setup.md` for the current setup and device test checklist.
 
 ### 4.5 Google Cloud Project Setup
 

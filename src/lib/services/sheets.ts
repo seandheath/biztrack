@@ -14,7 +14,7 @@
  *   A=date  B=from  C=to  D=purpose  E=miles  F=savedBy  G=id (UUID)  H=driver
  */
 
-import { apiFetch } from '../auth.js';
+import { apiFetch, AuthError } from '../auth.js';
 import { throwApiError } from '../api-error.js';
 
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -103,14 +103,14 @@ export async function ensureNotTrashed(spreadsheetId: string): Promise<void> {
     _trashedCache.set(spreadsheetId, { trashed: data.trashed === true, checkedAt: Date.now() });
     if (data.trashed) throw new Error('Spreadsheet has been deleted (404)');
   } catch (err) {
-    // Re-throw our own "deleted" error; swallow network/auth errors
-    if ((err as Error).message.includes('deleted')) throw err;
+    if (err instanceof AuthError || (err as Error).message.includes('deleted')) throw err;
   }
 }
 
 /** Clears the trashed-check cache. Call on sign-out or business change. */
 export function clearTrashedCache(): void {
   _trashedCache.clear();
+  _sheetTabIdCache.clear();
 }
 
 async function _getSheetTabId(spreadsheetId: string, sheetName: string): Promise<number> {

@@ -1,6 +1,6 @@
 # BizTrack — Google Cloud Setup Guide
 
-Follow these steps once to configure the Google Cloud project that BizTrack uses for OAuth, Drive, Sheets, and Picker.
+Follow these steps once to configure the Google Cloud project that BizTrack uses for OAuth, Drive, and Sheets.
 
 ---
 
@@ -23,7 +23,6 @@ Enable each of these:
 |-----|-------------|
 | Google Drive API | `Drive API` |
 | Google Sheets API | `Sheets API` |
-| Google Picker API | `Picker API` |
 
 Click the API name, then **Enable**.
 
@@ -40,17 +39,28 @@ Go to **APIs & Services → OAuth consent screen**.
    - **Developer contact information:** your email
 3. Click **Save and Continue**
 4. **Scopes** → **Add or Remove Scopes**
-   - Search for `drive.file`
-   - Select `https://www.googleapis.com/auth/drive.file` (listed as non-sensitive — no security audit required)
+   - Search for `drive`
+   - Select `https://www.googleapis.com/auth/drive`, matching `src/lib/constants.ts` (restricted scope; needed by the current shared-folder browser)
    - Click **Update** → **Save and Continue**
 5. **Test users** → **Add Users**
    - Add the Google account email addresses of all BizTrack users (up to 100)
    - Click **Save and Continue**
 6. Review and click **Back to Dashboard**
 
-**Publishing status:** Leave as **Testing**. This is permanent — no OAuth verification or CASA security audit is required. Testing mode supports up to 100 explicitly listed test users.
+**Publishing status:** Check **Google Auth Platform → Audience** in the Console.
+For regular use, use **In production**, completing the requirements applicable to
+your audience and the restricted Drive scope. For an app limited to one Google
+Workspace organization, check whether an Internal audience is appropriate.
 
-> **Note:** Testing mode imposes a 7-day authorization expiry. After 7 days, users see a full re-consent screen. If this becomes inconvenient, you can publish to Production — `drive.file` is non-sensitive and only requires basic brand verification (2–3 days, free, no audit). See [OAuth verification policy](https://support.google.com/cloud/answer/9110914).
+Testing mode is suitable for development, but Drive consent expires after seven
+days. Production removes that testing limit; it does **not** extend the roughly
+one-hour access-token lifetime or guarantee that Google never asks for consent.
+The repo cannot report the project's current publishing or verification status.
+
+See [Google's audience guidance](https://support.google.com/cloud/answer/15549945)
+and [Drive scope requirements](https://developers.google.com/workspace/drive/api/guides/api-specific-auth).
+Do not substitute `drive.file` without redesigning and testing existing shared-file
+selection and discovery.
 
 ---
 
@@ -69,66 +79,59 @@ Go to **APIs & Services → Credentials** → **Create Credentials → OAuth cli
 
 Copy the **Client ID** (format: `XXXXXXXXXX.apps.googleusercontent.com`).
 
-Paste it into `biztrack/src/lib/auth.js`:
-```js
-const GOOGLE_CLIENT_ID = 'PASTE_YOUR_CLIENT_ID_HERE.apps.googleusercontent.com';
+Set it in `.env` (and the GitHub Actions repository secret):
+```env
+VITE_GOOGLE_CLIENT_ID=PASTE_YOUR_CLIENT_ID_HERE.apps.googleusercontent.com
 ```
 
 ---
 
-## 5. Create an API Key
+## 5. Optional Legacy Picker Credentials
 
-Go to **APIs & Services → Credentials** → **Create Credentials → API key**.
-
-After it's created, click **Edit API key** and configure:
-
-1. **Name:** `BizTrack Picker Key`
-2. **Application restrictions:** HTTP referrers (websites)
-   - Add: `http://localhost:5173/*`
-   - Add: `http://localhost:4173/*`
-   - Add your production domain: `https://app.biztrack.io/*` (or your GitHub Pages URL)
-3. **API restrictions:** Restrict key → select **Google Picker API** only
-4. Click **Save**
-
-Copy the **API key**.
-
-Paste it into `biztrack/src/lib/auth.js`:
-```js
-export const GOOGLE_API_KEY = 'PASTE_YOUR_API_KEY_HERE';
-```
-
----
-
-## 6. Get Your Numeric App ID
-
-The Google Picker requires your project's numeric App ID (different from the client ID).
-
-1. Go to **IAM & Admin → Settings** (or the Home dashboard)
-2. Copy the **Project number** (numeric, e.g. `123456789012`)
-
-Paste it into `biztrack/src/lib/auth.js`:
-```js
-export const GOOGLE_APP_ID = 'PASTE_YOUR_PROJECT_NUMBER_HERE';
-```
+The current app uses its own Drive folder browser, not Google Picker. The
+`VITE_GOOGLE_API_KEY` and `VITE_GOOGLE_APP_ID` variables remain for compatibility;
+they are not used for the reconnect flow. Do not place an OAuth client secret in
+any `VITE_*` variable: those values are public in the browser bundle.
 
 ---
 
 ## 7. Verify Setup
 
-After configuring credentials in `auth.js`, run the dev server:
+After configuring `.env`, run the dev server:
 
 ```bash
-cd biztrack
 npm run dev
 ```
 
 Click **Sign in with Google**. You should see:
 - A Google account chooser popup
-- A one-time "This app isn't verified" interstitial (expected — click **Continue**)
-- The drive.file scope consent screen
+- An unverified-app warning if the current project configuration requires it
+- The Drive scope consent screen
 - Successful sign-in, returning to the BizTrack app shell
 
-If the popup is blocked: allow popups for `localhost:5173` in your browser settings.
+The sign-in buttons become available after the Google script loads. Returning users
+see **Continue as <email>**, using `prompt: ''` and a login hint. Google may still
+require authentication or consent. No popup is opened automatically by a timer.
+
+If the popup is blocked, allow popups for this site and retry. If script loading
+fails, check the connection and use **Retry loading Google sign-in**.
+
+Before release, test on desktop Chrome/Firefox/Safari, Android Chrome, and iOS
+Safari (browser and installed PWA where supported):
+
+- Reopen with a valid token; reopen after expiry and verify cached data is hidden.
+- Enter an expense with a receipt and split lines, and a mileage entry. Expire
+  access before saving and between API requests; reconnect without losing input.
+- Cancel or block the popup; retry and select a wrong account. No prior work may
+  run under the wrong account.
+- Background an expired session and return; the workspace must be hidden until
+  reconnect. Returning to an active session must retain the form.
+- Trigger an app update on an entry form; it must offer a deferred reload.
+- Verify Sign Out clears account data without revocation, and Disconnect reports
+  Google's actual revocation result. Test the unsynced-change discard warning.
+- Confirm `/privacy` and `/terms` remain accessible without sign-in.
+
+Automated auth regressions: `npm test`. Production build: `npm run build`.
 
 ---
 
@@ -136,6 +139,6 @@ If the popup is blocked: allow popups for `localhost:5173` in your browser setti
 
 | Credential | Where to paste |
 |------------|----------------|
-| OAuth Client ID | `src/lib/auth.js` → `GOOGLE_CLIENT_ID` |
-| API Key | `src/lib/auth.js` → `GOOGLE_API_KEY` |
-| Project Number | `src/lib/auth.js` → `GOOGLE_APP_ID` |
+| OAuth Client ID | `.env` → `VITE_GOOGLE_CLIENT_ID` |
+| API Key | Optional `.env` → `VITE_GOOGLE_API_KEY` |
+| Project Number | Optional `.env` → `VITE_GOOGLE_APP_ID` |

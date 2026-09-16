@@ -2,11 +2,11 @@
  * Svelte stores for BizTrack application state.
  *
  * Auth stores bridge auth.js module state into the Svelte reactive system via
- * callbacks registered in +layout.svelte (token lives in memory only, §4.2).
+ * callbacks registered in +layout.svelte (short-lived token persisted by auth.ts).
  *
  * Business/config stores are populated from Drive on each session start
- * (see initFromDrive in +layout.svelte). Nothing is cached in localStorage
- * except UX preferences (selected business name, email hint, iOS prompt flag).
+ * (see initFromDrive in +layout.svelte). sync.ts manages the browser data cache,
+ * which is loaded only after the account is verified.
  */
 
 import { writable, derived } from 'svelte/store';
@@ -110,6 +110,23 @@ export const defaultDrivers: Writable<Record<string, string>> = writable({});
  * NOT persisted — the file blob is held in the SW cache until consumed.
  */
 export const pendingReceipt: Writable<File | null> = writable(null);
+
+/** Clear all account-owned state before another account can open the workspace. */
+export function resetAccountStores(): void {
+  authToken.set(null);
+  userEmail.set(null);
+  businesses.set([]);
+  selectedBusiness.set(null);
+  businessConfig.set(null);
+  vendorCache.set([]);
+  paymentMethodCache.set([]);
+  destinationCache.set([]);
+  originCache.set([]);
+  driverCache.set([]);
+  mileageFavorites.set({});
+  defaultDrivers.set({});
+  pendingReceipt.set(null);
+}
 
 // ---------------------------------------------------------------------------
 // Helpers

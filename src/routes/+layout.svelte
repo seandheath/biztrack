@@ -8,23 +8,27 @@
   import { page } from '$app/stores';
   import {
     loadGisScript,
-    initTokenClient,
     requestToken,
-    refreshToken,
-    revokeToken,
+    signOut,
+    restoreSession,
+    getEmail,
+    getSessionVersion,
+    hasPendingOperations,
+    expireToken,
+    cancelReconnection,
+    AuthError,
     isTokenValid,
     getTokenSecondsRemaining,
     onTokenUpdate,
     onAuthRequired,
   } from '$lib/auth.js';
-  import { get } from 'svelte/store';
   import { authToken, userEmail, isAuthenticated, businesses, selectedBusiness, mileageFavorites, defaultDrivers } from '$lib/store.js';
-  import { ensureBizTrackFolder, loadProfile, saveProfile } from '$lib/profile.js';
-  import { loadConfig, discoverYearFolders, ensureYearFolder } from '$lib/business.js';
+  import { ensureBizTrackFolder, loadProfile } from '$lib/profile.js';
+  import { discoverYearFolders, ensureYearFolder } from '$lib/business.js';
   import { findFile, downloadJson } from '$lib/drive.js';
   import * as storage from '$lib/storage.js';
-  import { drainQueue } from '$lib/services/offline-queue.js';
-  import { syncStatus, loadCache, writeCache, clearCache, getCachedBusinesses } from '$lib/sync.js';
+  import { drainQueue, queueLength } from '$lib/services/offline-queue.js';
+  import { syncStatus, loadCache, writeCache, getCachedBusinesses } from '$lib/sync.js';
 
   /** @type {{ children: import('svelte').Snippet }} */
   let { children } = $props();
@@ -66,8 +70,16 @@
   /** Email from a prior session — shown in "Continue as" button */
   let returningEmail = $state(null);
 
-  /** True when token has < 5 minutes remaining — shows the refresh banner */
+  /** Reconnect only once access expires or a Google request needs it. */
   let refreshBannerVisible = $state(false);
+  let gisReady = $state(false);
+  let gisLoading = $state(false);
+  let restoring = $state(true);
+  let workspaceMounted = $state(false);
+  let workspaceLocked = $state(false);
+  let reconnectPending = $state(false);
+  let updateReady = $state(false);
+  let reloadBlocked = $state(false);
 
   /**
    * True on iOS Safari when the app is NOT already installed as a PWA.
@@ -99,7 +111,7 @@
    * Returns true if all businesses hydrated successfully, false if any
    * fell back to cached data (caller should set sync status accordingly).
    */
-  async function initFromDrive() {
+  async function initFromDrive(version) {
     let usedFallback = false;
     try {
       const rootFolderId = await ensureBizTrackFolder();
@@ -127,6 +139,7 @@
             const discovered = await discoverYearFolders(skeleton);
             return await ensureYearFolder(discovered, currentYear);
           } catch (err) {
+            if (err instanceof AuthError) throw err;
             console.warn(`[init] failed to hydrate "${name}":`, err);
             // Fall back to cached version to preserve sheetIds and transaction access
             const cached = cachedByFolder.get(folderId);
@@ -139,6 +152,7 @@
         })
       );
 
+      if (version !== getSessionVersion()) return true;
       businesses.set(hydrated);
       mileageFavorites.set(profile.mileage_favorites ?? {});
       defaultDrivers.set(profile.default_drivers ?? {});
@@ -148,29 +162,25 @@
       if (toSelect) selectedBusiness.set(toSelect);
     } catch (err) {
       console.warn('[init] Drive discovery failed:', err);
+      throw err;
     }
     return usedFallback;
   }
 
   const IOS_PROMPT_KEY = 'biztrack_ios_prompt_dismissed';
 
-  onMount(async () => {
-    // Read saved email hint for the "Continue as" button.
-    // GIS requestAccessToken() always opens a popup — even with prompt:''.
-    // Calling it from onMount (no user gesture) causes the browser to block it.
-    // Instead, show a button so the popup is triggered by user interaction.
-    if (!isTokenValid()) {
-      const hint = localStorage.getItem('bt_email_hint');
-      if (hint) returningEmail = hint;
-    }
+  onMount(() => {
+    let disposed = false;
+    returningEmail = getEmail();
+    prepareSignIn();
 
-    // Initialize online state and listen for changes
     isOnline = navigator.onLine;
-    const setOnline  = () => { isOnline = true; };
-    const setOffline = () => { isOnline = false; };
-    const drainOnOnline = () => { drainQueue().catch(console.warn); };
-    window.addEventListener('online',  setOnline);
-    window.addEventListener('online',  drainOnOnline);
+    const drainIfReady = () => {
+      if (isTokenValid()) drainQueue().catch(console.warn);
+    };
+    const setOnline = () => { isOnline = true; prepareSignIn(); drainIfReady(); };
+    const setOffline = () => { isOnline = false; cancelReconnection(new AuthError('Connection lost. Your unfinished work is still here.')); };
+    window.addEventListener('online', setOnline);
     window.addEventListener('offline', setOffline);
 
     // iOS install prompt: show when running in Safari (not standalone) on iOS
@@ -183,53 +193,81 @@
       showIosInstallPrompt = true;
     }
 
-    // Bridge auth.js events → Svelte stores.
-    // auth.js is framework-agnostic; these callbacks are the integration seam.
     onTokenUpdate(({ token, email }) => {
+      if (disposed) return;
       authToken.set(token);
-      if (email) userEmail.set(email);
+      userEmail.set(email);
+      returningEmail = email;
+      refreshBannerVisible = !token && workspaceMounted;
+      if (!email) {
+        workspaceMounted = false;
+        workspaceLocked = false;
+        driveInitialized = false;
+        return;
+      }
+      if (token) {
+        workspaceMounted = true;
+        workspaceLocked = false;
+        signInError = null;
+      }
       if (token && !driveInitialized) {
         driveInitialized = true;
-
-        // Load cache immediately — app becomes usable without waiting for Drive
+        const version = getSessionVersion();
         const hadCache = loadCache();
         appLoading = !hadCache;
-
-        // Background sync from Drive
         syncStatus.set('yellow');
-        initFromDrive()
+        initFromDrive(version)
           .then((usedFallback) => {
+            if (disposed || version !== getSessionVersion()) return;
             writeCache();
             syncStatus.set(usedFallback ? 'yellow' : 'green');
-            return drainQueue().catch(console.warn);
+            drainIfReady();
           })
           .catch((err) => {
+            if (disposed || version !== getSessionVersion()) return;
+            driveInitialized = false;
             console.warn('[sync] Drive init failed:', err);
             syncStatus.set('red');
           })
-          .finally(() => { appLoading = false; });
+          .finally(() => {
+            if (!disposed && version === getSessionVersion()) appLoading = false;
+          });
+      } else if (token) {
+        // Reconnection resumes pending calls without remounting forms or reloading business selection.
+        drainIfReady();
       }
     });
-    onAuthRequired(() => {
-      authToken.set(null);
-      userEmail.set(null);
+    onAuthRequired((pending) => {
+      reconnectPending = pending;
+      if (pending) refreshBannerVisible = true;
     });
+    restoreSession()
+      .catch((error) => { if (!disposed) signInError = error.message; })
+      .finally(() => { if (!disposed) restoring = false; });
 
-    // Check token expiry every 30 seconds (spec §4.2).
-    const interval = setInterval(() => {
-      const secs = getTokenSecondsRemaining();
-      // Show banner when < 5 minutes remain (but token is still valid)
-      refreshBannerVisible = $isAuthenticated && secs > 0 && secs < 300;
-      // If token silently expired between checks, force sign-in screen
-      if ($isAuthenticated && secs === 0) {
-        authToken.set(null);
-        userEmail.set(null);
+    const checkExpiry = () => {
+      const seconds = getTokenSecondsRemaining();
+      if (workspaceMounted) {
+        refreshBannerVisible = seconds === 0 || reconnectPending;
+        if ($isAuthenticated && seconds === 0) expireToken();
       }
-    }, 30_000);
+      reloadBlocked = isEntryForm || signingIn || hasPendingOperations();
+    };
+    const onVisibility = () => {
+      checkExpiry();
+      if (workspaceMounted && !isTokenValid()) workspaceLocked = true;
+    };
+    const interval = setInterval(checkExpiry, 30_000);
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pageshow', onVisibility);
+    // A sign-out or account change in another tab must not leave the old workspace exposed.
+    const onStorage = (event) => {
+      if (event.key === 'bt_email_hint' && event.newValue !== getEmail()) window.location.reload();
+    };
+    window.addEventListener('storage', onStorage);
 
-    // Reload when a new SW takes control so the app picks up fresh cached assets.
-    // controllerchange fires after the new SW calls skipWaiting + clientsClaim.
-    const onControllerChange = () => window.location.reload();
+    // An update must never reload an entry form or an in-flight save.
+    const onControllerChange = () => { updateReady = true; checkExpiry(); };
     navigator.serviceWorker?.addEventListener('controllerchange', onControllerChange);
 
     // Explicit SW update check — registerSW.js only registers, does not handle SKIP_WAITING.
@@ -237,16 +275,17 @@
     // waiting (installed but not active), send SKIP_WAITING immediately.
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistration().then((reg) => {
-        if (!reg) return;
+        if (!reg || disposed) return;
         const skipWaiting = (sw) => sw.postMessage({ type: 'SKIP_WAITING' });
         // Already waiting (e.g., user refreshed after a deploy)
         if (reg.waiting) { skipWaiting(reg.waiting); }
         // Newly found during this page load
         reg.addEventListener('updatefound', () => {
+          if (disposed) return;
           const sw = reg.installing;
           if (!sw) return;
           sw.addEventListener('statechange', () => {
-            if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+            if (!disposed && sw.state === 'installed' && navigator.serviceWorker.controller) {
               skipWaiting(sw);
             }
           });
@@ -258,10 +297,16 @@
 
     // onMount cleanup
     return () => {
+      disposed = true;
+      onTokenUpdate(null);
+      onAuthRequired(null);
+      cancelReconnection();
       clearInterval(interval);
-      window.removeEventListener('online',  setOnline);
-      window.removeEventListener('online',  drainOnOnline);
+      window.removeEventListener('online', setOnline);
       window.removeEventListener('offline', setOffline);
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('pageshow', onVisibility);
+      document.removeEventListener('visibilitychange', onVisibility);
       navigator.serviceWorker?.removeEventListener('controllerchange', onControllerChange);
     };
   });
@@ -270,61 +315,46 @@
   // Handlers
   // ---------------------------------------------------------------------------
 
+  async function prepareSignIn() {
+    if (gisReady || gisLoading) return;
+    gisLoading = true;
+    signInError = null;
+    try {
+      await loadGisScript();
+      gisReady = true;
+    } catch (error) {
+      signInError = error.message;
+    } finally { gisLoading = false; }
+  }
+
   async function handleSignIn() {
+    if (!gisReady || signingIn) return;
     signingIn = true;
     signInError = null;
     try {
-      await loadGisScript();
-      initTokenClient();
+      // No await before this call: preserve the click's browser popup permission.
       await requestToken();
-      // _handleTokenResponse in auth.js fires, calls _onTokenUpdate,
-      // which sets authToken store → $isAuthenticated becomes true
-    } catch (err) {
-      // popup_closed_by_user: user dismissed popup intentionally — silent
-      // access_denied: user denied — silent (they can try again)
-      if (err !== 'popup_closed_by_user' && err !== 'access_denied' && err?.type !== 'popup_closed') {
-        signInError = 'Sign-in failed. Please try again.';
-        console.error('[auth] Sign-in error:', err);
-      }
-    } finally {
-      signingIn = false;
-    }
+    } catch (error) {
+      signInError = error.message || 'Could not reconnect. Please try again.';
+    } finally { signingIn = false; }
   }
 
-  async function handleContinue() {
+  async function handleChangeAccount() {
+    const pending = queueLength();
+    if (pending && !window.confirm(`${pending} pending change(s) have not synced. Discard them and sign out? Cancel to reconnect and sync first.`)) return;
+    if (workspaceMounted && isEntryForm && !window.confirm('Sign out and discard the unfinished form and receipt?')) return;
     signingIn = true;
-    signInError = null;
     try {
-      await loadGisScript();
-      initTokenClient();
-      await refreshToken(returningEmail);
-    } catch (err) {
-      if (err !== 'popup_closed_by_user' && err !== 'access_denied' && err?.type !== 'popup_closed') {
-        signInError = 'Sign-in failed. Please try again.';
-        console.error('[auth] Continue error:', err);
-      }
-    } finally {
-      signingIn = false;
-    }
+      await signOut(pending > 0);
+      // Reset route/component module state as well as the cleared account caches.
+      window.location.replace('/');
+    } catch (error) {
+      signInError = error.message;
+    } finally { signingIn = false; }
   }
 
-  /** Called by Settings → Account sign-out button */
-  export function handleSignOut() {
-    clearCache();
-    revokeToken();
-    // _onTokenUpdate fires → authToken.set(null) → sign-in screen shows
-  }
-
-  async function handleRefresh() {
-    refreshBannerVisible = false;
-    try {
-      await refreshToken($userEmail);
-      // _handleTokenResponse fires → token refreshed, banner stays hidden
-    } catch {
-      // Silent refresh failed (user revoked access, etc.) — force full re-auth
-      authToken.set(null);
-      userEmail.set(null);
-    }
+  function reloadUpdate() {
+    if (!isEntryForm && !signingIn && !hasPendingOperations()) window.location.reload();
   }
 </script>
 
@@ -339,7 +369,8 @@
      UNAUTHENTICATED: Full-page sign-in screen
      ========================================================================= -->
 
-{:else if !$isAuthenticated}
+{:else}
+{#if !workspaceMounted || workspaceLocked}
   <div
     class="min-h-screen flex flex-col items-center justify-center px-6 gap-8"
     style="background-color: var(--color-surface); color: var(--color-text);"
@@ -355,11 +386,14 @@
 
     <!-- Sign-in controls -->
     <div class="flex flex-col items-center gap-3 w-full max-w-xs">
+      {#if $page.url.searchParams.has('disconnected')}
+        <p role="status">Google Drive access was disconnected. Your files remain in Drive.</p>
+      {/if}
       {#if returningEmail}
         <!-- Returning user: one-tap continue (popup triggered by user gesture, not blocked) -->
         <button
-          onclick={handleContinue}
-          disabled={signingIn}
+          onclick={handleSignIn}
+          disabled={signingIn || !gisReady || restoring || !isOnline}
           class="w-full flex items-center justify-center gap-3 rounded-xl px-6 font-medium text-base transition-opacity hover:opacity-80 disabled:opacity-50"
           style="min-height: 48px; background-color: var(--color-primary); color: #ffffff;"
           aria-busy={signingIn}
@@ -372,8 +406,8 @@
           {/if}
         </button>
         <button
-          onclick={handleSignIn}
-          disabled={signingIn}
+          onclick={handleChangeAccount}
+          disabled={signingIn || restoring}
           class="text-sm underline disabled:opacity-50"
           style="color: var(--color-text-muted);"
         >
@@ -383,7 +417,7 @@
         <!-- First-time or signed-out user: full Google sign-in button -->
         <button
           onclick={handleSignIn}
-          disabled={signingIn}
+          disabled={signingIn || !gisReady || restoring || !isOnline}
           class="w-full flex items-center justify-center gap-3 rounded-xl border px-6 font-medium text-base transition-opacity hover:opacity-80 disabled:opacity-50"
           style="
             min-height: 48px;
@@ -421,6 +455,21 @@
         </button>
       {/if}
 
+      {#if restoring || gisLoading}
+        <p class="text-sm" role="status">{restoring ? 'Checking your session…' : 'Loading Google sign-in…'}</p>
+      {/if}
+      {#if !gisReady && !gisLoading}
+        <button onclick={prepareSignIn} class="underline" disabled={!isOnline}>Retry loading Google sign-in</button>
+      {/if}
+      {#if !isOnline}
+        <p role="status">Connect to the internet to reconnect to Google Drive.</p>
+      {/if}
+      {#if reconnectPending}
+        <button onclick={() => cancelReconnection()} class="underline">Cancel pending operation</button>
+      {/if}
+      {#if !returningEmail}
+        <button onclick={handleChangeAccount} class="text-sm underline">Clear this device</button>
+      {/if}
       {#if signInError}
         <p class="text-sm text-center" style="color: var(--color-error);" role="alert">
           {signInError}
@@ -430,7 +479,7 @@
 
     <!-- Footer note -->
     <p class="text-xs text-center max-w-xs" style="color: var(--color-text-muted);">
-      Your data is stored in your own Google Drive. BizTrack only accesses files it creates.
+      Your data is stored in your own Google Drive. Reconnect to access your business workspace.
     </p>
     {#if appVersion}
       <p class="text-xs text-center" style="color: var(--color-text-muted);">v{appVersion}</p>
@@ -441,7 +490,10 @@
      AUTHENTICATED: App shell
      ========================================================================= -->
 
-{:else}
+{/if}
+
+{#if workspaceMounted}
+<div hidden={workspaceLocked} inert={workspaceLocked}>
   <!-- Offline banner — z-30 so it renders above the session banner -->
   {#if !isOnline}
     <div
@@ -463,14 +515,26 @@
       style="background-color: var(--color-primary); color: var(--color-primary-text);"
       role="status"
     >
-      <span>Session expiring — tap to continue</span>
+      <span>{reconnectPending ? 'Reconnect to Google Drive to continue saving or syncing.' : 'Reconnect to Google Drive to save.'}</span>
       <button
-        onclick={handleRefresh}
+        onclick={handleSignIn}
+        disabled={!gisReady || signingIn || !isOnline}
         class="font-semibold underline rounded"
         style="min-height: 48px; min-width: 48px; color: inherit;"
       >
-        Continue
+        {signingIn ? 'Reconnecting…' : 'Reconnect'}
       </button>
+      {#if reconnectPending}
+        <button onclick={() => cancelReconnection()} class="underline" style="min-height: 48px;">Cancel</button>
+      {/if}
+    </div>
+    {#if signInError}<p role="alert" class="px-4 py-2">{signInError}</p>{/if}
+    {#if !gisReady && !gisLoading}<button onclick={prepareSignIn} class="px-4 underline">Retry loading Google sign-in</button>{/if}
+  {/if}
+  {#if updateReady}
+    <div role="status" class="px-4 py-2 text-sm">
+      An update is ready. Finish your entry before reloading.
+      <button onclick={reloadUpdate} disabled={reloadBlocked || isEntryForm} class="underline disabled:opacity-50">Reload</button>
     </div>
   {/if}
 
@@ -603,4 +667,6 @@
       </div>
     {/if}
   </div>
+</div>
+{/if}
 {/if}

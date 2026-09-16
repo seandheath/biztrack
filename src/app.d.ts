@@ -9,6 +9,7 @@ declare namespace google.accounts.oauth2 {
   interface TokenResponse {
     access_token: string;
     expires_in: number;
+    scope?: string;
     error?: string;
   }
 
@@ -19,7 +20,7 @@ declare namespace google.accounts.oauth2 {
     error_callback: (error: unknown) => void;
   }): TokenClient;
 
-  function revoke(token: string, callback: () => void): void;
+  function revoke(token: string, callback: (response: { successful: boolean; error?: string }) => void): void;
 }
 
 // Build-time constant injected by vite.config.js

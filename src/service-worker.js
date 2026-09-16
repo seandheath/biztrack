@@ -13,7 +13,7 @@
 
 import { cleanupOutdatedCaches, precacheAndRoute, createHandlerBoundToURL } from 'workbox-precaching';
 import { NavigationRoute, registerRoute } from 'workbox-routing';
-import { CacheFirst, NetworkFirst, NetworkOnly } from 'workbox-strategies';
+import { CacheFirst, NetworkOnly } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { clientsClaim } from 'workbox-core';
 
@@ -30,6 +30,9 @@ self.addEventListener('message', (event) => {
 
 // Remove precache entries from previous SW installs
 cleanupOutdatedCaches();
+self.addEventListener('activate', (event) => {
+  event.waitUntil(caches.delete('api-responses'));
+});
 
 // Precache all app-shell assets (list injected by Vite PWA plugin at build time)
 // eslint-disable-next-line no-undef
@@ -77,6 +80,13 @@ self.addEventListener('fetch', (event) => {
 });
 
 // ---------------------------------------------------------------------------
+// Google requests are never cached. Account data uses the app's explicit cache.
+// Register before the script rule so Google's sign-in script is network-only too.
+registerRoute(
+  ({ url }) => ['www.googleapis.com', 'sheets.googleapis.com', 'accounts.google.com', 'oauth2.googleapis.com'].includes(url.hostname),
+  new NetworkOnly()
+);
+
 // Static assets — cache-first, 30-day expiration
 // Cache JS/CSS/images/fonts that are already fingerprinted by Vite.
 // ---------------------------------------------------------------------------
@@ -93,32 +103,6 @@ registerRoute(
       new ExpirationPlugin({ maxAgeSeconds: 30 * 24 * 60 * 60 }),
     ],
   })
-);
-
-// ---------------------------------------------------------------------------
-// Google Sheets / Drive API — network-first, short cache fallback
-// ---------------------------------------------------------------------------
-
-registerRoute(
-  ({ url }) =>
-    url.hostname === 'sheets.googleapis.com' ||
-    url.hostname === 'www.googleapis.com',
-  new NetworkFirst({
-    cacheName: 'api-responses',
-    networkTimeoutSeconds: 5,
-    plugins: [
-      new ExpirationPlugin({ maxEntries: 50, maxAgeSeconds: 24 * 60 * 60 }),
-    ],
-  })
-);
-
-// ---------------------------------------------------------------------------
-// Google OAuth endpoints — network-only (tokens must never be cached)
-// ---------------------------------------------------------------------------
-
-registerRoute(
-  ({ url }) => url.hostname === 'accounts.google.com',
-  new NetworkOnly()
 );
 
 // ---------------------------------------------------------------------------

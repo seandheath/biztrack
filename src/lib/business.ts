@@ -326,7 +326,8 @@ export async function ensureYearFolder(business: Business, year: number): Promis
 
   const promise = _doEnsureYearFolder(business, year);
   _yearFolderInFlight.set(key, promise);
-  promise.finally(() => _yearFolderInFlight.delete(key));
+  // Handle both outcomes without leaving a rejected finally() promise unobserved.
+  promise.then(() => _yearFolderInFlight.delete(key), () => _yearFolderInFlight.delete(key));
   return promise;
 }
 

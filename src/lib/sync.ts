@@ -243,5 +243,7 @@ export function updateCachedTransaction(spreadsheetId: string, sheetName: SheetN
  */
 export function clearCache(): void {
   storage.remove(CACHE_KEY);
+  _lastPull.clear();
+  _pullInFlight.clear();
   syncStatus.set('yellow');
 }

@@ -1,386 +1,309 @@
-/**
- * Google Identity Services (GIS) token model authentication.
- *
- * Token state is persisted to localStorage so the app can skip re-auth when
- * reopened within the ~1-hour token lifetime. The token auto-expires
- * regardless of storage location, and only grants drive.file scope (files the
- * app created), so the exposure window increase over sessionStorage is minimal.
- *
- * This module is intentionally framework-agnostic. It knows nothing about
- * Svelte stores. The layout component registers callbacks via onTokenUpdate()
- * and onAuthRequired() to bridge events into the reactive store system.
- *
- * Usage pattern (from +layout.svelte):
- *   onMount(() => {
- *     onTokenUpdate(({ token, email }) => { authToken.set(token); ... });
- *     onAuthRequired(() => { authToken.set(null); });
- *   });
- *   // On sign-in button click:
- *   await loadGisScript();
- *   initTokenClient();
- *   await requestToken();
- */
-
-// ---------------------------------------------------------------------------
-// Credentials (migrated to constants.js in Phase 6)
-// ---------------------------------------------------------------------------
-
+/** Google's browser token model: reconnect explicitly, without discarding work. */
 import { GOOGLE_CLIENT_ID, DRIVE_SCOPE } from './constants.js';
 import type { TokenUpdate } from './types.js';
+export { DRIVE_SCOPE, GOOGLE_API_KEY, GOOGLE_APP_ID } from './constants.js';
 
-// localStorage keys for token persistence across tab closes
-const _LS_TOKEN  = 'bt_at';
-const _LS_EXPIRY = 'bt_exp';
+const TOKEN = 'bt_at';
+const EXPIRY = 'bt_exp';
+const EMAIL = 'bt_email_hint';
+let token: string | null = null;
+let expiry: Date | null = null;
+let email: string | null = null;
+let verified = false;
+let session = 0;
+let activeRequests = 0;
+let scriptPromise: Promise<void> | null = null;
+let tokenUpdate: ((update: TokenUpdate) => void) | null = null;
+let authRequired: ((pending: boolean) => void) | null = null;
 
-// Email hint in localStorage (non-sensitive) — persists across tab closes so
-// silent re-auth can be attempted on next app open without showing a popup.
-const _LS_EMAIL_HINT = 'bt_email_hint';
+type Pending = {
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+};
+let reconnect: Pending | null = null;
+let popup: Pending | null = null;
 
-// Re-export for callers that imported these from auth.js before Phase 6.
-export { DRIVE_SCOPE } from './constants.js';
-export { GOOGLE_API_KEY, GOOGLE_APP_ID } from './constants.js';
+export class AuthError extends Error {}
 
-// ---------------------------------------------------------------------------
-// Private module state
-// ---------------------------------------------------------------------------
+function pending(): Pending {
+  let resolve!: () => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
 
-/** Current OAuth access token */
-let _token: string | null = null;
-
-/** Expiry timestamp of the current token */
-let _tokenExpiry: Date | null = null;
-
-/** Signed-in user's email address */
-let _userEmail: string | null = null;
-
-// Restore a still-valid token from localStorage.
-// Tokens expire after ~1 hour; localStorage lets the app skip re-auth on tab reopen.
-// try/catch guards against browsers with localStorage disabled (e.g. private mode).
 try {
-  const storedToken  = localStorage.getItem(_LS_TOKEN);
-  const storedExpiry = localStorage.getItem(_LS_EXPIRY);
-  if (storedToken && storedExpiry) {
-    const expiry = new Date(storedExpiry);
-    if (expiry > new Date()) {
-      _token       = storedToken;
-      _tokenExpiry = expiry;
-      _userEmail   = localStorage.getItem(_LS_EMAIL_HINT) ?? null;
-    } else {
-      // Expired — remove stale entries (email hint stays for "Continue as" flow)
-      localStorage.removeItem(_LS_TOKEN);
-      localStorage.removeItem(_LS_EXPIRY);
-    }
+  email = localStorage.getItem(EMAIL) || null;
+  const storedExpiry = new Date(localStorage.getItem(EXPIRY) || '');
+  if (storedExpiry > new Date()) {
+    token = localStorage.getItem(TOKEN);
+    expiry = storedExpiry;
+  } else {
+    localStorage.removeItem(TOKEN);
+    localStorage.removeItem(EXPIRY);
   }
-} catch { /* localStorage unavailable */ }
+} catch { /* Storage can be disabled. */ }
 
-/** GIS TokenClient instance */
-let _tokenClient: google.accounts.oauth2.TokenClient | null = null;
+function notify(): void {
+  tokenUpdate?.({ token: verified ? token : null, expiry, email });
+}
 
-/** Deduplicates concurrent loadGisScript() calls. */
-let _scriptPromise: Promise<void> | null = null;
+/** Email is retained through expiry, and is verified before reconnecting work. */
+export function getEmail(): string | null { return email; }
+export function getToken(): string | null { return verified ? token : null; }
+export function getSessionVersion(): number { return session; }
+export function hasPendingOperations(): boolean { return activeRequests > 0 || !!popup || !!reconnect; }
+export function isTokenValid(): boolean { return verified && !!token && !!expiry && expiry > new Date(); }
+export function getTokenSecondsRemaining(): number {
+  return token && expiry ? Math.max(0, (expiry.getTime() - Date.now()) / 1000) : 0;
+}
 
-// Callbacks registered by +layout.svelte
-let _onTokenUpdate: ((update: TokenUpdate) => void) | null = null;
+export function expireToken(): void {
+  token = null;
+  expiry = null;
+  verified = false;
+  try {
+    localStorage.removeItem(TOKEN);
+    localStorage.removeItem(EXPIRY);
+  } catch {}
+  notify();
+}
 
-/** Fired on 401 or missing token to trigger sign-in screen */
-let _onAuthRequired: (() => void) | null = null;
-
-// One-shot resolve/reject for requestToken() / refreshToken() promises
-let _pendingResolve: (() => void) | null = null;
-let _pendingReject: ((reason: unknown) => void) | null = null;
-
-// ---------------------------------------------------------------------------
-// Script loading
-// ---------------------------------------------------------------------------
-
-/**
- * Dynamically loads the Google Identity Services script.
- * Safe to call multiple times — concurrent callers share the same promise.
- */
 export function loadGisScript(): Promise<void> {
-  if (_scriptPromise) return _scriptPromise;
-  _scriptPromise = new Promise((resolve, reject) => {
+  if (window.google?.accounts?.oauth2) return Promise.resolve();
+  if (scriptPromise) return scriptPromise;
+  scriptPromise = new Promise((resolve, reject) => {
     const script = document.createElement('script');
     script.src = 'https://accounts.google.com/gsi/client';
     script.async = true;
-    script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => {
-      _scriptPromise = null; // allow retry on failure
-      reject(new Error('Failed to load Google Identity Services'));
+    const timeout = setTimeout(() => fail(), 15_000);
+    const fail = () => {
+      clearTimeout(timeout);
+      script.remove();
+      scriptPromise = null;
+      reject(new AuthError('Could not load Google sign-in. Check your connection and retry.'));
     };
+    script.onload = () => { clearTimeout(timeout); resolve(); };
+    script.onerror = fail;
     document.head.appendChild(script);
   });
-  return _scriptPromise;
+  return scriptPromise;
 }
 
-// ---------------------------------------------------------------------------
-// Token client initialization
-// ---------------------------------------------------------------------------
-
-/**
- * Initializes the GIS token client. No-op if already initialized.
- * Must be called after loadGisScript() resolves.
- * GIS supports only one initTokenClient() call per page load.
- */
-export function initTokenClient(): void {
-  if (_tokenClient) return;
-  _tokenClient = window.google.accounts.oauth2.initTokenClient({
-    client_id: GOOGLE_CLIENT_ID,
-    scope: DRIVE_SCOPE,
-    callback: _handleTokenResponse,
-    error_callback: _handleTokenError,
+/** Always bypass caches when establishing the account behind a token. */
+async function accountEmail(accessToken: string): Promise<string> {
+  const response = await fetch('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)', {
+    headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store',
+    signal: AbortSignal.timeout(15_000),
   });
+  if (!response.ok) throw new AuthError('Could not verify your Google account. Please reconnect.');
+  const data = await response.json();
+  if (typeof data.user?.emailAddress !== 'string' || !data.user.emailAddress) {
+    throw new AuthError('Google did not return an account email. Please reconnect.');
+  }
+  return data.user.emailAddress.toLowerCase();
 }
 
-// ---------------------------------------------------------------------------
-// Token request / refresh
-// ---------------------------------------------------------------------------
+function checkAccount(actual: string, expected: string | null): void {
+  if (expected && actual !== expected.toLowerCase()) {
+    throw new AuthError(`Reconnect as ${expected}. Sign out first to use a different account.`);
+  }
+}
 
-/**
- * Triggers the GIS sign-in popup and requests an access token.
- * Shows the full account chooser and consent screen.
- */
+/** Validate a restored token before exposing account-specific cached data. */
+export async function restoreSession(): Promise<void> {
+  if (!token || !expiry || expiry <= new Date()) return;
+  const version = session;
+  const restoredToken = token;
+  try {
+    const actual = await accountEmail(restoredToken);
+    if (version !== session || token !== restoredToken) return;
+    checkAccount(actual, email);
+    if (!expiry || expiry <= new Date()) { expireToken(); return; }
+    // Legacy caches without an owner must not be loaded for an arbitrary account.
+    if (!email) {
+      if (localStorage.getItem('biztrack_offline_queue')) {
+        throw new AuthError('Unidentified pending changes exist. Sign out and review the discard warning before changing accounts.');
+      }
+      localStorage.removeItem('bt_cache');
+      localStorage.removeItem('bt_biz_folder');
+    }
+    email = actual;
+    verified = true;
+    try { localStorage.setItem(EMAIL, email); } catch {}
+    notify();
+  } catch (error) {
+    if (version !== session || token !== restoredToken) return;
+    expireToken();
+    throw error;
+  }
+}
+
+/** Called only from a button click, after the GIS script has loaded. */
 export function requestToken(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    _pendingResolve = resolve;
-    _pendingReject = reject;
-    _tokenClient!.requestAccessToken({ prompt: 'select_account' });
+  if (popup) return popup.promise;
+  if (!window.google?.accounts?.oauth2) {
+    return Promise.reject(new AuthError('Google sign-in is still loading. Please retry.'));
+  }
+  const attempt = pending();
+  popup = attempt;
+  const version = session;
+  const expected = email;
+  // Per-attempt callbacks prevent a late popup from restoring a cancelled session.
+  try {
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: DRIVE_SCOPE,
+      callback: async (response) => {
+        if (popup !== attempt || session !== version) return;
+        try {
+          if (response.error) throw new AuthError(response.error === 'access_denied'
+            ? 'Drive access was not granted. Your unfinished work is still here.'
+            : `Google authorization failed: ${response.error}`);
+          if (!response.access_token || !Number.isFinite(Number(response.expires_in)) || Number(response.expires_in) <= 30) {
+            throw new AuthError('Google returned an invalid access token. Please retry.');
+          }
+          if (!response.scope?.split(' ').includes(DRIVE_SCOPE)) {
+            throw new AuthError('Drive access is required to save. Please reconnect and grant permission.');
+          }
+          const grantedExpiry = new Date(Date.now() + (Number(response.expires_in) - 30) * 1000);
+          const actual = await accountEmail(response.access_token);
+          if (popup !== attempt || session !== version) return;
+          checkAccount(actual, expected);
+          if (!expected) {
+            // Unknown legacy data may belong to another account.
+            const { queueLength } = await import('./services/offline-queue.js');
+            if (queueLength()) throw new AuthError('Pending changes have no account owner. Sign out before using a different account.');
+            if (popup !== attempt || session !== version) return;
+            try {
+              localStorage.removeItem('bt_cache');
+              localStorage.removeItem('bt_biz_folder');
+            } catch {}
+          }
+          token = response.access_token;
+          expiry = grantedExpiry;
+          email = actual;
+          verified = true;
+          try {
+            localStorage.setItem(TOKEN, token);
+            localStorage.setItem(EXPIRY, expiry.toISOString());
+            localStorage.setItem(EMAIL, email);
+          } catch {}
+          popup = null;
+          const waiting = reconnect;
+          reconnect = null;
+          notify();
+          authRequired?.(false);
+          waiting?.resolve();
+          attempt.resolve();
+        } catch (error) {
+          if (popup === attempt && session === version) cancelReconnection(error);
+        }
+      },
+      error_callback: (error) => {
+        if (popup !== attempt || session !== version) return;
+        const type = (error as { type?: string })?.type;
+        cancelReconnection(new AuthError(type === 'popup_failed_to_open'
+          ? 'Google could not open a window. Allow popups for this site and retry.'
+          : 'Reconnection cancelled. Your unfinished work is still here.'));
+      },
+    });
+    client.requestAccessToken(expected ? { prompt: '', login_hint: expected } : { prompt: 'select_account' });
+  } catch (error) { cancelReconnection(error); }
+  return attempt.promise;
+}
+
+/** API calls wait here; only the explicit reconnect button opens Google's popup. */
+export function ensureAuthorized(): Promise<void> {
+  if (isTokenValid()) return Promise.resolve();
+  if (!email) return Promise.reject(new AuthError('Sign in before saving to Google Drive.'));
+  if (!navigator.onLine) return Promise.reject(new AuthError('Connect to the internet, then reconnect to Google Drive. Your unfinished work is still here.'));
+  if (!reconnect) {
+    reconnect = pending();
+    authRequired?.(true);
+  }
+  return reconnect.promise;
+}
+
+export function cancelReconnection(error: unknown = new AuthError('Reconnection cancelled. Your unfinished work is still here.')): void {
+  const waiting = reconnect;
+  const attempt = popup;
+  reconnect = null;
+  popup = null;
+  authRequired?.(false);
+  waiting?.reject(error);
+  attempt?.reject(error);
+}
+
+/** Sign-out clears this device, but does not revoke the Google grant. */
+export async function signOut(discardPending = false): Promise<void> {
+  const { queueLength, clearQueue } = await import('./services/offline-queue.js');
+  if (queueLength() && !discardPending) throw new AuthError('Sync pending changes or explicitly discard them before signing out.');
+  session++;
+  cancelReconnection(new AuthError('Signed out. The operation was cancelled.'));
+  expireToken();
+  email = null;
+  clearQueue();
+  for (const key of [EMAIL, 'bt_biz_folder', 'bt_cache', 'biztrack_selected_name']) {
+    try { localStorage.removeItem(key); } catch {}
+  }
+  const [{ clearProfileCache }, { clearTrashedCache }, { resetAccountStores }, { clearCache }] = await Promise.all([
+    import('./profile.js'), import('./services/sheets.js'), import('./store.js'), import('./sync.js'),
+  ]);
+  clearProfileCache();
+  clearTrashedCache();
+  resetAccountStores();
+  clearCache();
+  try {
+    if (typeof caches !== 'undefined') await Promise.all([
+      caches.delete('api-responses'), caches.delete('biztrack-share'),
+    ]);
+  } finally { notify(); }
+}
+
+/** Explicit disconnection must report revocation failure instead of claiming success. */
+export async function revokeToken(discardPending = false): Promise<void> {
+  const { queueLength } = await import('./services/offline-queue.js');
+  if (queueLength() && !discardPending) throw new AuthError('Sync or discard pending changes before disconnecting.');
+  await ensureAuthorized();
+  await loadGisScript();
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new AuthError('Google did not confirm disconnection. Please try again.')), 15_000);
+    window.google.accounts.oauth2.revoke(token!, (response) => {
+      clearTimeout(timeout);
+      if (response.successful) resolve();
+      else reject(new AuthError('Google did not confirm disconnection. Please try again.'));
+    });
   });
+  await signOut(discardPending);
 }
 
-/**
- * Silently refreshes the access token using a saved login hint.
- * Shows minimal UI — at most an account picker, no re-consent.
- * Used for the "Session expiring" banner flow (spec §4.2).
- */
-export function refreshToken(loginHint: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    _pendingResolve = resolve;
-    _pendingReject = reject;
-    _tokenClient!.requestAccessToken({ prompt: '', login_hint: loginHint });
-  });
-}
+export function onTokenUpdate(callback: ((update: TokenUpdate) => void) | null): void { tokenUpdate = callback; }
+export function onAuthRequired(callback: ((pending: boolean) => void) | null): void { authRequired = callback; }
 
-// ---------------------------------------------------------------------------
-// Private GIS callbacks
-// ---------------------------------------------------------------------------
-
-/**
- * GIS token response callback. Fires on both success and error.
- */
-function _handleTokenResponse(tokenResponse: google.accounts.oauth2.TokenResponse): void {
-  if (tokenResponse.error) {
-    const err = tokenResponse.error;
-    const resolve = _pendingResolve;
-    const reject = _pendingReject;
-    _pendingResolve = null;
-    _pendingReject = null;
-    // popup_closed_by_user is not an error — user intentionally dismissed
-    if (err === 'popup_closed_by_user' || err === 'access_denied') {
-      reject?.(err);
-    } else {
-      reject?.(new Error(`Auth error: ${err}`));
-    }
-    return;
-  }
-
-  _token = tokenResponse.access_token;
-  // expires_in is in seconds; subtract 30s buffer for clock skew
-  _tokenExpiry = new Date(Date.now() + (tokenResponse.expires_in - 30) * 1000);
-
-  try {
-    localStorage.setItem(_LS_TOKEN,  _token);
-    localStorage.setItem(_LS_EXPIRY, _tokenExpiry.toISOString());
-  } catch { /* localStorage unavailable */ }
-  // Email hint written to localStorage so silent re-auth works across tab opens
-
-  // Notify stores immediately — isAuthenticated flips to true
-  _onTokenUpdate?.({ token: _token, expiry: _tokenExpiry, email: null });
-
-  // Resolve the requestToken() / refreshToken() promise
-  const resolve = _pendingResolve;
-  _pendingResolve = null;
-  _pendingReject = null;
-  resolve?.();
-
-  // Fetch user email async — cosmetic, does not block sign-in transition
-  _fetchUserEmail();
-}
-
-/**
- * GIS error_callback — fires for non-consent errors (popup blocked, etc.)
- */
-function _handleTokenError(error: unknown): void {
-  const reject = _pendingReject;
-  _pendingResolve = null;
-  _pendingReject = null;
-  reject?.(error);
-}
-
-/**
- * Fetches the signed-in user's email via the userinfo endpoint.
- * The GIS token model does not return email in the token response.
- * Fires a second _onTokenUpdate when the email is available.
- */
-async function _fetchUserEmail(): Promise<void> {
-  try {
-    // Use Drive About API (drive.file scope is sufficient) instead of the
-    // userinfo endpoint, which requires the 'email'/'openid' scope.
-    const resp = await fetch(
-      'https://www.googleapis.com/drive/v3/about?fields=user',
-      { headers: { Authorization: `Bearer ${_token}` } },
-    );
-    if (resp.ok) {
-      const data = await resp.json();
-      _userEmail = data.user?.emailAddress ?? null;
-      try { localStorage.setItem(_LS_EMAIL_HINT, _userEmail ?? ''); } catch {}
-      _onTokenUpdate?.({ token: _token, expiry: _tokenExpiry, email: _userEmail });
-    }
-  } catch {
-    // Email is cosmetic — swallow silently, app continues without it
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Token inspection
-// ---------------------------------------------------------------------------
-
-/** Returns the current access token, or null if not signed in. */
-export function getToken(): string | null {
-  return _token;
-}
-
-/** Returns the signed-in user's email, or null if unknown. */
-export function getEmail(): string | null {
-  return _userEmail;
-}
-
-/** Returns true if a token exists and has not expired. */
-export function isTokenValid(): boolean {
-  return !!_token && !!_tokenExpiry && _tokenExpiry > new Date();
-}
-
-/**
- * Returns seconds until the token expires, or 0 if no token / already expired.
- * Used by the session expiry banner check (< 300s → show banner).
- */
-export function getTokenSecondsRemaining(): number {
-  if (!_token || !_tokenExpiry) return 0;
-  return Math.max(0, (_tokenExpiry.getTime() - Date.now()) / 1000);
-}
-
-// ---------------------------------------------------------------------------
-// Sign-out
-// ---------------------------------------------------------------------------
-
-/**
- * Revokes the current token and clears all auth state.
- * Notifies registered callbacks so Svelte stores reset to unauthenticated.
- */
-export async function revokeToken(): Promise<void> {
-  if (_token) {
-    // Fire-and-forget revocation — no need to await
-    window.google.accounts.oauth2.revoke(_token, () => {});
-  }
-  _token = null;
-  _tokenExpiry = null;
-  _userEmail = null;
-  try {
-    localStorage.removeItem(_LS_TOKEN);
-    localStorage.removeItem(_LS_EXPIRY);
-    localStorage.removeItem(_LS_EMAIL_HINT);
-    localStorage.removeItem('bt_biz_folder');
-  } catch {}
-
-  try {
-    const { clearQueue } = await import('./services/offline-queue.js');
-    const { clearTrashedCache } = await import('./services/sheets.js');
-    const { clearProfileCache } = await import('./profile.js');
-    clearQueue();
-    clearTrashedCache();
-    clearProfileCache();
-  } catch {}
-
-  _onTokenUpdate?.({ token: null, expiry: null, email: null });
-}
-
-// ---------------------------------------------------------------------------
-// Callback registration
-// ---------------------------------------------------------------------------
-
-/**
- * Registers a callback to be called whenever token state changes.
- * Called by +layout.svelte to bridge auth events into Svelte stores.
- */
-export function onTokenUpdate(callback: (update: TokenUpdate) => void): void {
-  _onTokenUpdate = callback;
-  // If a token was restored from localStorage before this callback was
-  // registered, notify immediately so the authToken store transitions to
-  // authenticated without waiting for a new sign-in.
-  if (_token && _tokenExpiry) {
-    callback({ token: _token, expiry: _tokenExpiry, email: _userEmail });
-    // Email may be absent if _fetchUserEmail() failed or hadn't completed when
-    // the page was last navigated away from. Re-fetch it now so the Account
-    // section in Settings can display the signed-in address.
-    if (!_userEmail) {
-      _fetchUserEmail();
-    }
-  }
-}
-
-/**
- * Registers a callback to be called when re-authentication is required
- * (401 response or missing token on an API call).
- * Called by +layout.svelte to show the sign-in screen.
- */
-export function onAuthRequired(callback: () => void): void {
-  _onAuthRequired = callback;
-}
-
-// ---------------------------------------------------------------------------
-// API fetch wrapper
-// ---------------------------------------------------------------------------
-
-/**
- * Authenticated fetch wrapper for all Google API calls.
- *
- * - Adds Authorization: Bearer header automatically
- * - Triggers re-auth on 401 (session expired server-side)
- * - Throws descriptive errors for auth and network failures
- * - Returns the raw Response — callers handle .json() and response.ok
- *
- * Used by drive.js (Phase 3) and sheets.js (Phase 4).
- */
+/** Resume only the rejected request after reconnecting; never replay a whole save. */
 export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  if (!isTokenValid()) {
-    _onAuthRequired?.();
-    throw new Error('Not authenticated');
+  const target = new URL(url);
+  if (target.protocol !== 'https:' || !['www.googleapis.com', 'sheets.googleapis.com'].includes(target.hostname)) {
+    throw new Error('Unsupported Google API URL');
   }
-
-  const headers = {
-    ...options.headers,
-    Authorization: `Bearer ${_token}`,
-  };
-
-  let response: Response;
+  const version = session;
+  activeRequests++;
   try {
-    response = await fetch(url, { ...options, headers });
-  } catch (err) {
-    throw new Error(`Network error: ${(err as Error).message}`);
-  }
-
-  if (response.status === 401) {
-    // Token rejected server-side (revoked externally, clock skew, etc.)
-    _token = null;
-    _tokenExpiry = null;
-    try {
-      localStorage.removeItem(_LS_TOKEN);
-      localStorage.removeItem(_LS_EXPIRY);
-    } catch {}
-    _onAuthRequired?.();
-    throw new Error('Session expired');
-  }
-
-  return response;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await ensureAuthorized();
+      if (version !== session) throw new AuthError('Signed out. The operation was cancelled.');
+      const sentToken = token;
+      const headers = new Headers(options.headers);
+      headers.set('Authorization', `Bearer ${sentToken}`);
+      const response = await fetch(url, { ...options, headers, cache: 'no-store' });
+      if (version !== session) throw new AuthError('Signed out. The operation was cancelled.');
+      if (response.status !== 401) return response;
+      // A slow rejection of an old token must not invalidate a newer token.
+      if (token === sentToken) expireToken();
+      if (attempt === 1) throw new AuthError('Google rejected the renewed access. Reconnect and try again.');
+    }
+    throw new AuthError('Reconnect to Google Drive.');
+  } finally { activeRequests--; }
 }
