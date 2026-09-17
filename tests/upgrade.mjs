@@ -114,6 +114,34 @@ const server = await createServer({ configFile: false, optimizeDeps: { noDiscove
 });
 try {
   const upgrade = await server.ssrLoadModule('/src/lib/upgrade.ts');
+  const { DEFAULT_CATEGORIES } = await server.ssrLoadModule('/src/lib/constants.ts');
+  // Older releases filled absent config fields in memory without saving them.
+  for (const fields of [{}, { name: 'Studio' }, { categories: null }, { name: '', categories: [] }, { categories: ['Custom category'] }]) {
+    seed();
+    const config = [...files.values()].find(f => f.name === 'config.json' && f.parents.includes('biz'));
+    config.data = { id: 'biz', ...fields };
+    const original = clone(config.data), before = clone(files);
+    const plan = await upgrade.inspectUpgrade('root');
+    assert.deepEqual(files, before, 'discovery must not backfill the original config');
+    assert.equal(plan.businesses[0].name, 'Studio');
+    assert.equal(plan.businesses[0].years.length, 2, 'use the profile name to discover old logs');
+    await upgrade.runUpgrade(plan);
+    assert.deepEqual(config.data, original, 'retain the exact original config');
+    const saved = [...files.values()].find(f => f.name === 'config-v2.json' && f.parents.includes('biz')).data;
+    assert.equal(saved.name, 'Studio');
+    assert.deepEqual(saved.categories, fields.categories?.length ? fields.categories : DEFAULT_CATEGORIES);
+    assert.equal([...files.values()].filter(f => f.properties?.biztrackUpgrade).length, 4);
+  }
+  for (const invalid of [null, [], { name: 123 }, { categories: {} }, { categories: [123] }]) {
+    seed();
+    [...files.values()].find(f => f.name === 'config.json').data = invalid;
+    const before = clone(files);
+    await assert.rejects(upgrade.inspectUpgrade('root'), /Invalid configuration/);
+    assert.deepEqual(files, before);
+  }
+  seed();
+  addFile('config-v2.json', 'biz', { dataVersion: 2, name: 'Studio' });
+  await assert.rejects(upgrade.inspectUpgrade('root'), /Invalid configuration/);
   for (const failure of ['none', 'storage', 'copy-before', 'copy-after', 'journal-before', 'journal-after', 'transform-before', 'transform-after', 'verify-network', 'verify-mismatch', 'profile-before', 'profile-after', 'queue-storage']) {
     seed();
     const before = clone(files), raw = values.get('biztrack_offline_queue');

@@ -3,6 +3,7 @@ import { apiFetch, AuthError, getEmail, getSessionVersion } from './auth.js';
 import { findFile, listFiles, listFolders, downloadJson, uploadJson, updateJson, copyForUpgrade } from './drive.js';
 import { DATA_VERSION, CONFIG_FILE, PROFILE_FILE, QUEUE_KEY, CACHE_KEY, MILEAGE_HEADERS, requireCurrentData, spreadsheetName } from './data-model.js';
 import { storageKey } from './version.js';
+import { DEFAULT_CATEGORIES } from './constants.js';
 import type { BusinessConfig, ProfileBusiness, ProfileData, MileageFavorite } from './types.js';
 import type { QueuedWrite } from './services/offline-queue.js';
 import type { TransactionRow } from './services/sheets.js';
@@ -16,7 +17,7 @@ type LegacyTrip = { from?: string; to?: string; purpose?: string };
 type LegacyFavorite = LegacyTrip & { name: string; miles: number; driver: string; roundTrip?: boolean };
 type LegacyProfile = { dataVersion?: number; businesses: ProfileBusiness[]; mileage_favorites?: Record<string, LegacyFavorite[]>; default_drivers?: Record<string, string> };
 type Year = { year: number; folderId: string; sourceId: string };
-type UpgradeBusiness = ProfileBusiness & { config: BusinessConfig; configId: string; years: Year[]; upgraded: boolean };
+type UpgradeBusiness = ProfileBusiness & { config: Partial<BusinessConfig>; configId: string; years: Year[]; upgraded: boolean };
 export type UpgradePlan = { rootId: string; profileId: string | null; profile: LegacyProfile | ProfileData; legacyProfile: boolean; businesses: UpgradeBusiness[]; localQueue: boolean };
 type Journal = { dataVersion: number; sheets: Record<string, { id: string; fingerprint: string; verified: boolean }> };
 type Snapshot = { sheets: { properties: { sheetId: number; title: string; gridProperties?: { columnCount: number } }; values: (string | number | boolean)[][] }[] };
@@ -81,18 +82,25 @@ export async function inspectUpgrade(rootId: string, extra?: ProfileBusiness): P
     const currentConfig = await findFile(CONFIG_FILE, ref.folderId);
     const id = currentConfig ?? await findFile('config.json', ref.folderId);
     if (!id) throw new Error(`Cannot find the configuration for ${ref.name}. Check Drive access.`);
-    const cfg = await downloadJson<BusinessConfig>(id);
+    const cfg = await downloadJson<Partial<BusinessConfig>>(id);
+    if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) throw new Error(`Invalid configuration for ${ref.name}.`);
     if (currentConfig) requireCurrentData(cfg);
     else if (cfg.dataVersion !== undefined && cfg.dataVersion !== 1) throw new Error(`Unsupported data version for ${ref.name}.`);
-    if (typeof cfg.name !== 'string' || !Array.isArray(cfg.categories)) throw new Error(`Invalid configuration for ${ref.name}.`);
+    if ((cfg.name != null && typeof cfg.name !== 'string')
+      || (cfg.categories != null && (!Array.isArray(cfg.categories) || cfg.categories.some(category => typeof category !== 'string')))
+      || (currentConfig && (typeof cfg.name !== 'string' || !cfg.name || !Array.isArray(cfg.categories)))) {
+      throw new Error(`Invalid configuration for ${ref.name}.`);
+    }
+    // Legacy defaults were sometimes only applied in memory. Keep cfg raw for the change check.
+    const name = cfg.name || ref.name;
     const years: Year[] = [];
     for (const folder of await listFolders(ref.folderId)) {
       if (!/^\d{4}$/.test(folder.name)) continue;
-      const name = `${folder.name}_${cfg.name.replace(/[/\\:*?"<>|]/g, '')}_expenses`;
-      const sourceId = await findFile(name, folder.id);
+      const sheetName = `${folder.name}_${name.replace(/[/\\:*?"<>|]/g, '')}_expenses`;
+      const sourceId = await findFile(sheetName, folder.id);
       if (sourceId) years.push({ year: Number(folder.name), folderId: folder.id, sourceId });
     }
-    businesses.push({ ...ref, name: cfg.name, config: cfg, configId: id, years: years.sort((a, b) => a.year - b.year), upgraded: !!currentConfig });
+    businesses.push({ ...ref, name, config: cfg, configId: id, years: years.sort((a, b) => a.year - b.year), upgraded: !!currentConfig });
   }
   const localQueue = hasLegacyQueue();
   if ((!profileId || currentId) && businesses.every(b => b.upgraded) && !localQueue && !hasUnfinishedUpgrade()) return null;
@@ -253,7 +261,8 @@ export async function runUpgrade(plan: UpgradePlan, progress: (message: string) 
     }
     checkSession();
     if (JSON.stringify(await downloadJson(biz.configId)) !== JSON.stringify(biz.config)) throw new Error('The business configuration changed during the upgrade. Close other versions and retry.');
-    const config: BusinessConfig = { dataVersion: DATA_VERSION, id: biz.config.id ?? crypto.randomUUID(), name: biz.name, categories: biz.config.categories };
+    const config: BusinessConfig = { dataVersion: DATA_VERSION, id: biz.config.id ?? crypto.randomUUID(), name: biz.name,
+      categories: biz.config.categories?.length ? biz.config.categories : [...DEFAULT_CATEGORIES] };
     await putJson(CONFIG_FILE, config, biz.folderId);
     requireCurrentData(await downloadJson<BusinessConfig>((await findFile(CONFIG_FILE, biz.folderId))!));
   }
