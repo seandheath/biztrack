@@ -26,6 +26,8 @@ Mobile views with fictional business and transaction data.
 
 ### Get started
 
+[Try the demo](https://biztrack.lol/demo/) with fictional data. No account or installation needed. Add, edit, or delete entries; reloading resets everything.
+
 You need a browser, a Google account, and internet access to sign in and sync. No Google Cloud project, API credentials, or developer tools needed.
 
 1. Open [BizTrack](https://biztrack.lol) and choose a fixed version or **Beta**.
@@ -69,6 +71,8 @@ BizTrack does not encrypt local data. Sign out on shared devices.
 ## For developers
 
 For local development or hosting your own copy.
+
+To run the demo without Google setup: `npm install`, then `npm run dev:demo`. Open `http://localhost:5173/demo/` (or the port Vite prints).
 
 ### Setup
 
@@ -137,9 +141,10 @@ Google Testing mode expires consent after seven days; see the setup guide for pr
 npm test        # regression checks
 npm run check   # TypeScript; excludes plain-JS Svelte scripts
 npm run build   # static output in build/
+npm run build:demo # standalone demo in build-demo/
 ```
 
-[GitHub Actions](.github/workflows/deploy.yml) deploys `main` to `/beta/`. A `v1.2.3` tag publishes an immutable release and serves it at `/v/1.2.3/`. Every deployment reuses existing release archives. Set `VITE_GOOGLE_CLIENT_ID` as a repository secret and [configure release protections](docs/releases.md) before tagging.
+[GitHub Actions](.github/workflows/deploy.yml) deploys `main` to `/beta/` and `/demo/`. A `v1.2.3` tag publishes an immutable release and serves it at `/v/1.2.3/`. Every deployment reuses existing release archives. Set `VITE_GOOGLE_CLIENT_ID` as a repository secret and [configure release protections](docs/releases.md) before tagging.
 
 For a local beta build: `BIZTRACK_BASE_PATH=/beta npm run build`. Without that setting, development uses `/`.
 

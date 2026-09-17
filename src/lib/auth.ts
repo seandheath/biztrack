@@ -1,4 +1,4 @@
-import { storageKey, shareCache } from './version.js';
+import { isDemo, storageKey, shareCache } from './version.js';
 /** Google's browser token model: reconnect explicitly, without discarding work. */
 import { GOOGLE_CLIENT_ID, DRIVE_SCOPE } from './constants.js';
 import type { TokenUpdate } from './types.js';
@@ -35,14 +35,16 @@ function pending(): Pending {
 }
 
 try {
-  email = localStorage.getItem(storageKey(EMAIL)) || null;
-  const storedExpiry = new Date(localStorage.getItem(storageKey(EXPIRY)) || '');
-  if (storedExpiry > new Date()) {
-    token = localStorage.getItem(storageKey(TOKEN));
-    expiry = storedExpiry;
-  } else {
-    localStorage.removeItem(storageKey(TOKEN));
-    localStorage.removeItem(storageKey(EXPIRY));
+  if (!isDemo) {
+    email = localStorage.getItem(storageKey(EMAIL)) || null;
+    const storedExpiry = new Date(localStorage.getItem(storageKey(EXPIRY)) || '');
+    if (storedExpiry > new Date()) {
+      token = localStorage.getItem(storageKey(TOKEN));
+      expiry = storedExpiry;
+    } else {
+      localStorage.removeItem(storageKey(TOKEN));
+      localStorage.removeItem(storageKey(EXPIRY));
+    }
   }
 } catch { /* Storage can be disabled. */ }
 
@@ -60,6 +62,7 @@ export function getTokenSecondsRemaining(): number {
 }
 
 export function expireToken(): void {
+  if (isDemo) return;
   token = null;
   expiry = null;
   verified = false;
@@ -71,6 +74,7 @@ export function expireToken(): void {
 }
 
 export function loadGisScript(): Promise<void> {
+  if (isDemo) return Promise.reject(new AuthError('Google access is unavailable in the demo.'));
   if (window.google?.accounts?.oauth2) return Promise.resolve();
   if (scriptPromise) return scriptPromise;
   scriptPromise = new Promise((resolve, reject) => {
@@ -113,6 +117,7 @@ function checkAccount(actual: string, expected: string | null): void {
 
 /** Validate a restored token before exposing account-specific cached data. */
 export async function restoreSession(): Promise<void> {
+  if (isDemo) return Promise.reject(new AuthError('Google access is unavailable in the demo.'));
   if (!token || !expiry || expiry <= new Date()) return;
   const version = session;
   const restoredToken = token;
@@ -142,6 +147,7 @@ export async function restoreSession(): Promise<void> {
 
 /** Called only from a button click, after the GIS script has loaded. */
 export function requestToken(): Promise<void> {
+  if (isDemo) return Promise.reject(new AuthError('Google access is unavailable in the demo.'));
   if (popup) return popup.promise;
   if (!window.google?.accounts?.oauth2) {
     return Promise.reject(new AuthError('Google sign-in is still loading. Please retry.'));
@@ -216,6 +222,7 @@ export function requestToken(): Promise<void> {
 
 /** API calls wait here; only the explicit reconnect button opens Google's popup. */
 export function ensureAuthorized(): Promise<void> {
+  if (isDemo) return Promise.resolve();
   if (isTokenValid()) return Promise.resolve();
   if (!email) return Promise.reject(new AuthError('Sign in before saving to Google Drive.'));
   if (!navigator.onLine) return Promise.reject(new AuthError('Connect to the internet, then reconnect to Google Drive. Your unfinished work is still here.'));
@@ -238,6 +245,7 @@ export function cancelReconnection(error: unknown = new AuthError('Reconnection 
 
 /** Sign-out clears this device, but does not revoke the Google grant. */
 export async function signOut(discardPending = false): Promise<void> {
+  if (isDemo) return Promise.reject(new AuthError('Google access is unavailable in the demo.'));
   const { queueLength, clearQueue } = await import('./services/offline-queue.js');
   if (queueLength() && !discardPending) throw new AuthError('Sync pending changes or explicitly discard them before signing out.');
   session++;
@@ -264,6 +272,7 @@ export async function signOut(discardPending = false): Promise<void> {
 
 /** Explicit disconnection must report revocation failure instead of claiming success. */
 export async function revokeToken(discardPending = false): Promise<void> {
+  if (isDemo) return Promise.reject(new AuthError('Google access is unavailable in the demo.'));
   const { queueLength } = await import('./services/offline-queue.js');
   if (queueLength() && !discardPending) throw new AuthError('Sync or discard pending changes before disconnecting.');
   await ensureAuthorized();
@@ -284,6 +293,7 @@ export function onAuthRequired(callback: ((pending: boolean) => void) | null): v
 
 /** Resume only the rejected request after reconnecting; never replay a whole save. */
 export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  if (isDemo) return Promise.reject(new AuthError('Google access is unavailable in the demo.'));
   const target = new URL(url);
   if (target.protocol !== 'https:' || !['www.googleapis.com', 'sheets.googleapis.com'].includes(target.hostname)) {
     throw new Error('Unsupported Google API URL');

@@ -1,5 +1,6 @@
 <script>
   import { resolve } from '$app/paths';
+  import { isDemo } from '$lib/version.js';
 
   import { ensureAuthorized, AuthError } from '$lib/auth.js';
   import Spinner from '../../components/Spinner.svelte';
@@ -614,7 +615,7 @@
         {#if milErrors.driver}
           <span class="text-xs" style="color: var(--color-error);">{milErrors.driver}</span>
         {/if}
-        {#if milDriver.trim() && milDriver.trim() !== ($defaultDrivers[$selectedBusiness?.folderId] ?? '')}
+        {#if !isDemo && milDriver.trim() && milDriver.trim() !== ($defaultDrivers[$selectedBusiness?.folderId] ?? '')}
           <button
             type="button"
             onclick={handleSetDefaultDriver}
@@ -630,7 +631,7 @@
       </div>
 
       <!-- Save / Update Favorite -->
-      {#if milCanSaveFav}
+      {#if !isDemo && milCanSaveFav}
         {#if milMatchedFavorite}
           <!-- Matched an existing favorite — show editable name + Update button -->
           <div class="flex gap-2 items-center">

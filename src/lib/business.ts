@@ -1,3 +1,5 @@
+import { isDemo } from './version.js';
+import * as demo from './demo.js';
 /**
  * Business setup and year-folder management.
  *
@@ -147,6 +149,7 @@ export async function setupBusiness(
  * Safe to call even if configFileId is missing (returns null).
  */
 export async function loadConfig(business: Business): Promise<BusinessConfig | null> {
+  if (isDemo) { const cfg = demo.configFor(business); businessConfig.set(cfg); return cfg; }
   if (!business?.configFileId) return null;
   const cfg = await downloadJson<BusinessConfig>(business.configFileId);
   normalizeConfig(cfg, business.name ?? '');
@@ -311,6 +314,7 @@ export async function discoverYearFolders(business: Business): Promise<Business>
  *   - When user enters an expense dated in a different year
  */
 export async function ensureYearFolder(business: Business, year: number): Promise<Business> {
+  if (isDemo) return demo.ensureYear(business, year);
   // Reject non-4-digit years (e.g. partial values from date input intermediate events)
   if (year < 1000 || year > 9999) return business;
 

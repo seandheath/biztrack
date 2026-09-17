@@ -1,3 +1,5 @@
+import { isDemo } from '../version.js';
+import * as demo from '../demo.js';
 /**
  * Google Sheets API v4 — high-level service layer for BizTrack.
  *
@@ -89,6 +91,7 @@ const _TRASHED_TTL = 30_000; // 30 seconds
  * existing 404 handling picks it up).
  */
 export async function ensureNotTrashed(spreadsheetId: string): Promise<void> {
+  if (isDemo) { demo.table(spreadsheetId, 'Expenses'); return; }
   const cached = _trashedCache.get(spreadsheetId);
   if (cached && Date.now() - cached.checkedAt < _TRASHED_TTL) {
     if (cached.trashed) throw new Error('Spreadsheet has been deleted (404)');
@@ -309,6 +312,7 @@ export async function pushTransactions(
   sheetName: SheetName,
   rows: TransactionRow[],
 ): Promise<void> {
+  if (isDemo) return demo.append(spreadsheetId, sheetName, rows);
   if (rows.length === 0) return;
   await ensureNotTrashed(spreadsheetId);
   const range = encodeURIComponent(`${sheetName}!A1`);
@@ -336,6 +340,7 @@ export async function updateByUUID(
   sheetName: SheetName,
   row: TransactionRow,
 ): Promise<void> {
+  if (isDemo) return demo.change(spreadsheetId, sheetName, row.id, row);
   await ensureNotTrashed(spreadsheetId);
   const ids = await _readIdColumn(spreadsheetId, sheetName);
   const idx = ids.findIndex((v) => v === row.id);
@@ -368,6 +373,7 @@ export async function deleteByUUID(
   sheetName: SheetName,
   uuid: string,
 ): Promise<void> {
+  if (isDemo) return demo.change(spreadsheetId, sheetName, uuid);
   await ensureNotTrashed(spreadsheetId);
   // Re-scan to get current row number — atomic within this function call
   const ids = await _readIdColumn(spreadsheetId, sheetName);
@@ -407,6 +413,7 @@ export async function batchSetCategory(
   uuids: string[],
   category: string,
 ): Promise<void> {
+  if (isDemo) { for (const row of demo.table(spreadsheetId, 'Expenses')) { if (uuids.includes(row.id)) row.category = category; } return; }
   if (uuids.length === 0) return;
   await ensureNotTrashed(spreadsheetId);
   const ids = await _readIdColumn(spreadsheetId, 'Expenses');
@@ -441,6 +448,7 @@ export async function pullTransactions(
   spreadsheetId: string,
   sheetName: SheetName,
 ): Promise<TransactionRow[]> {
+  if (isDemo) return structuredClone(demo.table(spreadsheetId, sheetName));
   await ensureNotTrashed(spreadsheetId);
   const range    = encodeURIComponent(`${sheetName}!A:Z`);
   const url      = `${SHEETS_BASE}/${spreadsheetId}/values/${range}`;
@@ -471,6 +479,7 @@ export async function readRow(
   sheetName: SheetName,
   rowNum: number,
 ): Promise<TransactionRow> {
+  if (isDemo) return demo.readRow(spreadsheetId, sheetName, rowNum);
   const endCol = sheetName === 'Expenses' ? 'J' : 'H';
   const range = encodeURIComponent(`${sheetName}!A${rowNum}:${endCol}${rowNum}`);
   const url = `${SHEETS_BASE}/${spreadsheetId}/values/${range}`;
@@ -498,6 +507,7 @@ export async function findRowByTxnId(
   txnId: string,
   sheetName: SheetName = 'Expenses',
 ): Promise<number | null> {
+  if (isDemo) { const index = demo.table(spreadsheetId, sheetName).findIndex(row => row.id === txnId); return index < 0 ? null : index + 2; }
   const ids = await _readIdColumn(spreadsheetId, sheetName);
   const idx = ids.findIndex((v) => v === txnId);
   if (idx === -1) return null;

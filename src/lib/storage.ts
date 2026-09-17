@@ -1,5 +1,5 @@
 /**
- * localStorage wrapper for BizTrack convenience cache.
+ * Convenience cache: localStorage for the app, memory only for the demo.
  *
  * All three functions guard against missing localStorage (SSR pre-render
  * passes, private browsing modes that block storage). Data loss from
@@ -7,7 +7,9 @@
  * All real data lives in Google Drive.
  */
 
-import { storageKey } from './version.js';
+import { isDemo, storageKey } from './version.js';
+
+const demoCache = new Map<string, unknown>();
 
 const _available: boolean = typeof localStorage !== 'undefined';
 
@@ -17,6 +19,7 @@ const _available: boolean = typeof localStorage !== 'undefined';
  *
  */
 export function get<T = null>(key: string, fallback: T = null as T): T {
+  if (isDemo) return structuredClone((demoCache.has(key) ? demoCache.get(key) : fallback) as T);
   if (!_available) return fallback;
   try {
     const raw = localStorage.getItem(storageKey(key));
@@ -33,6 +36,7 @@ export function get<T = null>(key: string, fallback: T = null as T): T {
  *
  */
 export function set(key: string, value: unknown): void {
+  if (isDemo) { demoCache.set(key, structuredClone(value)); return; }
   if (!_available) return;
   try {
     localStorage.setItem(storageKey(key), JSON.stringify(value));
@@ -46,6 +50,7 @@ export function set(key: string, value: unknown): void {
  *
  */
 export function remove(key: string): void {
+  if (isDemo) { demoCache.delete(key); return; }
   if (!_available) return;
   try {
     localStorage.removeItem(storageKey(key));

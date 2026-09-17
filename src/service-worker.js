@@ -3,7 +3,7 @@ import { registerRoute } from 'workbox-routing';
 import { CacheFirst, NetworkOnly } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { clientsClaim } from 'workbox-core';
-import { shareCache, receiptKey, storageKey } from './lib/version.js';
+import { isDemo, shareCache, receiptKey, storageKey } from './lib/version.js';
 
 const scope = new URL(self.registration.scope);
 clientsClaim();
@@ -20,6 +20,10 @@ const pages = new Set(manifest.map(entry => new URL(typeof entry === 'string' ? 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== scope.origin || url.pathname !== `${scope.pathname}share/` || event.request.method !== 'POST') return;
+  if (isDemo) {
+    event.respondWith(Promise.resolve(new Response('Receipt sharing is unavailable in the demo.', { status: 405 })));
+    return;
+  }
   event.respondWith((async () => {
     try {
       const form = await event.request.formData();

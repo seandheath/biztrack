@@ -66,7 +66,7 @@ export default {
         // Web Share Target (Android only): allows BizTrack to appear in the
         // Android share sheet when sharing a receipt PDF/image from another app.
         // iOS does not support Web Share Target.
-        share_target: {
+        share_target: base === '/demo' ? undefined : {
           action: `${base}/share/`,
           method: 'POST',
           enctype: 'multipart/form-data',

@@ -92,7 +92,7 @@ for (const legacy of [true, false]) {
       put: async (key, response) => saved.set(`${name}:${key}`, response),
     }) },
     fetch: () => { throw new Error('unexpected network request'); },
-    shareCache: 'release-share', receiptKey: '/pending-receipt', storageKey: key => `release:${key}`,
+    isDemo: false, shareCache: 'release-share', receiptKey: '/pending-receipt', storageKey: key => `release:${key}`,
     cleanupOutdatedCaches() {}, precacheAndRoute() {}, registerRoute() {}, clientsClaim() {},
     createHandlerBoundToURL() {}, CacheFirst: class {}, NetworkOnly: class {}, ExpirationPlugin: class {},
   };
@@ -119,5 +119,10 @@ for (const legacy of [true, false]) {
   failed.append('receipt', new File(['retry'], 'retry.pdf'));
   const failure = await dispatch(new Request(legacy ? 'https://biztrack.test/share' : `${scope}share/`, { method: 'POST', body: failed }));
   assert.equal(failure.status, 503);
+  if (!legacy) {
+    context.isDemo = true;
+    const demoResponse = await dispatch(new Request(`${scope}share/`, { method: 'POST', body: 'receipt' }));
+    assert.equal(demoResponse.status, 405, 'demo must reject receipt sharing without opening a cache');
+  }
 }
 console.log('Version paths, account isolation, legacy queue, and receipt handoff checks passed.');

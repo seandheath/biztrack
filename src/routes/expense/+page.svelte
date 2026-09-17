@@ -1,5 +1,6 @@
 <script>
   import { resolve } from '$app/paths';
+  import { isDemo } from '$lib/version.js';
 
   let vendorDefaults = {};
   import { ensureAuthorized, AuthError } from '$lib/auth.js';
@@ -511,7 +512,7 @@
       Select a business above.
     </p>
   {:else}
-    {#if shareMode}
+    {#if shareMode && !isDemo}
       <!-- Share mode banner -->
       <div class="rounded-xl px-4 py-3 text-sm" style="background-color: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted);">
         Completing expense{shareSubmittedBy ? ` shared by ${shareSubmittedBy}` : ''}. Fill in any missing details and save.
@@ -678,6 +679,7 @@
       </div>
 
       <!-- Receipt -->
+      {#if !isDemo}
       <div class="flex flex-col gap-1">
         <label for="exp-receipt" class="text-sm font-medium" style="color: var(--color-text-muted);">
           Receipt <span style="color: var(--color-text-muted); font-weight: 400;">(optional)</span>
@@ -696,6 +698,10 @@
         <ReceiptPicker id="exp-receipt" bind:file={expReceipt}
           label={existingReceipt ? 'Replace Receipt (photo or PDF)' : 'Add Receipt (photo or PDF)'} />
       </div>
+
+      {:else}
+        <p class="text-sm" style="color: var(--color-text-muted);">Receipt uploads are available in the full app.</p>
+      {/if}
 
       <!-- Description (single mode only — in split mode description is per-line) -->
       {#if !splitMode}

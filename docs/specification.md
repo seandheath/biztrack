@@ -47,6 +47,23 @@ Transaction links use `/expense` or `/mileage` with `biz`, `year`, and `txn` que
 parameters. `returnTo` preserves the history year or review workflow. Existing
 parameter names and business UUIDs are compatibility requirements.
 
+## Demo
+
+`/demo/` runs the same tracking screens with two fictional businesses and entries
+dated in the current and previous year. Visitors can switch businesses, create,
+edit, delete, and split entries, browse history, and review uncategorized expenses.
+No account or installation is required.
+
+Records, preferences, and caches stay in memory, separately in each tab. Reloading
+restores the sample data. **Reset demo** confirms before reloading the home screen;
+**Exit demo** opens the version chooser. Google requests and offline queue writes
+are blocked. Existing account data and queues are untouched.
+
+Business settings, CSV import, receipt uploads/sharing, favorite management, and
+driver-default changes are unavailable. Demo mode hides install prompts and the
+Google sync indicator. Its service worker caches only static app files under
+`/demo/`; the manifest has no share target.
+
 ## Drive data and ownership
 
 ```text

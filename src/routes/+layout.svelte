@@ -8,7 +8,8 @@
   import Spinner from '../components/Spinner.svelte';
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
-  import { appName, appBase, storageKey } from '$lib/version.js';
+  import { isDemo, appName, appBase, storageKey } from '$lib/version.js';
+  import { seedDemo } from '$lib/demo.js';
   import { returnRoute } from '$lib/util.js';
   import {
     loadGisScript,
@@ -57,6 +58,7 @@
   // Public routes bypass the auth guard entirely — needed for OAuth consent screen URLs
   const PUBLIC_ROUTES = ['/privacy', '/terms'];
   let isPublicRoute = $derived(PUBLIC_ROUTES.includes($page.route.id));
+  let demoRouteAllowed = $derived(['/', '/expense', '/mileage', '/history', '/review'].includes($page.route.id));
 
   // ---------------------------------------------------------------------------
   // Auth state
@@ -174,6 +176,14 @@
   const IOS_PROMPT_KEY = 'biztrack_ios_prompt_dismissed';
 
   onMount(() => {
+    if (isDemo) {
+      storage.set('bt_cache', seedDemo());
+      loadCache();
+      userEmail.set('alex@example.com');
+      restoring = false;
+      workspaceMounted = true;
+      return;
+    }
     let disposed = false;
     returningEmail = getEmail();
     prepareSignIn();
@@ -357,6 +367,10 @@
     } finally { signingIn = false; }
   }
 
+  function resetDemo() {
+    if (window.confirm('Reset the demo and discard your changes?')) window.location.assign(resolve('/'));
+  }
+
   function reloadUpdate() {
     if (!isEntryForm && !signingIn && !hasPendingOperations()) window.location.reload();
   }
@@ -378,7 +392,9 @@
      ========================================================================= -->
 
 {:else}
-{#if !workspaceMounted || workspaceLocked}
+{#if isDemo && !workspaceMounted}
+  <p class="p-6" role="status">Loading demo…</p>
+{:else if !workspaceMounted || workspaceLocked}
   <div
     class="min-h-screen flex flex-col items-center justify-center px-6 gap-8"
     style="background-color: var(--color-surface); color: var(--color-text);"
@@ -551,6 +567,15 @@
     class="flex flex-col"
     style="height: 100dvh; background-color: var(--color-surface); color: var(--color-text);"
   >
+    {#if isDemo}
+      <div class="flex flex-wrap items-center justify-between gap-x-4 px-4 py-1 text-xs flex-shrink-0" style="background-color: var(--color-surface-2);">
+        <span><strong>Demo</strong> · Changes reset on reload</span>
+        <div class="flex gap-4">
+          <button onclick={resetDemo} class="underline">Reset demo</button>
+          <a href="/" data-sveltekit-reload class="underline">Exit demo</a>
+        </div>
+      </div>
+    {/if}
     <header
       class="sticky top-0 z-10 flex items-center h-14 px-2 border-b"
       style="
@@ -595,6 +620,7 @@
         style="color: var(--color-text);"
       >
         {appName}
+        {#if !isDemo}
         <span
           class="inline-block w-2 h-2 rounded-full flex-shrink-0"
           style="background-color: {$syncStatus === 'green' ? '#22c55e' :
@@ -603,10 +629,11 @@
           aria-label="Sync status: {$syncStatus === 'green' ? 'synced' :
                                      $syncStatus === 'yellow' ? 'syncing' : 'sync error'}"
         ></span>
+        {/if}
       </a>
 
       <!-- Gear / close icon (hidden on entry form pages) -->
-      {#if !isSettingsSub && !isEntryForm}
+      {#if !isSettingsSub && !isEntryForm && (!isDemo || isHistory)}
         <a
           href={resolve(isSettings || isHistory ? '/' : '/settings')}
           class="rounded-lg hover:opacity-70 transition-opacity"
@@ -631,7 +658,12 @@
     </header>
 
     <main class="flex-1 overflow-y-auto">
-      {#if appLoading}
+      {#if isDemo && !demoRouteAllowed}
+        <div class="p-6 flex flex-col gap-4">
+          <p>This feature is not available in the demo.</p>
+          <a href={resolve('/')} class="underline">Back to demo</a>
+        </div>
+      {:else if appLoading}
         <div class="flex items-center justify-center min-h-[60vh]">
           <span style="color: var(--color-primary);"><Spinner size="w-8 h-8" /></span>
         </div>

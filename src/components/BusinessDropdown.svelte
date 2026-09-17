@@ -7,6 +7,7 @@
 <script>
   import { resolve } from '$app/paths';
 
+  import { isDemo } from '$lib/version.js';
   import { goto } from '$app/navigation';
   import { businesses, selectedBusiness } from '$lib/store.js';
 
@@ -38,7 +39,7 @@
     {#each $businesses as b (b.name)}
       <option value={b.name}>{b.name}</option>
     {/each}
-    <option value="__add_business__" style="color: var(--color-primary);">+ Add Business…</option>
+    {#if !isDemo}<option value="__add_business__" style="color: var(--color-primary);">+ Add Business…</option>{/if}
   </select>
   <!-- Chevron icon overlay -->
   <svg

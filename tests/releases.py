@@ -48,6 +48,7 @@ with tempfile.TemporaryDirectory() as tmp:
     shutil.copytree(ROOT / "site", r.ROOT / "site")
     shutil.copytree(ROOT / "static", r.ROOT / "static")
     beta = fixture(r.ROOT / "build", "1.2.4", "/beta", "beta one")
+    fixture(r.ROOT / "build-demo", "1.2.4", "/demo", "demo")
     archived = tmp / "archives"
     archived.mkdir()
     published = []
@@ -101,6 +102,22 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'class="button primary" href="/v/1.2.4/"' in chooser
     assert '<details class="catalog">' in chooser
     assert '<link rel="manifest"' not in chooser
+    assert 'href="/demo/"' in chooser
+    assert (second / "demo/index.html").is_file()
+    demo_info = r.ROOT / "build-demo/build-info.json"
+    original_info = demo_info.read_text()
+    demo_info.write_text(json.dumps({**json.loads(original_info), "commit": "b" * 40}))
+    rejects(lambda: r.assemble(tmp / "mismatched-demo"))
+    assert not (tmp / "mismatched-demo").exists()
+    demo_info.unlink()
+    try:
+        r.assemble(tmp / "missing-demo")
+    except FileNotFoundError:
+        pass
+    else:
+        raise AssertionError("Missing demo must fail the deployment")
+    assert not (tmp / "missing-demo").exists()
+    demo_info.write_text(original_info)
     for icon in ("favicon.ico", "icon.svg", "icon-180.png"):
         assert f'href="/{icon}"' in chooser
         assert (second / icon).read_bytes() == (ROOT / "static" / icon).read_bytes()

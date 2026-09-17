@@ -1,4 +1,5 @@
 export const appBase = typeof __APP_BASE__ === 'undefined' ? '' : __APP_BASE__;
+export const isDemo = appBase === '/demo';
 export const appName = typeof __APP_NAME__ === 'undefined' ? 'BizTrack' : __APP_NAME__;
 export const appCommit = typeof __APP_COMMIT__ === 'undefined' ? '' : __APP_COMMIT__;
 

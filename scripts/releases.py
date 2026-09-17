@@ -187,7 +187,8 @@ def write_site(site, versions, beta):
 </header>
 <div class="hero"><p class="eyebrow">Expense &amp; mileage tracker</p>
 <h1>Your business.<br><span>Your Google Drive.</span></h1>
-<p class="intro">On your device. In your Drive. No setup.</p></div>
+<p class="intro">On your device. In your Drive. No setup.</p>
+<a class="button demo-link" href="/demo/">Try demo <span aria-hidden="true">→</span></a><span class="demo-note">No account needed</span></div>
 <div class="launch-grid{' single' if not versions else ''}">
 {fixed}
 <section class="launch-card beta">
@@ -226,11 +227,13 @@ def assemble(destination):
         raise ValueError(f"Use an empty output path: {site}")
     beta = json.loads((ROOT / "build/build-info.json").read_text())
     check_build(ROOT / "build", beta["version"], "/beta")
+    check_build(ROOT / "build-demo", beta["version"], "/demo", beta["commit"])
     versions = []
     # ponytail: download all releases per deploy; add incremental assembly if archive size makes this slow.
     with tempfile.TemporaryDirectory() as tmp:
         stage = Path(tmp) / "site"
         shutil.copytree(ROOT / "build", stage / "beta")
+        shutil.copytree(ROOT / "build-demo", stage / "demo")
         for release in releases():
             if release["draft"]:
                 continue
@@ -246,7 +249,7 @@ def assemble(destination):
         if sum(p.stat().st_size for p in stage.rglob('*') if p.is_file()) > 1_000_000_000:
             raise ValueError("Combined site exceeds the GitHub Pages size limit; no versions were removed.")
         shutil.copytree(stage, site)
-    print(f"Assembled beta and {len(versions)} fixed releases in {site}.")
+    print(f"Assembled demo, beta, and {len(versions)} fixed releases in {site}.")
 
 
 if __name__ == "__main__":

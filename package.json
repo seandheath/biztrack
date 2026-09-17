@@ -1,13 +1,15 @@
 {
   "name": "biztrack",
-  "version": "0.1.127",
+  "version": "0.1.128",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/auth.mjs && node tests/cleanup.mjs && node tests/versions.mjs && python3 tests/releases.py",
+    "test": "node tests/auth.mjs && node tests/cleanup.mjs && node tests/versions.mjs && node tests/demo.mjs && python3 tests/releases.py",
     "dev": "vite dev",
+    "dev:demo": "BIZTRACK_BASE_PATH=/demo vite dev --host 127.0.0.1",
     "build": "vite build",
+    "build:demo": "BIZTRACK_BASE_PATH=/demo vite build",
     "preview": "vite preview",
     "preview:site": "python3 scripts/preview-site.py",
     "check": "svelte-kit sync && tsc --noEmit"

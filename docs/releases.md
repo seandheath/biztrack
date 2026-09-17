@@ -4,6 +4,7 @@
 |---|---|
 | `/` | Version chooser; no new PWA installation at the root |
 | `/beta/` | Current `main`; automatic updates |
+| `/demo/` | Current `main`; editable sample data, reset on reload |
 | `/v/1.2.3/` | Original build of `v1.2.3`; never rebuilt after publication |
 
 ## One-time GitHub setup
@@ -49,7 +50,7 @@ Use beta for work in progress. Tag pushes run checks, build at `/v/1.2.3/`, crea
 draft, attach `biztrack-1.2.3.zip` and `SHA256SUMS`, and publish automatically.
 GitHub publication locks the artifacts and produces a release attestation.
 
-The workflow then builds beta from current `main`, verifies and downloads every
+The workflow then builds beta and demo from current `main`, verifies and downloads every
 published release archive, and deploys the complete site. Archives include source
 commit and base-path metadata. Existing releases are never rebuilt, and retries
 reuse their verified archives. Only unpublished drafts allow replacement assets.
@@ -82,11 +83,14 @@ For local checks and a complete site (requires Python 3, GitHub CLI, and fetched
 npm test
 npm run check
 BIZTRACK_BASE_PATH=/beta npm run build
+npm run build:demo
 python3 scripts/releases.py assemble pages
 python3 -m http.server 4173 --directory pages
 ```
 
-Use an absent output directory for assembly. Local development defaults to `/`.
+Use an absent output directory for assembly. Beta uses `build/`; demo uses
+`build-demo/`. Assembly requires both builds from the same commit and version.
+Local development defaults to `/`; `npm run dev:demo` serves `/demo/` without Google setup.
 For a release build, use `BIZTRACK_BASE_PATH=/v/1.2.3` on the corresponding commit.
 The generated manifest, asset paths, route indexes, and service worker use that
 base. `build-info.json` records the version, commit, and base.

@@ -1,4 +1,4 @@
-import { storageKey } from '../version.js';
+import { isDemo, storageKey } from '../version.js';
 /**
  * Offline write queue — localStorage-backed.
  *
@@ -31,6 +31,7 @@ export interface QueuedWrite {
 }
 
 function getQueue(): QueuedWrite[] {
+  if (isDemo) return [];
   try {
     return JSON.parse(localStorage.getItem(storageKey(QUEUE_KEY)) || '[]');
   } catch {
@@ -45,6 +46,7 @@ function saveQueue(q: QueuedWrite[]): void {
 
 /** Add a failed write to the offline queue. */
 export function enqueue(write: Omit<QueuedWrite, 'timestamp'>): void {
+  if (isDemo) throw new AuthError('Demo changes cannot be queued.');
   if (!getEmail()) throw new AuthError('Sign in before saving offline changes.');
   const q = getQueue();
   q.push({ ...write, timestamp: Date.now() });
@@ -58,6 +60,7 @@ export function queueLength(): number {
 
 /** Clear the offline queue (called on sign-out). */
 export function clearQueue(): void {
+  if (isDemo) return;
   queueVersion++;
   try {
     localStorage.removeItem(storageKey(QUEUE_KEY));
