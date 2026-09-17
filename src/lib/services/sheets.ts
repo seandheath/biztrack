@@ -311,6 +311,7 @@ export async function pushTransactions(
   spreadsheetId: string,
   sheetName: SheetName,
   rows: TransactionRow[],
+  valueInputOption: 'USER_ENTERED' | 'RAW' = 'USER_ENTERED',
 ): Promise<void> {
   if (isDemo) return demo.append(spreadsheetId, sheetName, rows);
   if (rows.length === 0) return;
@@ -318,15 +319,66 @@ export async function pushTransactions(
   const range = encodeURIComponent(`${sheetName}!A1`);
   const url =
     `${SHEETS_BASE}/${spreadsheetId}/values/${range}:append` +
-    `?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+    `?valueInputOption=${valueInputOption}&insertDataOption=INSERT_ROWS`;
 
   const response = await apiFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ values: rows.map((r) => _rowToValues(r, sheetName)) }),
+    body: JSON.stringify({ values: rows.map((r) => valueInputOption === 'RAW' ? replacementValues(r, sheetName) : _rowToValues(r, sheetName)) }),
   });
 
   if (!response.ok) return _throwSheetsError(response, 'pushTransactions');
+}
+
+export class ReplacementError extends Error {}
+
+// RAW preserves text literally; amounts and distances remain numeric spreadsheet cells.
+function replacementValues(row: TransactionRow, sheetName: SheetName): (string | number)[] {
+  const values = _rowToValues(row, sheetName);
+  const column = sheetName === 'Expenses' ? 3 : 4;
+  if (values[column] !== '') {
+    values[column] = Number(values[column]);
+    if (!Number.isFinite(values[column])) throw new ReplacementError('Invalid amount or distance. The original has not been deleted.');
+  }
+  return values;
+}
+
+/** Copy, read back every field, then delete. Stable replacement IDs make unchanged retries safe. */
+export async function replaceTransaction(
+  sourceId: string, destinationId: string, sheetName: SheetName,
+  originalId: string, rows: TransactionRow[],
+): Promise<void> {
+  if (!rows.length || rows.some(row => !row.id || (sourceId === destinationId && row.id === originalId))
+    || new Set(rows.map(row => row.id)).size !== rows.length) {
+    throw new ReplacementError('Invalid replacement entries. The original has not been deleted.');
+  }
+  let confirmed = false;
+  try {
+    const expected = rows.map(row => JSON.stringify(replacementValues(row, sheetName)));
+    const matches = (saved: TransactionRow[], row: TransactionRow, index: number) => {
+      const found = saved.filter(entry => entry.id === row.id);
+      if (found.length > 1 || (found.length === 1 && JSON.stringify(replacementValues(found[0], sheetName)) !== expected[index])) {
+        throw new ReplacementError('A replacement already exists with different details. Review the entries before retrying; the original has not been deleted.');
+      }
+      return found.length === 1;
+    };
+    const existing = await pullTransactions(destinationId, sheetName, 'UNFORMATTED_VALUE');
+    if (existing.some(entry => entry.id.startsWith(`${originalId}-split-`) && !rows.some(row => row.id === entry.id))) {
+      throw new ReplacementError('A previous split has different lines. Review the entries before retrying; the original has not been deleted.');
+    }
+    const missing = rows.filter((row, index) => !matches(existing, row, index));
+    if (missing.length) await pushTransactions(destinationId, sheetName, missing, 'RAW');
+    const saved = await pullTransactions(destinationId, sheetName, 'UNFORMATTED_VALUE');
+    if (!rows.every((row, index) => matches(saved, row, index))) throw new Error('Replacement is missing');
+    confirmed = true;
+    // ponytail: Sheets has no cross-spreadsheet transaction; concurrent writers still need coordination.
+    await deleteByUUID(sourceId, sheetName, originalId);
+  } catch (error) {
+    if (error instanceof AuthError || error instanceof ReplacementError) throw error;
+    throw new ReplacementError(confirmed
+      ? 'Replacement saved, but removal of the original was not confirmed. Retry Save without changing the entry.'
+      : 'Could not confirm the replacement. The original has not been deleted. Retry Save without changing the entry.');
+  }
 }
 
 /**
@@ -373,7 +425,10 @@ export async function deleteByUUID(
   sheetName: SheetName,
   uuid: string,
 ): Promise<void> {
-  if (isDemo) return demo.change(spreadsheetId, sheetName, uuid);
+  if (isDemo) {
+    if (demo.table(spreadsheetId, sheetName).some(row => row.id === uuid)) demo.change(spreadsheetId, sheetName, uuid);
+    return;
+  }
   await ensureNotTrashed(spreadsheetId);
   // Re-scan to get current row number — atomic within this function call
   const ids = await _readIdColumn(spreadsheetId, sheetName);
@@ -447,11 +502,12 @@ export async function batchSetCategory(
 export async function pullTransactions(
   spreadsheetId: string,
   sheetName: SheetName,
+  valueRenderOption: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE' = 'FORMATTED_VALUE',
 ): Promise<TransactionRow[]> {
   if (isDemo) return structuredClone(demo.table(spreadsheetId, sheetName));
   await ensureNotTrashed(spreadsheetId);
   const range    = encodeURIComponent(`${sheetName}!A:Z`);
-  const url      = `${SHEETS_BASE}/${spreadsheetId}/values/${range}`;
+  const url      = `${SHEETS_BASE}/${spreadsheetId}/values/${range}?valueRenderOption=${valueRenderOption}`;
   const response = await apiFetch(url);
   if (!response.ok) return _throwSheetsError(response, 'pullTransactions');
 

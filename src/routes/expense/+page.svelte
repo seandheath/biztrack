@@ -27,7 +27,7 @@
     updateBusiness,
   } from '$lib/store.js';
   import { listFileNames, uploadFile, findFile } from '$lib/drive.js';
-  import { pushTransactions, updateByUUID, deleteByUUID, batchSetCategory, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
+  import { pushTransactions, updateByUUID, deleteByUUID, replaceTransaction, ReplacementError, batchSetCategory, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.svelte.js';
   import { todayISO, friendlyError, returnRoute } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
@@ -233,9 +233,9 @@
         submittedBy: shareMode ? shareSubmittedBy : ($userEmail ?? ''),
       };
       const rows = splitMode
-        ? splits.filter(s => s.amount && s.category).map(split => ({
+        ? splits.filter(s => s.amount && s.category).map((split, index) => ({
             ...common,
-            id: crypto.randomUUID(),
+            id: shareMode ? `${shareTxnId}-split-${index + 1}` : crypto.randomUUID(),
             description: split.description.trim(),
             amount: split.amount,
             category: split.category,
@@ -250,16 +250,11 @@
 
       if (shareMode) {
         if (splitMode) {
-          // Split replacement keeps its existing persistence ordering.
           try {
-            // Always delete original from its source sheet
-            await deleteByUUID(shareSheetId, 'Expenses', shareTxnId);
-            await pushTransactions(spreadsheetId, 'Expenses', rows);
+            await replaceTransaction(shareSheetId, spreadsheetId, 'Expenses', shareTxnId, rows);
           } catch (err) {
             if (!navigator.onLine && !(err instanceof AuthError)) {
-              enqueue({ spreadsheetId: shareSheetId, sheetName: 'Expenses', operation: 'delete', row: { id: shareTxnId } });
-              for (const row of rows)
-                enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'create', row });
+              enqueue({ operation: 'replace', sourceSpreadsheetId: shareSheetId, spreadsheetId, sheetName: 'Expenses', originalId: shareTxnId, rows });
               showToast('Saved offline — will sync when back online', 'success');
               goto(resolve('/'));
               return;
@@ -277,14 +272,15 @@
           try {
             if (spreadsheetId !== shareSheetId) {
               // Date changed to a different year — move row between sheets
-              await deleteByUUID(shareSheetId, 'Expenses', shareTxnId);
-              await pushTransactions(spreadsheetId, 'Expenses', [updatedRow]);
+              await replaceTransaction(shareSheetId, spreadsheetId, 'Expenses', shareTxnId, [updatedRow]);
             } else {
               await updateByUUID(spreadsheetId, 'Expenses', updatedRow);
             }
           } catch (err) {
             if (!navigator.onLine && !(err instanceof AuthError)) {
-              enqueue({ spreadsheetId, sheetName: 'Expenses', operation: 'update', row: updatedRow });
+              enqueue(spreadsheetId === shareSheetId
+                ? { spreadsheetId, sheetName: 'Expenses', operation: 'update', row: updatedRow }
+                : { operation: 'replace', sourceSpreadsheetId: shareSheetId, spreadsheetId, sheetName: 'Expenses', originalId: shareTxnId, rows: [updatedRow] });
               showToast('Saved offline — will sync when back online', 'success');
               goto(resolve('/'));
               return;
@@ -356,7 +352,7 @@
       goto(resolve('/'));
     } catch (err) {
       console.error('[expense] submit:', err);
-      showToast(friendlyError(err), 'error');
+      showToast(err instanceof ReplacementError ? err.message : friendlyError(err), 'error');
     } finally {
       expSubmitting = false;
     }

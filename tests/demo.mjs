@@ -64,7 +64,7 @@ try {
 
   await assert.rejects(sheets.pullTransactions('unknown', 'Expenses'), /not found/);
   await assert.rejects(sheets.updateByUUID(id, 'Expenses', {id:'unknown',date:'2026-01-01'}), /not found/);
-  await assert.rejects(sheets.deleteByUUID(id, 'Expenses', 'unknown'), /not found/);
+  await sheets.deleteByUUID(id, 'Expenses', 'unknown'); // Already deleted is a successful retry.
   await assert.rejects(sheets.readRow(id, 'Expenses', 1), /not found/);
   await assert.rejects(business.ensureYearFolder({...first,id:'unknown'}, 2026), /not found/);
   await assert.rejects(sheets.pushTransactions(id, 'Expenses', [{id:'split-a',date:'2026-01-01'}]), /Duplicate/);

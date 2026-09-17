@@ -25,7 +25,7 @@
     driverCache,
     defaultDrivers,
   } from '$lib/store.js';
-  import { pushTransactions, updateByUUID, deleteByUUID, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
+  import { pushTransactions, updateByUUID, deleteByUUID, replaceTransaction, ReplacementError, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.svelte.js';
   import { todayISO, friendlyError, returnRoute } from '$lib/util.js';
   import { enqueue } from '$lib/services/offline-queue.js';
@@ -294,14 +294,15 @@
         try {
           if (spreadsheetId !== editSheetId) {
             // Date changed to a different year — move row between sheets
-            await deleteByUUID(editSheetId, 'Mileage', editTxnId);
-            await pushTransactions(spreadsheetId, 'Mileage', [row]);
+            await replaceTransaction(editSheetId, spreadsheetId, 'Mileage', editTxnId, [row]);
           } else {
             await updateByUUID(spreadsheetId, 'Mileage', row);
           }
         } catch (err) {
           if (!navigator.onLine && !(err instanceof AuthError)) {
-            enqueue({ spreadsheetId, sheetName: 'Mileage', operation: 'update', row });
+            enqueue(spreadsheetId === editSheetId
+              ? { spreadsheetId, sheetName: 'Mileage', operation: 'update', row }
+              : { operation: 'replace', sourceSpreadsheetId: editSheetId, spreadsheetId, sheetName: 'Mileage', originalId: editTxnId, rows: [row] });
             showToast('Saved offline — will sync when back online', 'success');
             goto(resolve('/'));
             return;
@@ -375,7 +376,7 @@
       goto(resolve('/'));
     } catch (err) {
       console.error('[mileage] submit:', err);
-      showToast(friendlyError(err), 'error');
+      showToast(err instanceof ReplacementError ? err.message : friendlyError(err), 'error');
     } finally {
       milSubmitting = false;
     }

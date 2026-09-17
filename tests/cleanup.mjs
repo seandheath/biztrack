@@ -164,12 +164,13 @@ try {
       return source.slice(node.start, node.end);
     }).join('\n');
     const modes = ['create', 'edit', 'offline', 'edit-offline', 'failure', 'invalid', 'auth-failure', 'offline-auth-failure', 'offline-queue-failure'];
-    modes.push(...(kind === 'expense' ? ['split', 'split-offline', 'split-edit', 'split-edit-offline', 'split-edit-offline-queue-failure'] : ['duplicate']));
+    modes.push(...(kind === 'expense' ? ['split', 'split-offline', 'split-edit', 'split-edit-offline', 'split-edit-offline-queue-failure', 'move-edit', 'move-edit-offline', 'move-edit-offline-queue-failure'] : ['duplicate', 'move-edit', 'move-edit-offline', 'move-edit-offline-queue-failure']));
     for (const mode of modes) for (const returnTo of mode.includes('edit') ? ['', '/history?year=2025', '/review'] : ['']) {
       const writes = [], queued = [], messages = [], navigations = [], events = [];
       const offline = mode.includes('offline');
       const editing = mode.includes('edit');
       const split = mode.startsWith('split');
+      const moving = mode.startsWith('move');
       const year = new Date().getFullYear();
       const date = `${year}-02-01`;
       class AuthError extends Error {}
@@ -183,14 +184,15 @@ try {
       const noop = () => {};
       const context = vm.createContext({
         crypto, console: { error: noop }, setTimeout: noop, navigator: { onLine: !offline },
-        AuthError, ensureAuthorized: async () => { if (mode === 'auth-failure') throw new AuthError('authorization failed'); },
+        AuthError, ReplacementError: class extends Error {}, ensureAuthorized: async () => { if (mode === 'auth-failure') throw new AuthError('authorization failed'); },
         $selectedBusiness: { sheetIds: { [year]: 'sheet' }, receiptFolderIds: {} }, $userEmail: 'owner',
         expDate: mode === 'invalid' ? '' : date, expVendor: ' Vendor ', expDesc: ' Description ', expAmount: '12.50', expCategory: 'Supplies', expPayment: 'Cash', expNotes: ' Notes ', expReceipt: null,
-        shareMode: editing, splitMode: split, shareTxnId: 'existing', shareSheetId: 'sheet', shareSubmittedBy: 'original-owner', existingReceipt: 'receipt.pdf', returnTo, applyToAll: returnTo === '/review',
+        shareMode: editing, splitMode: split, shareTxnId: 'existing', shareSheetId: moving ? 'old-sheet' : 'sheet', shareSubmittedBy: 'original-owner', existingReceipt: 'receipt.pdf', returnTo, applyToAll: returnTo === '/review',
         splits: [{ description: ' A ', amount: '10.00', category: 'Supplies' }, { description: ' B ', amount: '2.50', category: 'Meals' }, { description: '', amount: '', category: '' }],
         milDate: mode === 'invalid' ? '' : date, milFrom: ' From ', milTo: ' To ', milPurpose: ' Purpose ', milMiles: '5', milRoundTrip: true, milDriver: ' Driver ',
-        editMode: editing, editTxnId: 'existing', editSheetId: 'sheet', confirmDuplicate: false,
+        editMode: editing, editTxnId: 'existing', editSheetId: moving ? 'old-sheet' : 'sheet', confirmDuplicate: false,
         getCachedTransactions: () => mode === 'duplicate' ? [{ date, from: 'From', to: 'To', miles: '10', driver: 'Driver' }] : [],
+        replaceTransaction: (source, dest, tab, id, rows) => write(dest, tab, rows),
         pushTransactions: write, updateByUUID: (sid, tab, row) => write(sid, tab, [row]), deleteByUUID: write,
         enqueue: entry => {
           if (mode.endsWith('queue-failure')) throw new Error('storage full');
@@ -244,7 +246,13 @@ try {
         assert.ok(events.indexOf('categorize') < events.indexOf('navigate'), 'bulk categorization must finish before returning home');
       }
       if (offline) assert.match(messages.at(-1)[0], /Saved offline/);
-      const rows = offline ? queued.filter(entry => entry.operation !== 'delete').map(entry => entry.row) : writes.at(-1)?.[2];
+      const rows = offline ? queued.flatMap(entry => entry.operation === 'replace' ? Array.from(entry.rows) : [entry.row]) : writes.at(-1)?.[2];
+      if (offline && editing && (split || moving)) {
+        assert.equal(queued.length, 1, 'replacement must be one durable queue entry');
+        assert.equal(queued[0].operation, 'replace');
+        assert.equal(queued[0].sourceSpreadsheetId, moving ? 'old-sheet' : 'sheet');
+        assert.equal(queued[0].originalId, 'existing');
+      }
       assert.equal(rows?.length, split ? 2 : 1);
       assert.equal(new Set(rows.map(row => row.id)).size, rows.length);
       if (kind === 'expense') {

@@ -174,10 +174,10 @@ def write_site(site, versions, beta):
     fixed = ""
     if versions:
         latest = versions[0]["version"]
-        fixed = f'''<section class="launch-card recommended">
-<span class="badge">Fixed release</span><h2>BizTrack <span class="version">{latest}</span></h2>
-<p>Updates when you choose.</p>
-<a class="button primary" href="/v/{latest}/">Open BizTrack <span aria-hidden="true">→</span></a>
+        fixed = f'''<section class="launch-card fixed">
+<span class="badge">You choose when to update</span><h2>Fixed release <span class="version">{latest}</span></h2>
+<p>A tagged version that stays the same. Switch releases when you want new features or fixes.</p>
+<a class="button primary" href="/v/{latest}/">Open fixed release <span aria-hidden="true">→</span></a>
 </section>'''
     catalog = (f'<details class="catalog"><summary>All releases <span class="count">{len(versions)}</span></summary>'
                f'<ul>{"".join(rows)}</ul></details>') if versions else '<p class="empty">Fixed releases coming soon.</p>'
@@ -192,9 +192,9 @@ def write_site(site, versions, beta):
 <div class="launch-grid{' single' if not versions else ''}">
 {fixed}
 <section class="launch-card beta">
-<span class="badge">{'Preview' if versions else 'Start here'}</span><h2>Beta</h2>
-<p>Latest changes. Updates automatically.</p>
-<a class="button {'secondary' if versions else 'primary'}" href="/beta/">Open beta <span aria-hidden="true">→</span></a>
+<span class="badge">Updates automatically</span><h2>Beta <span class="version">Latest</span></h2>
+<p>New features and fixes as they land. Choose this for the latest changes; they may be less tested.</p>
+<a class="button primary" href="/beta/">Open beta <span aria-hidden="true">→</span></a>
 </section>
 </div>
 {catalog}

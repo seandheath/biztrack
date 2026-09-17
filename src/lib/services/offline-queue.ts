@@ -12,6 +12,7 @@ import {
   pushTransactions,
   updateByUUID,
   deleteByUUID,
+  replaceTransaction,
   type TransactionRow,
 } from './sheets.js';
 import { AuthError, getEmail, getSessionVersion, isTokenValid } from '../auth.js';
@@ -22,13 +23,19 @@ let queueVersion = 0;
 
 type SheetName = 'Expenses' | 'Mileage';
 
-export interface QueuedWrite {
+type PendingWrite = {
   spreadsheetId: string;
   sheetName: SheetName;
+} & ({
   operation: 'create' | 'update' | 'delete';
   row: TransactionRow;
-  timestamp: number;
-}
+} | {
+  operation: 'replace';
+  sourceSpreadsheetId: string;
+  originalId: string;
+  rows: TransactionRow[];
+});
+export type QueuedWrite = PendingWrite & { timestamp: number };
 
 function getQueue(): QueuedWrite[] {
   if (isDemo) return [];
@@ -45,7 +52,7 @@ function saveQueue(q: QueuedWrite[]): void {
 }
 
 /** Add a failed write to the offline queue. */
-export function enqueue(write: Omit<QueuedWrite, 'timestamp'>): void {
+export function enqueue(write: PendingWrite): void {
   if (isDemo) throw new AuthError('Demo changes cannot be queued.');
   if (!getEmail()) throw new AuthError('Sign in before saving offline changes.');
   const q = getQueue();
@@ -90,7 +97,9 @@ async function drain(): Promise<{ drained: number; failed: number }> {
   for (const entry of queue) {
     if (version !== queueVersion || session !== getSessionVersion() || !isTokenValid()) break;
     try {
-      if (entry.operation === 'create') {
+      if (entry.operation === 'replace') {
+        await replaceTransaction(entry.sourceSpreadsheetId, entry.spreadsheetId, entry.sheetName, entry.originalId, entry.rows);
+      } else if (entry.operation === 'create') {
         await pushTransactions(entry.spreadsheetId, entry.sheetName, [entry.row]);
       } else if (entry.operation === 'update') {
         await updateByUUID(entry.spreadsheetId, entry.sheetName, entry.row);
@@ -100,6 +109,8 @@ async function drain(): Promise<{ drained: number; failed: number }> {
       drained++;
     } catch (err) {
       if (err instanceof AuthError) break;
+      // Keep the entire replacement, even on 404/conflict. Later edits must not overtake it.
+      if (entry.operation === 'replace') break;
       const msg = (err as Error).message ?? '';
       // 404 = spreadsheet gone — discard the entry, nowhere to write
       if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
