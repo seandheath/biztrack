@@ -71,3 +71,14 @@ textarea:focus {
   outline-offset: 0;
   border-color: var(--color-primary);
 }
+
+/* Public policy pages: compact lists, readable links, shared typography. */
+.policy h1 { font-size: 1.75rem; font-weight: 700; }
+.policy h2 { margin: 1.75rem 0 .5rem; font-size: 1.125rem; font-weight: 600; }
+.policy ul { list-style: disc; padding-left: 1.25rem; }
+.policy li { margin: .5rem 0; }
+.policy dt { margin-top: .75rem; font-weight: 600; }
+.policy dd { margin: .25rem 0; }
+.policy a { color: var(--color-primary); text-decoration: underline; display: inline; overflow-wrap: anywhere; }
+.policy nav { display: flex; flex-wrap: wrap; gap: 1.5rem; margin-top: 2rem; }
+.policy nav a { display: inline-flex; }

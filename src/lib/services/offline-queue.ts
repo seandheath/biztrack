@@ -1,3 +1,4 @@
+import { QUEUE_KEY } from '../data-model.js';
 import { isDemo, storageKey } from '../version.js';
 /**
  * Offline write queue — localStorage-backed.
@@ -17,7 +18,6 @@ import {
 } from './sheets.js';
 import { AuthError, getEmail, getSessionVersion, isTokenValid } from '../auth.js';
 
-const QUEUE_KEY = 'biztrack_offline_queue';
 let draining: Promise<{ drained: number; failed: number }> | null = null;
 let queueVersion = 0;
 
@@ -37,7 +37,7 @@ type PendingWrite = {
 });
 export type QueuedWrite = PendingWrite & { timestamp: number };
 
-function getQueue(): QueuedWrite[] {
+export function getQueue(): QueuedWrite[] {
   if (isDemo) return [];
   try {
     return JSON.parse(localStorage.getItem(storageKey(QUEUE_KEY)) || '[]');

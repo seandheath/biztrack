@@ -182,7 +182,7 @@
             >
               <div class="flex flex-col gap-0.5 min-w-0 flex-1 pr-3">
                 <span class="text-xs" style="color: var(--color-text-muted);">{row.date}</span>
-                <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.from} → {row.to}</span>
+                <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.description}</span>
               </div>
               <div class="flex items-center gap-1.5 flex-shrink-0">
                 <span class="text-sm font-semibold" style="color: var(--color-primary);">{row.miles} mi</span>

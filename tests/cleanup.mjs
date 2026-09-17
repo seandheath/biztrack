@@ -62,7 +62,7 @@ try {
   for (const scenario of ['existing', 'new', 'missing', 'cached']) {
     const writes = [];
     const found = scenario === 'new' ? {} : { '2027': 'year' };
-    if (scenario === 'existing') Object.assign(found, { '2027_Acme_expenses': 'sheet', '2027_Acme_Receipts': 'receipts' });
+    if (scenario === 'existing') Object.assign(found, { '2027_Acme_expenses_v2': 'sheet', '2027_Acme_Receipts': 'receipts' });
     respond = (url, options) => {
       const body = options.body ? JSON.parse(options.body) : null;
       if (!options.method) {
@@ -83,7 +83,7 @@ try {
     assert.equal(first.receiptFolderIds[2027], scenario === 'cached' ? 'cached-receipts' : 'receipts');
     assert.equal(writes.length, scenario === 'new' ? 5 : scenario === 'missing' ? 4 : 0);
     if (writes.length) {
-      assert.equal(writes.find(w => w.body?.properties)?.body.properties.title, '2027_Acme_expenses');
+      assert.equal(writes.find(w => w.body?.properties)?.body.properties.title, '2027_Acme_expenses_v2');
       assert.ok(writes.some(w => w.url.searchParams.get('addParents') === 'year'));
       assert.ok(writes.some(w => w.body?.name === '2027_Acme_Receipts'));
     }
@@ -189,9 +189,10 @@ try {
         expDate: mode === 'invalid' ? '' : date, expVendor: ' Vendor ', expDesc: ' Description ', expAmount: '12.50', expCategory: 'Supplies', expPayment: 'Cash', expNotes: ' Notes ', expReceipt: null,
         shareMode: editing, splitMode: split, shareTxnId: 'existing', shareSheetId: moving ? 'old-sheet' : 'sheet', shareSubmittedBy: 'original-owner', existingReceipt: 'receipt.pdf', returnTo, applyToAll: returnTo === '/review',
         splits: [{ description: ' A ', amount: '10.00', category: 'Supplies' }, { description: ' B ', amount: '2.50', category: 'Meals' }, { description: '', amount: '', category: '' }],
-        milDate: mode === 'invalid' ? '' : date, milFrom: ' From ', milTo: ' To ', milPurpose: ' Purpose ', milMiles: '5', milRoundTrip: true, milDriver: ' Driver ',
+        milDate: mode === 'invalid' ? '' : date, milDescription: ' Description ', milMiles: '10', milDriver: ' Driver ',
         editMode: editing, editTxnId: 'existing', editSheetId: moving ? 'old-sheet' : 'sheet', confirmDuplicate: false,
-        getCachedTransactions: () => mode === 'duplicate' ? [{ date, from: 'From', to: 'To', miles: '10', driver: 'Driver' }] : [],
+        validMiles: value => /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value.trim()) && Number.isFinite(Number(value)) && Number(value) > 0,
+        getCachedTransactions: () => mode === 'duplicate' ? [{ date, description: 'Description', miles: '10', driver: 'Driver' }] : [],
         replaceTransaction: (source, dest, tab, id, rows) => write(dest, tab, rows),
         pushTransactions: write, updateByUUID: (sid, tab, row) => write(sid, tab, [row]), deleteByUUID: write,
         enqueue: entry => {
@@ -213,10 +214,7 @@ try {
         },
         vendorCache: { update: noop }, paymentMethodCache: { update: noop }, destinationCache: { update: noop }, originCache: { update: noop }, driverCache: { update: noop },
       });
-      if (kind === 'mileage') {
-        const derived = script.flatMap(n => n.declarations ?? []).find(n => n.id.name === 'milEffectiveMiles').init.arguments[0];
-        context.milEffectiveMiles = vm.runInContext(`(${source.slice(derived.start, derived.end)})()`, context);
-      }
+
       await vm.runInContext(`${functions}\n${handler}();`, context);
       if (mode === 'duplicate') {
         assert.deepEqual(navigations, [], 'duplicate confirmation must stay on the form');
@@ -232,7 +230,7 @@ try {
           const error = mode.endsWith('queue-failure') ? 'storage full' : mode.endsWith('auth-failure') ? 'authorization failed' : 'write failed';
           assert.ok(messages.some(([message, type]) => message === error && type === 'error'));
         }
-        assert.equal(kind === 'expense' ? context.expVendor : context.milFrom, kind === 'expense' ? ' Vendor ' : ' From ');
+        assert.equal(kind === 'expense' ? context.expVendor : context.milDescription, kind === 'expense' ? ' Vendor ' : ' Description ');
         continue;
       }
       assert.deepEqual(navigations, ['/'], `${kind} ${mode} from ${returnTo} must return home once`);
@@ -263,7 +261,7 @@ try {
       } else {
         assert.equal(rows[0].miles, '10');
         assert.equal(rows[0].driver, 'Driver');
-        assert.equal(context.milFrom, ' From ', 'mileage keeps its fields after saving');
+        assert.equal(context.milDescription, ' Description ', 'mileage keeps its fields after saving');
       }
       if (editing && !split) assert.equal(rows[0].id, 'existing');
       if (mode === 'create') {

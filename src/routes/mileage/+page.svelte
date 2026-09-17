@@ -2,7 +2,7 @@
   import { resolve } from '$app/paths';
   import { isDemo } from '$lib/version.js';
 
-  import { ensureAuthorized, AuthError } from '$lib/auth.js';
+  import { ensureAuthorized, AuthError, getSessionVersion } from '$lib/auth.js';
   import Spinner from '../../components/Spinner.svelte';
   /**
    * Mileage entry form.
@@ -20,20 +20,18 @@
     mileageFavorites,
     userEmail,
     updateBusiness,
-    destinationCache,
-    originCache,
-    driverCache,
     defaultDrivers,
   } from '$lib/store.js';
   import { pushTransactions, updateByUUID, deleteByUUID, replaceTransaction, ReplacementError, pullTransactions, readRow, findRowByTxnId } from '$lib/services/sheets.js';
   import { toast, showToast } from '$lib/toast.svelte.js';
   import { todayISO, friendlyError, returnRoute } from '$lib/util.js';
-  import { enqueue } from '$lib/services/offline-queue.js';
+  import { enqueue, getQueue } from '$lib/services/offline-queue.js';
   import { syncStatus, cacheTransactions, getCachedTransactions, invalidatePull, removeCachedTransaction, updateCachedTransaction } from '$lib/sync.js';
   import { ensureYearFolder, saveMileageFavorite, updateMileageFavorite, saveDefaultDriver, loadBusinessData as _loadBusinessData } from '$lib/business.js';
   import BusinessDropdown from '../../components/BusinessDropdown.svelte';
   import FavoriteRouteList from '../../components/FavoriteRouteList.svelte';
   import Autocomplete from '../../components/Autocomplete.svelte';
+  import { rankDrivers, suggestDrivers, validMiles } from '$lib/drivers.js';
   import Toast from '../../components/Toast.svelte';
 
   // ---------------------------------------------------------------------------
@@ -47,9 +45,10 @@
   // ---------------------------------------------------------------------------
 
   let milDate      = $state(todayISO());
-  let milFrom      = $state('');
-  let milTo        = $state('');
-  let milPurpose   = $state('');
+  let milDescription = $state('');
+  let driverHistory = $state(/** @type {Record<string, import('$lib/services/sheets.js').TransactionRow[]>} */({}));
+  let historyRequest = 0;
+  let driverSuggestions = $derived(rankDrivers(driverHistory, getQueue()));
   let milMiles     = $state('');
   let milDriver    = $state('');
   let milErrors    = $state(/** @type {Record<string,string>} */({}));
@@ -83,39 +82,12 @@
   // Default driver state
   let settingDefaultDriver = $state(false);
 
-  /** Whether to double entered miles (round trip). */
-  let milRoundTrip = $state(false);
-
-  /** Two-tap confirm when submitting an entry that duplicates an existing one. */
+  /** Two-tap confirmation for duplicate entries. */
   let confirmDuplicate = $state(false);
-
-  /**
-   * Effective miles to store — doubled when round trip is checked.
-   * Returns a string so it can be passed directly to the row.
-   */
-  let milEffectiveMiles = $derived.by(() => {
-    const m = parseFloat(milMiles);
-    if (isNaN(m)) return milMiles;
-    return milRoundTrip ? String(m * 2) : milMiles;
-  });
-
-  /**
-   * Existing favorite whose from/to/miles/roundTrip all match the current form state.
-   * When non-null, offer "Update" instead of "Save as Favorite".
-   */
   let milMatchedFavorite = $derived.by(() => {
-    const favs = $mileageFavorites[$selectedBusiness?.folderId] ?? [];
-    const from = milFrom.trim();
-    const to   = milTo.trim();
-    const m    = parseFloat(milMiles);
-    if (!from || !to || isNaN(m)) return null;
-    return favs.find((f) =>
-      f.from === from &&
-      f.to   === to   &&
-      f.miles === m   &&
-      (f.driver ?? '') === milDriver.trim() &&
-      (f.roundTrip ?? false) === milRoundTrip
-    ) ?? null;
+    const favorites = $mileageFavorites[$selectedBusiness?.folderId] ?? [];
+    return favorites.find(f => f.description === milDescription.trim()
+      && f.miles === Number(milMiles) && f.driver === milDriver.trim()) ?? null;
   });
 
   let milUpdating = $state(false);
@@ -125,85 +97,46 @@
 
   // Reset duplicate confirmation when any matched field changes.
   $effect(() => {
-    milDate; milFrom; milTo; milMiles; milDriver; milRoundTrip;
+    milDate; milDescription; milMiles; milDriver;
     confirmDuplicate = false;
   });
 
   /** True when all mileage fields are filled (enables "Save as Favorite") */
-  let milCanSaveFav = $derived(
-    milFrom.trim() !== '' &&
-    milTo.trim()   !== '' &&
-    milMiles !== '' &&
-    !isNaN(parseFloat(milMiles)) &&
-    milDriver.trim() !== ''
-  );
+  let milCanSaveFav = $derived(milDescription.trim() !== '' && validMiles(milMiles) && milDriver.trim() !== '');
 
-  // ---------------------------------------------------------------------------
-  // Business data load
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Loads config + year folder via shared helper.
-   * @param {Object} business
-   */
   async function loadBusinessData(business) {
+    const request = ++historyRequest;
+    const session = getSessionVersion();
+    const current = () => request === historyRequest && session === getSessionVersion()
+      && business?.folderId === $selectedBusiness?.folderId;
+    driverHistory = {};
+    if (!business) return;
+    driverHistory = Object.fromEntries(Object.values(business.sheetIds).map(id => [id, getCachedTransactions(id, 'Mileage') ?? []]));
     configLoading = true;
     try {
-      await _loadBusinessData(business);
-      // Populate destination + origin autocomplete caches from mileage history
-      const year = new Date().getFullYear();
-      const sheetId = business.sheetIds?.[year];
-      if (sheetId) {
-        const rows = getCachedTransactions(sheetId, 'Mileage')
-          ?? await pullTransactions(sheetId, 'Mileage');
-        buildMileageCaches(rows);
+      const loaded = await _loadBusinessData(business);
+      if (!current() || !loaded) return;
+      const sheets = Object.values(loaded.sheetIds);
+      driverHistory = Object.fromEntries(sheets.map(id => [id, getCachedTransactions(id, 'Mileage') ?? []]));
+      // One history refresh per visit/business, never per keystroke. Cached results work offline.
+      for (const id of sheets) {
+        if (!current()) return;
+        try {
+          const rows = await pullTransactions(id, 'Mileage');
+          if (!current()) return;
+          cacheTransactions(id, 'Mileage', rows);
+          driverHistory = { ...driverHistory, [id]: rows };
+        } catch (err) { if (err instanceof AuthError) throw err; }
       }
-    } catch (err) {
-      console.error('[mileage] loadBusinessData:', err);
-    } finally {
-      configLoading = false;
-    }
-  }
-
-  /**
-   * Build deduplicated destination and origin caches from mileage rows.
-   * For destinations, pairs each unique "to" with the "from" of the most recent trip.
-   */
-  function buildMileageCaches(rows) {
-    const sorted = [...rows].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
-    const destMap = new Map();
-    const origins = new Set();
-    const drivers = new Set();
-    for (const row of sorted) {
-      const to = (row.to ?? '').trim();
-      const from = (row.from ?? '').trim();
-      const driver = (row.driver ?? '').trim();
-      if (to && !destMap.has(to)) destMap.set(to, from);
-      if (from) origins.add(from);
-      if (driver) drivers.add(driver);
-    }
-    destinationCache.set(Array.from(destMap.entries()).map(([to, lastFrom]) => ({ to, lastFrom })));
-    originCache.set([...origins]);
-    driverCache.set([...drivers]);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Mileage form handlers
-  // ---------------------------------------------------------------------------
-
-  /** Auto-fill the From field when a destination is picked (only if From is empty). */
-  function handleDestinationPick(entry) {
-    if (entry.lastFrom && !milFrom.trim()) {
-      milFrom = entry.lastFrom;
-    }
+    } catch (err) { console.error('[mileage] loadBusinessData:', err); }
+    finally { if (current()) configLoading = false; }
   }
 
   function validateMileage() {
     const errs = {};
     if (!milDate)               errs.date    = 'Required';
-    if (!milFrom.trim())        errs.from  = 'Required';
-    if (!milTo.trim())          errs.to    = 'Required';
-    if (!milMiles || isNaN(parseFloat(milMiles))) errs.miles = 'Valid miles required';
+    if (!milDescription.trim()) errs.description = 'Required';
+    if (!validMiles(milMiles)) errs.miles = 'Enter a distance greater than zero';
     if (!milDriver.trim())          errs.driver = 'Required';
     milErrors = errs;
     return Object.keys(errs).length === 0;
@@ -262,13 +195,12 @@
       // Duplicate check — first tap shows warning, second tap proceeds
       if (!confirmDuplicate) {
         const cached = getCachedTransactions(spreadsheetId, 'Mileage') ?? [];
-        const eff = milEffectiveMiles;
+        const eff = Number(milMiles);
         const isDup = cached.some((r) =>
           (editMode ? r.id !== editTxnId : true) &&
           r.date === milDate &&
-          r.from === milFrom.trim() &&
-          r.to === milTo.trim() &&
-          r.miles === eff &&
+          r.description === milDescription.trim() &&
+          Number(r.miles) === eff &&
           r.driver === milDriver.trim()
         );
         if (isDup) {
@@ -282,10 +214,8 @@
       const row = {
         id:      editMode ? editTxnId : crypto.randomUUID(),
         date:    milDate,
-        from:    milFrom.trim(),
-        to:      milTo.trim(),
-        purpose: milPurpose.trim(),
-        miles:   milEffectiveMiles,
+        description: milDescription.trim(),
+        miles:   String(Number(milMiles)),
         savedBy: $userEmail ?? '',
         driver:  milDriver.trim(),
       };
@@ -332,32 +262,6 @@
         throw err;
       }
 
-      // Update autocomplete caches with the just-submitted entry
-      const submittedTo = milTo.trim();
-      const submittedFrom = milFrom.trim();
-      if (submittedTo) {
-        destinationCache.update((cache) => {
-          const idx = cache.findIndex((e) => e.to === submittedTo);
-          if (idx >= 0) {
-            const updated = [...cache];
-            updated[idx] = { to: submittedTo, lastFrom: submittedFrom };
-            return updated;
-          }
-          return [...cache, { to: submittedTo, lastFrom: submittedFrom }];
-        });
-      }
-      if (submittedFrom) {
-        originCache.update((cache) =>
-          cache.includes(submittedFrom) ? cache : [...cache, submittedFrom]
-        );
-      }
-      const submittedDriver = milDriver.trim();
-      if (submittedDriver) {
-        driverCache.update((cache) =>
-          cache.includes(submittedDriver) ? cache : [...cache, submittedDriver]
-        );
-      }
-
       milErrors   = {};
       saveFavOpen = false;
       saveFavName = '';
@@ -384,14 +288,11 @@
 
   /** Fill mileage form from a saved favorite route. */
   function applyFavorite(fav) {
-    milFrom      = fav.from    ?? '';
-    milTo        = fav.to      ?? '';
-    milPurpose   = fav.purpose ?? '';
+    milDescription = fav.description ?? '';
     milMiles     = String(fav.miles ?? '');
     milDriver    = fav.driver ?? '';
     if (!milDate) milDate = todayISO();
     milErrors    = {};
-    milRoundTrip = fav.roundTrip ?? false;
   }
 
   async function handleSaveFavorite() {
@@ -401,12 +302,9 @@
       const biz = $selectedBusiness;
       const fav = {
         name:      saveFavName.trim(),
-        from:      milFrom.trim(),
-        to:        milTo.trim(),
-        purpose:   milPurpose.trim(),
+        description: milDescription.trim(),
         driver:    milDriver.trim(),
         miles:     parseFloat(milMiles),
-        roundTrip: milRoundTrip,
       };
       await saveMileageFavorite(biz, fav);
       saveFavOpen = false;
@@ -427,12 +325,9 @@
     try {
       await updateMileageFavorite($selectedBusiness, matched.name, {
         name:      milUpdateFavName.trim(),
-        from:      milFrom.trim(),
-        to:        milTo.trim(),
-        purpose:   milPurpose.trim(),
+        description: milDescription.trim(),
         driver:    milDriver.trim(),
         miles:     parseFloat(milMiles),
-        roundTrip: milRoundTrip,
       });
       showToast(`"${milUpdateFavName.trim()}" updated!`, 'success');
     } catch (err) {
@@ -472,9 +367,7 @@
 
         const row = await readRow(sheetId, 'Mileage', rowNum);
         milDate    = row.date    || todayISO();
-        milFrom    = row.from    || '';
-        milTo      = row.to      || '';
-        milPurpose = row.purpose || '';
+        milDescription = row.description || '';
         milMiles   = row.miles   || '';
         milDriver  = row.driver  || '';
         editTxnId  = row.id      || txnId;
@@ -555,64 +448,21 @@
         {/if}
       </div>
 
-      <!-- To (destination — autocomplete from history) -->
       <div class="flex flex-col gap-1">
-        <label for="mil-to" class="text-sm font-medium" style="color: var(--color-text-muted);">To</label>
-        <Autocomplete items={$destinationCache} displayFn={(e) => e.to} id="mil-to" bind:value={milTo} placeholder="Destination" onpick={handleDestinationPick} listboxPrefix="destination" />
-        {#if milErrors.to}
-          <span class="text-xs" style="color: var(--color-error);">{milErrors.to}</span>
-        {/if}
+        <label for="mil-description" class="text-sm font-medium" style="color: var(--color-text-muted);">Trip description</label>
+        <input id="mil-description" type="text" bind:value={milDescription} placeholder="Supply pickup at Harbor Print" required />
+        {#if milErrors.description}<span class="text-xs" style="color: var(--color-error);">{milErrors.description}</span>{/if}
       </div>
-
-      <!-- From (origin — autocomplete from history) -->
       <div class="flex flex-col gap-1">
-        <label for="mil-from" class="text-sm font-medium" style="color: var(--color-text-muted);">From</label>
-        <Autocomplete items={$originCache} id="mil-from" bind:value={milFrom} placeholder="Starting address or city" listboxPrefix="origin" />
-        {#if milErrors.from}
-          <span class="text-xs" style="color: var(--color-error);">{milErrors.from}</span>
-        {/if}
-      </div>
-
-      <!-- Miles + Round trip (inline) -->
-      <div class="grid gap-3" style="grid-template-columns: 1fr 1fr;">
-        <div class="flex flex-col gap-1">
-          <label for="mil-miles" class="text-sm font-medium" style="color: var(--color-text-muted);">Miles</label>
-          <input id="mil-miles" type="text" inputmode="decimal" bind:value={milMiles} placeholder="0.0" required />
-          {#if milErrors.miles}
-            <span class="text-xs" style="color: var(--color-error);">{milErrors.miles}</span>
-          {/if}
-        </div>
-        <button
-          type="button"
-          onclick={() => { milRoundTrip = !milRoundTrip; }}
-          class="rounded-xl font-medium text-sm transition-colors w-full"
-          style="
-            min-height: 44px;
-            align-self: end;
-            background-color: {milRoundTrip ? 'var(--color-primary)' : 'var(--color-surface-2)'};
-            color: {milRoundTrip ? 'var(--color-primary-text)' : 'var(--color-text-muted)'};
-            border: 1px solid {milRoundTrip ? 'var(--color-primary)' : 'var(--color-border)'};
-          "
-        >
-          Round trip
-        </button>
-      </div>
-      {#if milRoundTrip && milEffectiveMiles !== milMiles && milEffectiveMiles !== ''}
-        <span class="text-xs -mt-2" style="color: var(--color-text-muted);">Total: {milEffectiveMiles} mi</span>
-      {/if}
-
-      <!-- Purpose (optional) -->
-      <div class="flex flex-col gap-1">
-        <label for="mil-purpose" class="text-sm font-medium" style="color: var(--color-text-muted);">
-          Purpose <span style="font-weight: normal;">(optional)</span>
-        </label>
-        <input id="mil-purpose" type="text" bind:value={milPurpose} placeholder="Client meeting, site visit…" />
+        <label for="mil-miles" class="text-sm font-medium" style="color: var(--color-text-muted);">Total miles</label>
+        <input id="mil-miles" type="text" inputmode="decimal" bind:value={milMiles} placeholder="0.0" required />
+        {#if milErrors.miles}<span class="text-xs" style="color: var(--color-error);">{milErrors.miles}</span>{/if}
       </div>
 
       <!-- Driver (autocomplete from history) -->
       <div class="flex flex-col gap-1">
         <label for="mil-driver" class="text-sm font-medium" style="color: var(--color-text-muted);">Driver</label>
-        <Autocomplete items={$driverCache} id="mil-driver" bind:value={milDriver} placeholder="Driver name" listboxPrefix="driver" />
+        <Autocomplete items={driverSuggestions} displayFn={(driver) => driver.name} getSuggestions={suggestDrivers} id="mil-driver" bind:value={milDriver} placeholder="Driver name" listboxPrefix="driver" />
         {#if milErrors.driver}
           <span class="text-xs" style="color: var(--color-error);">{milErrors.driver}</span>
         {/if}
@@ -626,8 +476,6 @@
           >
             {settingDefaultDriver ? 'Saving…' : 'Set as default driver'}
           </button>
-        {:else if milDriver.trim() && milDriver.trim() === ($defaultDrivers[$selectedBusiness?.folderId] ?? '')}
-          <span class="text-xs" style="color: var(--color-text-muted);">Default driver</span>
         {/if}
       </div>
 

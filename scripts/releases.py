@@ -176,7 +176,7 @@ def write_site(site, versions, beta):
         latest = versions[0]["version"]
         fixed = f'''<section class="launch-card fixed">
 <span class="badge">You choose when to update</span><h2>Fixed release <span class="version">{latest}</span></h2>
-<p>A tagged version that stays the same. Switch releases when you want new features or fixes.</p>
+<p>One tagged version.<br>New features and fixes when you upgrade.</p>
 <a class="button primary" href="/v/{latest}/">Open fixed release <span aria-hidden="true">→</span></a>
 </section>'''
     catalog = (f'<details class="catalog"><summary>All releases <span class="count">{len(versions)}</span></summary>'
@@ -185,25 +185,28 @@ def write_site(site, versions, beta):
 <a class="brand" href="/" aria-label="BizTrack home"><img src="/icon.svg" width="44" height="44" alt="">BizTrack</a>
 <a class="source-link" href="{repo_url}">GitHub <span aria-hidden="true">↗</span></a>
 </header>
-<div class="hero"><p class="eyebrow">Expense &amp; mileage tracker</p>
-<h1>Your business.<br><span>Your Google Drive.</span></h1>
-<p class="intro">On your device. In your Drive. No setup.</p>
-<a class="button demo-link" href="/demo/">Try demo <span aria-hidden="true">→</span></a><span class="demo-note">No account needed</span></div>
+<div class="hero"><p class="eyebrow">Multiple businesses · No server setup</p>
+<h1>Expenses &amp; mileage.<br><span>In your Google Drive.</span></h1>
+<ul class="intro"><li>Records on your device and in your Drive.</li>
+<li>Direct Google sync. No BizTrack database. No app analytics.</li></ul>
+<a class="button demo-link" href="/demo/">Try demo <span aria-hidden="true">→</span></a><span class="demo-note">Sample data · No sign-in</span></div>
 <div class="launch-grid{' single' if not versions else ''}">
 {fixed}
 <section class="launch-card beta">
 <span class="badge">Updates automatically</span><h2>Beta <span class="version">Latest</span></h2>
-<p>New features and fixes as they land. Choose this for the latest changes; they may be less tested.</p>
+<p>Latest features and fixes.<br>Automatic updates; less tested changes.</p>
 <a class="button primary" href="/beta/">Open beta <span aria-hidden="true">→</span></a>
 </section>
 </div>
 {catalog}
 <details class="install-help"><summary>Installing or switching versions?</summary>
-<p>Open a version, then use your browser’s install option or Safari’s Share → Add to Home Screen.</p>
-<p>Already using BizTrack? Open beta to keep your local data. Sync pending changes before switching; each fixed release signs in separately.</p>
+<ul><li><strong>Start:</strong> open a version → Google sign-in → Add Business → select a Drive folder.</li>
+<li><strong>Install (optional):</strong> browser install; iPhone/iPad: Share → Add to Home Screen.</li>
+<li><strong>Switch:</strong> sync first; sign in and install the new version separately.</li>
+<li><strong>Legacy installs:</strong> beta retains your local data.</li></ul>
 </details>
 <footer><span>Stored on your device &amp; Google Drive.</span><nav aria-label="More information">
-<a href="/beta/privacy/">Privacy</a><a href="/beta/terms/">Terms</a>
+<a href="/beta/privacy/">Privacy &amp; permissions</a><a href="/beta/terms/">Terms</a>
 <a href="{repo_url}/blob/main/docs/releases.md#existing-installations">About updates</a>
 <a href="{repo_url}/commit/{beta['commit']}">Beta source</a>
 </nav></footer>'''

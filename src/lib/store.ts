@@ -52,7 +52,7 @@ export const businesses: Writable<Business[]> = writable([]);
 export const selectedBusiness: Writable<Business | null> = writable(null);
 
 /**
- * Per-business config loaded from Drive config.json.
+ * Per-business config loaded from Drive config-v2.json.
  * NOT persisted to localStorage — loaded fresh each session.
  */
 export const businessConfig: Writable<BusinessConfig | null> = writable(null);
@@ -69,38 +69,16 @@ export const vendorCache: Writable<string[]> = writable([]);
  */
 export const paymentMethodCache: Writable<string[]> = writable([]);
 
-/** A destination paired with the "from" value from the most recent trip to it. */
-export interface DestinationEntry { to: string; lastFrom: string; }
-
-/**
- * Mileage destination entries for autocomplete — deduplicated by destination,
- * each carrying the most recent origin for that destination.
- * NOT cached in localStorage — populated from Sheets on each page load.
- */
-export const destinationCache: Writable<DestinationEntry[]> = writable([]);
-
-/**
- * Mileage origin strings for autocomplete — unique "from" values.
- * NOT cached in localStorage — populated from Sheets on each page load.
- */
-export const originCache: Writable<string[]> = writable([]);
-
-/**
- * Mileage driver strings for autocomplete — unique driver names.
- * NOT cached in localStorage — populated from Sheets on each page load.
- */
-export const driverCache: Writable<string[]> = writable([]);
-
 /**
  * User-owned mileage favorites, keyed by business folderId.
- * Populated from profile.json at session start — NOT derived from config.json.
+ * Populated from profile-v2.json at session start — NOT derived from config-v2.json.
  * Each user has their own favorites per business, independent of other users.
  */
 export const mileageFavorites: Writable<Record<string, MileageFavorite[]>> = writable({});
 
 /**
  * Default driver name per business, keyed by business folderId.
- * Populated from profile.json at session start — same lifecycle as mileageFavorites.
+ * Populated from profile-v2.json at session start — same lifecycle as mileageFavorites.
  */
 export const defaultDrivers: Writable<Record<string, string>> = writable({});
 
@@ -120,9 +98,6 @@ export function resetAccountStores(): void {
   businessConfig.set(null);
   vendorCache.set([]);
   paymentMethodCache.set([]);
-  destinationCache.set([]);
-  originCache.set([]);
-  driverCache.set([]);
   mileageFavorites.set({});
   defaultDrivers.set({});
   pendingReceipt.set(null);

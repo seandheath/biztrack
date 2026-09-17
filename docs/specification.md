@@ -1,197 +1,161 @@
-# BizTrack — Current specification
+# Implementation reference
 
-BizTrack is a static SvelteKit/Svelte 5 PWA for expense and mileage tracking across
-businesses. It calls Google Drive and Sheets directly using `fetch`; there is no
-application server or database. Drive folder sharing controls access. Styling uses
-Tailwind CSS and CSS variables with a dark theme. GitHub Pages serves the app at
-`biztrack.lol`, with directory indexes for each route and a static 404 page.
+- **Audience:** developers changing behavior or persisted data.
+- **Stack:** SvelteKit 2, Svelte 5 runes, Tailwind 4, `adapter-static`, Workbox `injectManifest`.
+- **Runtime:** browser → Google Identity Services, Drive API v3, Sheets API v4; no application server.
+- **Hosting:** GitHub Pages; directory indexes; scoped manifests/workers. [Deployment](releases.md).
 
-This document describes the current implementation. Historical designs remain in
-[the decision log](log.md); they are not requirements to restore retired features.
+## Routes
 
-## Workflows
-
-Routes below are relative to `/beta/` or `/v/<version>/`. The site root is the version chooser.
+App-relative paths; production bases: `/beta/`, `/v/<version>/`, `/demo/`.
 
 | Route | Behavior |
-|-------|----------|
-| `/` | Selected business, current-year expense/mileage list, uncategorized count, entry buttons. |
-| `/expense` | Create, edit, delete, split expenses; attach receipts; share a completion link. |
-| `/mileage` | Create, edit, delete trips; round-trip toggle, driver defaults, favorite routes. |
-| `/history` | Browse the selected business's available years and open rows for editing. |
-| `/review` | Open uncategorized expenses from the current year and previous two years; skip IDs persist for the page session. |
-| `/settings` | Business list, account sign-out/disconnection, bank import link. |
-| `/settings/business` | Browse My Drive, Shared Drives, or shared folders; add or reconnect a business. |
-| `/settings/business-config` | Edit a business name or remove it from the personal index without deleting Drive data. |
-| `/settings/categories` | Add/remove shared categories or restore defaults; `Uncategorized` cannot be removed. |
-| `/settings/favorites` | Remove personal favorite mileage routes for the selected business. |
-| `/settings/csv-import` | Preview and import debit transactions from the supported bank export. |
-| `/share` | Consume a temporarily cached shared receipt, then navigate toward expense entry. |
-| `/privacy`, `/terms` | Public pages that do not require authentication. |
+|---|---|
+| `/` | Business selector; current-year transactions; uncategorized count; entry buttons |
+| `/expense` | Create, edit, delete, split; optional receipt |
+| `/mileage` | Create, edit, delete; manual total miles; driver defaults; favorites |
+| `/history` | Year selector; transaction editing |
+| `/review` | Uncategorized expenses: current year + previous two; session-only skipped IDs |
+| `/settings` | Businesses, import, sign-out, Google disconnection |
+| `/settings/business` | Add/import business; My Drive, Shared Drives, shared folders |
+| `/settings/business-config` | Rename; remove from personal index without deleting Drive files |
+| `/settings/categories` | Shared categories; `Uncategorized` required |
+| `/settings/favorites` | Remove personal favorite routes |
+| `/settings/csv-import` | Preview/import supported bank CSV |
+| `/share` | Consume cached Android receipt; open expense form |
+| `/privacy`, `/terms` | Public; no authentication required |
 
-Expense entry suggests vendors and payment methods from current-year history.
-Picking a vendor fills empty category/payment fields from its latest transaction.
-Payment methods are free text with autocomplete, not a separate configured list.
-Single-entry amounts use calculator-style cents input. Split rows share the date,
-vendor, payment method, receipt, notes, and submitter, with individual descriptions,
-amounts, and categories. New expenses preserve date/category/payment after saving.
+- Transaction URLs: `biz`, `year`, `txn`; optional `returnTo` for history/review.
+- Preserve query names, business IDs, receipt filename semantics; change data formats only through explicit upgrades.
+- Expense amount input: calculator-style cents. Autocomplete: current-year vendors/payment methods.
+- Splits: shared date/vendor/payment/receipt/notes/submitter; separate descriptions/amounts/categories.
+- Mileage: one description; positive finite total miles entered manually; driver required.
+- Drivers: selected business, all years; empty focus shows all names by trip count; exact/prefix/substring/subsequence matching while typing. Pending writes overlaid by sheet/transaction ID; alphabetical ties.
+- Duplicate-trip confirmation: date + description + numeric total miles + driver.
+- No GPS tracking or mileage-rate/deduction calculation.
 
-Mileage entry suggests origins, destinations, and drivers. A destination can fill
-an empty origin from its latest trip. Round trip doubles the entered miles before
-storage. Favorites preserve the entered miles and round-trip flag. Duplicate
-confirmation compares cached date, origin, destination, effective miles, and driver.
-Mileage fields remain populated after saving. Mileage rates and deductions are not
-calculated or stored by the current app.
-
-Transaction links use `/expense` or `/mileage` with `biz`, `year`, and `txn` query
-parameters. `returnTo` preserves the history year or review workflow. Existing
-parameter names and business UUIDs are compatibility requirements.
-
-## Demo
-
-`/demo/` runs the same tracking screens with two fictional businesses and entries
-dated in the current and previous year. Visitors can switch businesses, create,
-edit, delete, and split entries, browse history, and review uncategorized expenses.
-No account or installation is required.
-
-Records, preferences, and caches stay in memory, separately in each tab. Reloading
-restores the sample data. **Reset demo** confirms before reloading the home screen;
-**Exit demo** opens the version chooser. Google requests and offline queue writes
-are blocked. Existing account data and queues are untouched.
-
-Business settings, CSV import, receipt uploads/sharing, favorite management, and
-driver-default changes are unavailable. Demo mode hides install prompts and the
-Google sync indicator. Its service worker caches only static app files under
-`/demo/`; the manifest has no share target.
-
-## Drive data and ownership
+## Drive layout
 
 ```text
 <Business Folder>/
-  config.json
+  config-v2.json
   <year>/
-    <year>_<business-name>_expenses       (Google spreadsheet)
-    <year>_<business-name>_Receipts/      (receipt files)
+    <year>_<name>_expenses_v2 # Spreadsheet: Expenses + Mileage tabs
+    <year>_<name>_Receipts/   # Receipt files
 
-BizTrack/                               (user's Drive root)
-  profile.json
+BizTrack/                   # User's Drive root
+  profile-v2.json
 ```
 
-Characters `/ \ : * ? " < > |` are stripped from the business name used in file
-names. Discovery scans four-digit year folders. Missing year structures are created
-when adding/loading a business or submitting a backdated entry. Concurrent setup
-calls for the same business/year share one operation. Existing cached IDs are
-retained when recovering a known year whose children are not found.
+| File | Fields |
+|---|---|
+| `config-v2.json` | `dataVersion: 2`, business `id`, `name`, shared `categories` |
+| `profile-v2.json` | `dataVersion: 2`; `businesses`: name/folderId pairs; `mileage_favorites` and `default_drivers`: keyed by business folder ID |
+| Favorite route | `name`, `description`, total `miles`, `driver` |
 
-`config.json` holds the business `id`, `name`, and shared `categories`. Older config
-fields, including `mileage_favorites`, may remain on disk; personal favorites are
-read from the profile instead. Config writes preserve existing unrelated fields.
+| Tab | Ordered columns |
+|---|---|
+| Expenses A–J | Date, Vendor/Payee, Description, Amount, Category, Payment Method, Receipt, Notes, Submitted By, ID |
+| Mileage A–F | Date, Description, Miles, Saved By, ID, Driver |
 
-`profile.json` contains:
+- Headers: bold, frozen. Mileage writes: literal descriptions; numeric distance.
+- IDs: opaque strings; new entries use UUIDs; split replacements use `<originalId>-split-<n>`.
+- Reads: omit rows without IDs. Updates/deletes: rescan ID column before mutation.
+- Receipt field: filename, resolved in the transaction year's receipt folder.
+- File names: strip `/ \ : * ? " < > |` from business name.
+- Year discovery: four digits; missing structures created on setup/backdated entry.
+- Concurrent setup: one in-flight operation per business/year; cached child IDs retained during recovery.
 
-- `businesses`: entries with `name` and `folderId`; file IDs are rediscovered.
-- `mileage_favorites`: arrays keyed by business folder ID. Each favorite has `name`,
-  `from`, `to`, `miles`, `purpose`, `driver`, and optional `roundTrip`.
-- `default_drivers`: driver names keyed by business folder ID.
+## Data upgrades
 
-Each spreadsheet has bold/frozen headers and these ordered columns:
+- Data version: integer, independent of app version. Current: `2`; legacy conversion isolated in `upgrade.ts`.
+- Before workspace/queue replay: inspect version; explicit **Back up & upgrade** prompt. New accounts/demo use version 2 directly.
+- Sweep all registered businesses/years; native spreadsheet copies; originals and legacy JSON retained.
+- Copies: `_v2` suffix; merge From/To/Purpose into Description; retain recorded total miles and IDs. Legacy round-trip favorites: multiply once.
+- Verify all copied tab values; recheck sources; publish version 2 configs/profile. Receipts stay in their existing folders.
+- `upgrade-v1-v2.json`: per-business source/copy IDs, fingerprints, verification progress. Tagged copies recover lost responses.
+- `biztrack_upgrade_1_2`: account-bound local queue backup and cutover status. Original queue retained until completion; IDs remapped before replay.
+- Block on failed verification, changed sources, unrecognized data/formulas in mileage, unmapped queued writes, or storage failure. No automatic deletion/rollback.
+- Offline: upgrade needs connectivity once; subsequent cached entry remains available.
+- Old versions: original files only; later edits never merged. Close other writers before upgrading; no cross-device lock.
 
-| Tab | Column order |
-|-----|--------------|
-| Expenses, A–J | Date, Vendor/Payee, Description, Amount, Category, Payment Method, Receipt, Notes, Submitted By, ID |
-| Mileage, A–H | Date, From, To, Purpose/Description, Miles, Saved By, ID, Driver |
+## Authentication and local state
 
-IDs are UUIDs. Edits/deletes locate the current row by its UUID column, rather than
-saving a row number across requests. Reads omit rows without a UUID. The receipt
-column holds a filename, not a Drive file ID; editing resolves it within that year's
-receipts folder. Keep column order and these meanings compatible with existing data.
+| Component | Contract |
+|---|---|
+| Auth | Public OAuth client ID; full `drive` scope; browser token model; no refresh token |
+| Restore | Verify token's account before exposing cached workspace |
+| Reconnect | Same-account verification; mounted form/receipt retained; one shared authorization wait |
+| API retry | Rejected HTTP 401 once after authorization; no automatic replay of other write failures |
+| Sign Out | Clear this version's local account data; retain Google grant |
+| Disconnect | Revoke Google grant, then clear local account data; other devices/versions may be affected |
+| `bt_cache_v2` | Business/config/transaction snapshots; cache-write failure non-fatal |
+| Refresh | Home/history share both-tab refresh; 60-second cooldown; writes invalidate; stale sessions cannot repopulate cache |
+| Unsaved forms | Memory only; reload/browser termination loses input |
 
-## Loading, authentication, and offline changes
+## Durable writes
 
-Google Identity Services supplies a short-lived access token. The OAuth client ID
-is the only build-time credential. The app requests the full Drive scope for its
-folder-browser/shared-file workflows. See [Google setup](google_cloud_setup.md).
+- `biztrack_offline_queue_v2`: saved pending operations; localStorage write failure must surface.
+- Drain: online + valid authorization; triggered on reconnect/online event.
+- Simple operations: create/update/delete; failures retained except destinations treated as missing/deleted.
+- Compound operation: `replace`; source/destination IDs, original ID, replacement rows persisted together.
+- Sequence: append missing replacements → read back every field → delete original.
+- Replacement writes: literal text (`RAW`); numeric amounts/distances. Confirmation: unformatted values.
+- Unchanged retries: stable IDs; reuse matching copies. Conflicts/duplicate IDs: stop before deletion.
+- Failed compound operation: retain queue entry, including 404; block later queued writes from overtaking it.
+- Sign-out/disconnection: sync or explicitly discard pending operations.
+- Offline limits: authorization, folder creation, receipt upload can require connectivity.
 
-A restored token's account is verified before cached business data is exposed.
-Expiry/reconnection preserves a mounted form and receipt. Waiting requests share
-one reconnect operation; a rejected HTTP 401 is retried once after authorization.
-Other failed writes are not automatically retried by the auth layer. Sign-out clears
-local account state; disconnection additionally revokes the Google grant. Pending
-offline changes require syncing or explicit discard before either action.
+## Receipts and CSV
 
-Svelte stores hold session state. `bt_cache` in localStorage holds business/config
-snapshots and transaction arrays keyed by spreadsheet ID and tab. Cache failures
-are non-fatal. Home/history render cached rows immediately and share a two-tab
-refresh with a 60-second cooldown. Concurrent callers join the same request; failed
-requests release their marker and can retry. Results from a cleared account session
-cannot repopulate the cache. Writes invalidate the relevant refresh cooldown.
+| Feature | Contract |
+|---|---|
+| Images | Canvas → JPEG, quality 0.7, longest side ≤1920px |
+| PDFs | Unmodified |
+| Names | `YYYY-MM-DD_VENDOR_N.ext`; sanitized vendor; available folder counter |
+| Upload order | Receipt bytes before ledger write |
+| CSV columns | Posting Date, Transaction Type, Amount, Description, Extended Description |
+| Import | Debits only; positive amounts; five-row preview; supplied payment method; writes grouped by year |
+| Categories | Current/prior-year vendor history; auto-match only one distinct known category |
+| CSV duplicates | Date + vendor + amount rounded to cents; includes duplicates within input |
+| Parser limits | Quoted commas/doubled quotes supported; multiline fields and arbitrary bank schemas unsupported |
 
-`biztrack_offline_queue` holds failed create/update/delete operations. Unlike the
-convenience cache, queued changes can be the only copy: storage write failure must
-surface. The queue drains on reconnect or an online event with valid authorization.
-It retains failures except entries treated as missing/deleted destinations. It is
-not a general guarantee that every form action can begin and finish offline: auth,
-folder creation, and receipt upload can require connectivity.
+## Demo
 
-## Receipts, import, and PWA
+- Two fictional businesses; distinct current/prior-year expenses and trips.
+- Core tracking, splits, history, review, business switching: enabled.
+- Business settings, CSV, receipt upload/sharing, favorite management, default-driver changes: disabled.
+- Data/preferences: memory only; separate tabs; reload restores seed data.
+- **Reset demo:** confirmation → reload home. **Exit demo:** root chooser.
+- No Google requests, persistent queue writes, account-data access, sync indicator, or install prompt.
+- Worker: static-file caching under `/demo/`; manifest: no share target.
 
-Images are converted with Canvas to JPEG at quality 0.7, at most 1920 pixels on the
-longest side. PDFs pass through. Filenames follow `YYYY-MM-DD_VENDOR_N.ext`, with a
-sanitized/truncated vendor and an available counter determined from the folder's
-existing filenames. File selection supports the platform's camera/gallery/files
-chooser. Receipt bytes are uploaded before the ledger write.
+## PWA and version isolation
 
-CSV import supports the fixed bank export's Posting Date, Transaction Type, Amount,
-Description, and Extended Description columns. It imports debits, converts amounts
-to positive values, previews five rows, and uses an entered payment method. Vendor
-history from the current and previous year supplies a category only when that vendor
-has one distinct known category. Duplicate detection uses date/vendor/amount rounded
-to two decimals, including duplicates within the imported file. Writes are batched
-by year. The parser handles commas and doubled quotes within a line; it does not
-support quoted multiline records or arbitrary bank schemas.
-
-Workbox precaches each build's routes and assets. Google requests are not
-service-worker cached. Each build has its own manifest identity and worker scope.
-Beta retains legacy local storage and receipt cache names; fixed versions prefix
-their keys with the build path. Sign-out clears only that version's account data;
-Google revocation can affect every version using the grant.
-
-Beta updates can activate while forms remain mounted; reload is offered only when
-safe. Fixed release assets are reused unchanged. Android shares POST to the same
-build's `/share/` route, then redirect there with GET to consume the cached receipt.
-The root migration worker passes version routes through, serves cached modules for
-old open tabs, and forwards legacy receipt shares to beta without clearing data.
-See [releases](releases.md) for deployment and migration details.
+- Each build: manifest identity, scope, worker, static caches.
+- Beta: unprefixed storage keys. Fixed releases: path-prefixed keys. Cache/queue keys also identify the data model.
+- Same origin: prefixes prevent collisions, not access by other same-origin code.
+- Google requests: network only; no service-worker caching.
+- Beta updates: deferred reload while forms/operations are active.
+- Android shares: POST to build's `/share/`; temporary receipt cache; GET redirect to consumer.
+- Root migration worker: preserve old cached modules/forms; forward legacy shares to beta.
 
 ## Known limitations and separate correctness work
 
-- Cross-year edits and split replacements delete the original before appending
-  replacements. Failure between requests is not atomic; cross-year offline recovery
-  can queue an update for a destination row that does not exist. A recoverable
-  compound-write design is separate from the simplification work.
-- Renaming a business changes its config name but does not rename existing year
-  files or synchronize every name reference. Do not treat rename as a file migration.
-- Browser-local data and tokens are not an encrypted vault. Unfinished forms are not
-  backed up across reload/browser termination; ambiguous network failures can leave
-  partial multi-request operations. UUID lookup and mutation are separate API calls.
+- Cross-sheet writes: no atomic transaction; interrupted operations can leave both copies until retry.
+- Concurrent writers: ID lookup and mutation are separate requests; no distributed lock.
+- Cross-year receipt files: not relocated with ledger entries; filename lookup uses the destination year's folder.
+- Business rename: config change; existing files and all name references not migrated.
+- Browser storage: no app-level encryption; clearing it loses unsynced work.
+- Single creates: ambiguous network failures can still duplicate writes on retry.
 
-## Validation and release checks
+## Validation
 
-Run `npm test`, `npm run check`, and `npm run build`. CI runs these before uploading
-the Pages artifact. The Node/assert scripts cover auth, queue protections, shared
-refreshes, Drive pagination/year setup, links, and entry payloads with mocked API
-calls. Version checks cover storage isolation and receipt handoff; Python checks
-cover release archives, catalog generation, and unchanged release files across deployments.
-TypeScript checks cover TS modules; the plain-JS Svelte scripts receive build
-compilation and targeted handler checks, not comprehensive static type checking.
+| Command | Coverage |
+|---|---|
+| `npm test` | Auth; queue durability; replacement failure/retry paths; form handlers; refresh; Drive pagination/setup; demo isolation; driver ranking; upgrade failure/retry paths; release assembly |
+| `npm run check` | TypeScript modules; excludes plain-JS Svelte scripts |
+| `npm run build` | Production compilation and prerendering |
+| `npm run build:demo` | Separate demo build |
 
-Before release, use test Drive data and exercise:
-
-- Add/reconnect a business, browse shared folders, and switch businesses during loading.
-- Create single/split expenses with image/PDF receipts; edit/delete and return to history.
-- Save mileage with round trip, duplicate confirmation, favorites, and default drivers.
-- Import the supported bank CSV twice; verify duplicate counts and year destinations.
-- Review uncategorized rows, skip, and apply a vendor category across the review years.
-- Lose connectivity, reconnect, reject/cancel authorization, and sign out with pending changes.
-- Install the PWA, navigate offline, and activate an update without losing an entry.
-- Check Android receipt sharing and the separate failure cases above before claiming support.
+[Manual release checks](releases.md#release-checks)

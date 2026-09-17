@@ -4,7 +4,7 @@
   import Spinner from '../../../components/Spinner.svelte';
   /**
    * Mileage Favorites management screen.
-   * Lists personal saved routes from profile.json and allows deletion.
+   * Lists personal saved routes from profile-v2.json and allows deletion.
    * Favorites are added from the mileage entry form.
    */
 
@@ -90,10 +90,10 @@
             <div class="flex-1 min-w-0">
               <p class="text-base font-medium truncate" style="color: var(--color-text);">{fav.name}</p>
               <p class="text-xs mt-0.5 truncate" style="color: var(--color-text-muted);">
-                {fav.from} → {fav.to}
+                {fav.description}
               </p>
               <p class="text-xs" style="color: var(--color-text-muted);">
-                {fav.miles} mi · {fav.purpose}
+                {fav.miles} mi
               </p>
             </div>
             <button

@@ -30,7 +30,7 @@ export const DRIVE_SCOPE: string = 'https://www.googleapis.com/auth/drive';
 /**
  * Default category set for new businesses covering both Schedule C (sole
  * proprietor / LLC) and Schedule E (rental / royalty) IRS line items.
- * Saved to config.json and user-editable via Settings → Expense Categories.
+ * Saved to config-v2.json and user-editable via Settings → Expense Categories.
  */
 export const DEFAULT_CATEGORIES: readonly string[] = [
   'Uncategorized',

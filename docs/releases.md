@@ -1,28 +1,25 @@
-# Releases
+# Release operations
 
-| URL | Updates |
+**Audience:** maintainers publishing or verifying builds.
+
+| URL | Content / updates |
 |---|---|
-| `/` | Version chooser; no new PWA installation at the root |
+| `/` | Version chooser; no root PWA installation |
 | `/beta/` | Current `main`; automatic updates |
-| `/demo/` | Current `main`; editable sample data, reset on reload |
-| `/v/1.2.3/` | Original build of `v1.2.3`; never rebuilt after publication |
+| `/demo/` | Current `main`; memory-only sample data |
+| `/v/1.2.3/` | Original archived build of `v1.2.3` |
 
 ## One-time GitHub setup
 
-Use repository-admin access. These are GitHub settings, not configuration files
-that take effect just by merging this repository.
+Repository-admin settings; merging files alone does not configure them.
 
-1. In **Settings → General → Releases**, enable **release immutability**. It applies
-   to future releases. Keep it enabled before creating any version tags.
-2. In **Settings → Rules → Rulesets**, import
-   [the version-tag ruleset](../.github/release-ruleset.json). It restricts updates
-   and deletion of `v*` tags, has no exclusions or bypass actors, and is active.
-3. Set the repository secret `VITE_GOOGLE_CLIENT_ID`. Keep Pages configured for
-   **GitHub Actions** with the custom domain `biztrack.lol`. In **Settings →
-   Environments → github-pages**, allow deployments from `main` and `v*` tags.
-4. Merge and deploy version support to `main` before creating the first tag.
+1. **Settings → General → Releases:** enable release immutability before publishing.
+2. **Settings → Rules → Rulesets:** import [version-tag ruleset](../.github/release-ruleset.json); active; no exclusions/bypasses; block `v*` update/deletion.
+3. **Secrets:** `VITE_GOOGLE_CLIENT_ID`.
+4. **Pages:** GitHub Actions; custom domain `biztrack.lol`.
+5. **Environments → github-pages:** allow `main` and `v*` deployments.
 
-With an authenticated GitHub CLI, steps 1–2 can also be applied once from the repo:
+CLI alternative for steps 1–2:
 
 ```sh
 gh api --method PUT repos/seandheath/biztrack/immutable-releases
@@ -30,46 +27,35 @@ gh api --method POST repos/seandheath/biztrack/rulesets \
   --input .github/release-ruleset.json
 ```
 
-The ruleset JSON is the required shape checked by the publisher. Administrators
-can edit rulesets later. GitHub itself locks published immutable release tags and
-assets; release titles and notes remain editable. See
-[GitHub's guarantees](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
+- Immutability: future releases only; tags/assets locked after publication; titles/notes editable.
+- Rulesets: administrators can change them. [GitHub guarantees](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
 
 ## Publish
 
-Set `package.json` and the lockfile to the intended version, commit, and push to
-`main`. Then tag that commit:
+1. Commit tested changes; push `main` for beta/demo.
+2. Read the committed `package.json` version; lockfile must match. The local hook bumps patches unless a version change is explicitly staged.
+3. Tag that commit; example for version `1.2.3`:
 
 ```sh
 git tag v1.2.3
 git push origin v1.2.3
 ```
 
-Only `vMAJOR.MINOR.PATCH` tags are accepted; the version must match `package.json`.
-Use beta for work in progress. Tag pushes run checks, build at `/v/1.2.3/`, create a
-draft, attach `biztrack-1.2.3.zip` and `SHA256SUMS`, and publish automatically.
-GitHub publication locks the artifacts and produces a release attestation.
+| Stage | Behavior |
+|---|---|
+| Tag validation | `vMAJOR.MINOR.PATCH`; exact package-version match; protection rules checked |
+| Publication | Checks → versioned build → draft → ZIP + `SHA256SUMS` → publish → immutability verification |
+| Assembly | Build beta/demo from current `main`; verify/download all published archives; never rebuild fixed releases |
+| Retry | Reuse published archives; replace assets only in unpublished drafts |
+| Failure | Stop deployment; retain last live site; rerun failed Actions workflow |
 
-The workflow then builds beta and demo from current `main`, verifies and downloads every
-published release archive, and deploys the complete site. Archives include source
-commit and base-path metadata. Existing releases are never rebuilt, and retries
-reuse their verified archives. Only unpublished drafts allow replacement assets.
+- Failures: missing archive, checksum mismatch, unlocked release, failed build, combined site >1 GB.
+- Keep all release archives; assembly requires them.
+- Actions token cannot inspect the admin-only immutability setting; post-publication verification can detect an unlocked release only after publication.
 
-CI checks tag protections before publication and verifies immutability after
-publication. The Actions token cannot inspect the admin-only immutability setting;
-if that setting was disabled, publication may create an unlocked release, but
-verification stops deployment. Correct the settings before publishing another tag.
+## Verify and preview
 
-Queued runs do not cancel an in-progress release. A failed build, missing archive,
-invalid checksum, unlocked release, or site exceeding Pages' 1 GB limit stops
-deployment and leaves the last successful site live. Rerun the failed workflow
-from Actions; already-published builds are reused. Do not delete release archives:
-site assembly needs all of them. Hosting every release consumes storage and does
-not guarantee availability forever.
-
-## Verify and build locally
-
-The GitHub CLI must support immutable-release verification:
+Requirements: Node.js 22+, Python 3, authenticated GitHub CLI with release-verification support; fetched version tags.
 
 ```sh
 gh release verify v1.2.3 --repo seandheath/biztrack
@@ -77,58 +63,55 @@ gh release download v1.2.3 --repo seandheath/biztrack --pattern biztrack-1.2.3.z
 gh release verify-asset v1.2.3 biztrack-1.2.3.zip --repo seandheath/biztrack
 ```
 
-For local checks and a complete site (requires Python 3, GitHub CLI, and fetched tags):
-
 ```sh
 npm test
 npm run check
 BIZTRACK_BASE_PATH=/beta npm run build
 npm run build:demo
 python3 scripts/releases.py assemble pages
-python3 -m http.server 4173 --directory pages
+python3 -m http.server 8080 --bind 127.0.0.1 --directory pages
 ```
 
-Use an absent output directory for assembly. Beta uses `build/`; demo uses
-`build-demo/`. Assembly requires both builds from the same commit and version.
-Local development defaults to `/`; `npm run dev:demo` serves `/demo/` without Google setup.
-For a release build, use `BIZTRACK_BASE_PATH=/v/1.2.3` on the corresponding commit.
-The generated manifest, asset paths, route indexes, and service worker use that
-base. `build-info.json` records the version, commit, and base.
+- Assembly output: absent directory; beta/demo must match commit and version.
+- Beta output: `build/`. Demo: `build-demo/`.
+- Release build: `BIZTRACK_BASE_PATH=/v/1.2.3 npm run build` on matching commit.
+- `build-info.json`: version, commit, base; manifest/assets/routes/worker use that base.
+- Chooser only: `npm run preview:site`; local tags; no downloads/publication verification. Optional `-- --port 8081`; restart after edits.
 
 ## Existing installations
 
-Existing root bookmarks open the chooser; old route links go to beta with their
-query parameters intact. The migration worker does not reload open forms or clear
-local data. It retains access to cached legacy modules and hands old receipt
-shares to beta. Existing users should finish entries, close old tabs, and open beta
-to sync before installing a fixed release.
+| Action / boundary | Effect |
+|---|---|
+| Root bookmark | Opens chooser; old route links redirect to beta with query parameters |
+| Legacy root install | Finish forms; close old tabs; open beta; sync; then install chosen release |
+| Beta | Reuses legacy account/cache/queue keys |
+| Fixed release | Separate sign-in/local state; install separately to pin |
+| Switch versions | Sync first; use a compatible data version; pending writes stay in their originating installation |
+| Sign Out | Clear one version's local account data; keep Drive files |
+| Disconnect Google Drive | Revoke shared grant across versions/devices; keep Drive files |
+| Same origin | Storage prefixes prevent collisions, not cross-version access |
+| Data model 2 (0.2+) | Explicit upgrade to new copies; originals retained; no subsequent merging from older releases |
+| Immutable archive | Auditable original build; Google services/scripts remain external dependencies |
+| Hosted site | Owner can replace served files; independently host a reviewed archive to remove that control |
 
-Beta reuses the original sign-in, cache, preference, and queue keys. Fixed releases
-have separate local state and require their own sign-in. Sign Out affects only
-that version; Disconnect Google Drive revokes the shared grant. Neither deletes
-Drive files. A pending write belongs to the version where it was entered—switching
-versions does not transfer it. Old root home-screen shortcuts remain chooser
-shortcuts; install the chosen release separately to pin it.
+## Data upgrade checks (0.1 → 0.2)
 
-Version paths share an origin. Storage prefixes prevent accidental collisions,
-not access by other code on that origin. All versions still edit the same Drive
-files; changes to those formats must account for older clients. Pinning BizTrack
-does not freeze Google services or the Google sign-in script.
+- Sync/close other installations first; one upgrader at a time.
+- Confirm business/year list; **Back up & upgrade**; verify new mileage descriptions/totals, expenses, favorites, receipts, and pending writes.
+- Original spreadsheets/JSON: retained under original names. Active spreadsheets: `_v2`; config/profile: `config-v2.json` / `profile-v2.json`.
+- Interrupted upgrade: reopen; retry. Originals unchanged; verified copies reused.
+- Changed originals, duplicate copies, or unknown columns: stop and inspect; no automatic cleanup. Preserve originals and local storage.
+- Restore: originals remain usable in 0.1; changes made after upgrading are not included. No automatic reverse migration.
+- After upgrade: use 0.2+ on every device. Legacy versions continue writing original files.
 
 ## Release checks
 
-- Open beta and two fixed versions; verify launch URLs, names, worker scopes, and
-  every route on direct load and refresh, including transaction query parameters.
-- Sign in, reconnect, save, and sign out in one version without clearing another's
-  account or queue. Confirm offline shell navigation after an online visit.
-- Start from an old root install with pending writes and a receipt; upgrade online,
-  finish the form without a forced reload, then continue in beta and sync once.
-- Install separate versions on Android Chrome and iOS Safari. Relaunch each after
-  a beta deployment and another release. Each must keep its selected version.
-- Share an image and PDF into an installed Android release and confirm the receipt
-  reaches that version's expense form.
-
-Release archives are immutable, but Pages is mutable hosting. Source links,
-checksums, and attestations allow auditing; they cannot stop the website owner
-from replacing hosted files. Independently hosting a reviewed archive removes
-that control from the project maintainer.
+- Chrome/Firefox/Safari; Android Chrome; iOS Safari; browser and installed PWA.
+- Demo: no sign-in/network API calls; edit/split/history; independent tabs; reload/reset.
+- Fresh Google account: consent → business setup → expense/mileage → verify Drive data.
+- Receipts: image/PDF upload; Android share; correct version's form.
+- Edits: same year, cross-year, splits; failed append/confirmation/delete; retry without duplicates; durable offline replay.
+- Auth: expired token; reconnect/cancel/wrong account; retained form; background/resume; sign-out with pending writes.
+- Versions: beta + two fixed builds; scopes, launch URLs, direct routes/query parameters, offline reload, account isolation.
+- Migration: old root install with pending writes/receipt; no forced form reload or dropped work.
+- UI: history; uncategorized skip/bulk category; mileage favorites/defaults; supported CSV imported twice.

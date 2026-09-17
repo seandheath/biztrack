@@ -4,7 +4,7 @@
   import Spinner from '../../../components/Spinner.svelte';
   /**
    * Expense Categories management screen.
-   * Per-business list of categories from config.json.
+   * Per-business list of categories from config-v2.json.
    * "Uncategorized" is always present and cannot be removed.
    */
 

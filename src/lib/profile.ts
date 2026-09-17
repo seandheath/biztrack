@@ -1,9 +1,10 @@
+import { DATA_VERSION, PROFILE_FILE, requireCurrentData } from './data-model.js';
 import { storageKey } from './version.js';
 /**
  * Cross-device profile sync via Google Drive.
  *
  * Maintains a BizTrack/ folder in the user's Drive root containing
- * profile.json — a business index plus personal favorites and default drivers.
+ * profile-v2.json — a business index plus personal favorites and default drivers.
  * This lets a user sign in on a new device and automatically recover their
  * business list without re-adding everything manually.
  *
@@ -17,14 +18,14 @@ import { findFile, createFolder, downloadJson, uploadJson, updateJson } from './
 import type { Business, MileageFavorite, ProfileData } from './types.js';
 
 const BIZTRACK_FOLDER_NAME = 'BizTrack';
-const PROFILE_FILENAME     = 'profile.json';
+const PROFILE_FILENAME = PROFILE_FILE;
 const LS_FOLDER_KEY        = 'bt_biz_folder';
 
 // Deduplicates concurrent calls — prevents two callers from both running
 // findFile() before either has stored the result, causing both to create the folder.
 let _ensureFolderInFlight: Promise<string> | null = null;
 
-// Module-level cache of the profile.json file ID to avoid a findFile() on every save.
+// Module-level cache of the profile-v2.json file ID to avoid a findFile() on every save.
 let _profileFileId: string | null = null;
 
 /**
@@ -77,7 +78,7 @@ export async function ensureBizTrackFolder(): Promise<string> {
 }
 
 /**
- * Loads the businesses array from profile.json in the BizTrack folder.
+ * Loads the businesses array from profile-v2.json in the BizTrack folder.
  * Returns null if no profile file exists yet (first login ever).
  *
  * @param folderId - BizTrack root folder ID
@@ -85,16 +86,14 @@ export async function ensureBizTrackFolder(): Promise<string> {
 export async function loadProfile(folderId: string): Promise<ProfileData | null> {
   const fileId = await findFile(PROFILE_FILENAME, folderId);
   if (!fileId) return null;
-  const data = await downloadJson<{ businesses?: unknown[]; mileage_favorites?: Record<string, MileageFavorite[]>; default_drivers?: Record<string, string> }>(fileId);
-  return Array.isArray(data.businesses) ? {
-    businesses: data.businesses as ProfileData['businesses'],
-    mileage_favorites: data.mileage_favorites ?? {},
-    default_drivers: data.default_drivers ?? {},
-  } : null;
+  const data = await downloadJson<ProfileData>(fileId);
+  requireCurrentData(data);
+  if (!Array.isArray(data.businesses)) throw new Error('Invalid business profile.');
+  return data;
 }
 
 /**
- * Saves (or creates) profile.json in the BizTrack folder with the
+ * Saves (or creates) profile-v2.json in the BizTrack folder with the
  * current businesses list.
  *
  * @param folderId - BizTrack root folder ID
@@ -111,7 +110,7 @@ export async function saveProfile(
   // All other state (sheetIds, yearFolders, configFileId, etc.) is
   // discovered from Drive folder structure on each session start.
   const minimal = bizList.map(({ name, folderId: bFolderId }) => ({ name, folderId: bFolderId }));
-  const payload = { businesses: minimal, mileage_favorites: mileageFavs, default_drivers: defDrivers };
+  const payload = { dataVersion: DATA_VERSION, businesses: minimal, mileage_favorites: mileageFavs, default_drivers: defDrivers };
 
   // Use cached file ID to skip the findFile() lookup after the first save
   if (!_profileFileId) {

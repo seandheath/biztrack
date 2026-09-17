@@ -1,3 +1,5 @@
+import { inspectBusinessFolder } from './upgrade.js';
+import { DATA_VERSION, CONFIG_FILE, requireCurrentData, spreadsheetName } from './data-model.js';
 import { isDemo } from './version.js';
 import * as demo from './demo.js';
 /**
@@ -6,9 +8,9 @@ import * as demo from './demo.js';
  * Coordinates drive.js and sheets.js to build the expected Drive structure:
  *
  *   <Business Folder>/
- *     config.json
+ *     config-v2.json
  *     2026/
- *       2026_<name>_expenses   (Google Sheet — Expenses + Mileage tabs)
+ *       2026_<name>_expenses_v2 (Google Sheet — Expenses + Mileage tabs)
  *       2026_<name>_Receipts/
  *
  * No token parameter — apiFetch() in auth.js reads the token from module state.
@@ -27,11 +29,12 @@ import type { Business, BusinessConfig, MileageFavorite } from './types.js';
  * Centralizes the backfill logic that was previously scattered across
  * setupBusiness(), loadConfig(), and inline in page components.
  *
- * @param cfg - Config object from Drive config.json
+ * @param cfg - Config object from Drive config-v2.json
  * @param businessName - Fallback name if config.name is missing
  * @returns The same cfg object, mutated in place
  */
 export function normalizeConfig(cfg: BusinessConfig, businessName = ''): BusinessConfig {
+  requireCurrentData(cfg);
   if (typeof cfg.name !== 'string' || !cfg.name) cfg.name = businessName;
   if (!Array.isArray(cfg.categories) || cfg.categories.length === 0)   cfg.categories       = [...DEFAULT_CATEGORIES];
   return cfg;
@@ -54,7 +57,7 @@ export async function loadBusinessData(business: Business | null): Promise<Busin
   // Resolve configFileId lazily for businesses added before Phase 8
   let biz = business;
   if (!biz.configFileId) {
-    const configId = await findFile('config.json', biz.folderId);
+    const configId = await findFile(CONFIG_FILE, biz.folderId);
     if (configId) {
       biz = { ...biz, configFileId: configId };
       updateBusiness(biz);
@@ -87,9 +90,9 @@ const _yearFolderInFlight = new Map<string, Promise<Business>>();
 /**
  * Initializes a business against a user-selected Drive folder.
  *
- * - If config.json already exists in the folder (previously set up business),
+ * - If config-v2.json already exists in the folder (previously set up business),
  *   loads and returns it alongside the business object.
- * - If not, creates a default config.json.
+ * - If not, creates a default config-v2.json.
  *
  * Does NOT create year folders — call ensureYearFolder() after this.
  *
@@ -100,13 +103,14 @@ export async function setupBusiness(
   name: string,
   folderId: string,
 ): Promise<{ business: Business; config: BusinessConfig }> {
+  if ((await inspectBusinessFolder(folderId))?.legacy) throw new Error('Upgrade this business before importing it.');
   const defaultConfig: BusinessConfig = {
     name,
-    mileage_favorites: [],
+    dataVersion: DATA_VERSION,
     categories: [...DEFAULT_CATEGORIES],
   };
 
-  const configId = await findFile('config.json', folderId);
+  const configId = await findFile(CONFIG_FILE, folderId);
 
   let config: BusinessConfig;
   let configFileId: string;
@@ -114,9 +118,8 @@ export async function setupBusiness(
     config = await downloadJson<BusinessConfig>(configId);
     configFileId = configId;
     normalizeConfig(config, name);
-    if (!Array.isArray(config.mileage_favorites)) config.mileage_favorites = [];
   } else {
-    const { id } = await uploadJson('config.json', defaultConfig, folderId);
+    const { id } = await uploadJson(CONFIG_FILE, defaultConfig, folderId);
     configFileId = id;
     config = defaultConfig;
   }
@@ -141,11 +144,11 @@ export async function setupBusiness(
 }
 
 // ---------------------------------------------------------------------------
-// Config helpers — read/write config.json for a business
+// Config helpers — read/write config-v2.json for a business
 // ---------------------------------------------------------------------------
 
 /**
- * Downloads config.json from Drive and updates the businessConfig store.
+ * Downloads config-v2.json from Drive and updates the businessConfig store.
  * Safe to call even if configFileId is missing (returns null).
  */
 export async function loadConfig(business: Business): Promise<BusinessConfig | null> {
@@ -177,8 +180,8 @@ export async function saveConfig(business: Business, config: BusinessConfig): Pr
 }
 
 /**
- * Saves a new mileage favorite to the user's profile.json.
- * Favorites are user-owned and keyed by business folderId — independent of config.json.
+ * Saves a new mileage favorite to the user's profile-v2.json.
+ * Favorites are user-owned and keyed by business folderId — independent of config-v2.json.
  */
 export async function saveMileageFavorite(business: Business, favorite: MileageFavorite): Promise<void> {
   const folderId = business.folderId;
@@ -198,7 +201,7 @@ export async function saveMileageFavorite(business: Business, favorite: MileageF
 }
 
 /**
- * Updates an existing mileage favorite in-place (matched by originalName) in the user's profile.json.
+ * Updates an existing mileage favorite in-place (matched by originalName) in the user's profile-v2.json.
  * Supports renaming: pass the old name as originalName and the new name inside favorite.
  */
 export async function updateMileageFavorite(business: Business, originalName: string, favorite: MileageFavorite): Promise<void> {
@@ -212,7 +215,7 @@ export async function updateMileageFavorite(business: Business, originalName: st
 }
 
 /**
- * Deletes a mileage favorite by name from the user's profile.json.
+ * Deletes a mileage favorite by name from the user's profile-v2.json.
  */
 export async function deleteMileageFavorite(business: Business, name: string): Promise<void> {
   const folderId = business.folderId;
@@ -226,7 +229,7 @@ export async function deleteMileageFavorite(business: Business, name: string): P
 
 /**
  * Sets (or clears) the default driver for a business.
- * Persisted in profile.json — user-specific, not shared config.
+ * Persisted in profile-v2.json — user-specific, not shared config.
  */
 export async function saveDefaultDriver(business: Business, driver: string): Promise<void> {
   const folderId = business.folderId;
@@ -275,7 +278,7 @@ export async function removeCategory(business: Business, config: BusinessConfig,
  *
  * Scans the business root for subfolders whose name is a 4-digit year (e.g. "2025").
  * For each year folder found, looks up:
- *   - {year}_expenses  (Google Sheet → sheetId)
+ *   - {year}_<name>_expenses_v2  (Google Sheet → sheetId)
  *   - {year}_Receipts  (subfolder → receiptFolderId)
  */
 export async function discoverYearFolders(business: Business): Promise<Business> {
@@ -290,7 +293,7 @@ export async function discoverYearFolders(business: Business): Promise<Business>
     yearFolders[year] = folder.id;
 
     const safeName = driveFileName(business.name);
-    const sheetId = await findFile(`${year}_${safeName}_expenses`, folder.id);
+    const sheetId = await findFile(spreadsheetName(year, business.name), folder.id);
     if (sheetId) sheetIds[year] = sheetId;
 
     const inner = await listFolders(folder.id);
@@ -344,7 +347,7 @@ async function _doEnsureYearFolder(business: Business, year: number): Promise<Bu
 
   if (existingFolderId) {
     const [foundSheet, foundReceipts] = await Promise.all([
-      findFile(`${year}_${safeName}_expenses`, yearFolderId),
+      findFile(spreadsheetName(year, business.name), yearFolderId),
       findFile(`${year}_${safeName}_Receipts`, yearFolderId),
     ]);
     sheetId = foundSheet ?? business.sheetIds?.[year];
@@ -352,7 +355,7 @@ async function _doEnsureYearFolder(business: Business, year: number): Promise<Bu
   }
 
   if (!sheetId) {
-    const { spreadsheetId } = await initSpreadsheet(`${year}_${safeName}_expenses`);
+    const { spreadsheetId } = await initSpreadsheet(spreadsheetName(year, business.name));
     await moveFile(spreadsheetId, yearFolderId, 'root');
     sheetId = spreadsheetId;
   }

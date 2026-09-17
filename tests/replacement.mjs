@@ -23,15 +23,15 @@ try {
   for (const queued of [false, true]) {
   for (const kind of ['expense-move', 'mileage-move', 'split', 'split-move']) {
     const tab = kind === 'mileage-move' ? 'Mileage' : 'Expenses';
-    const idColumn = tab === 'Expenses' ? 9 : 6;
-    const numericColumn = tab === 'Expenses' ? 3 : 4;
+    const idColumn = tab === 'Expenses' ? 9 : 4;
+    const numericColumn = tab === 'Expenses' ? 3 : 2;
     const dest = kind === 'split' ? 'source' : 'destination';
     const original = tab === 'Expenses'
       ? ['2025-01-01','Vendor','Original',12.5,'Supplies','Cash','','','owner','original']
-      : ['2025-01-01','Office','Client','Meeting',12.5,'owner','original','Alex'];
+      : ['2025-01-01','Office → Client — Meeting',12.5,'owner','original','Alex'];
     const rows = tab === 'Expenses'
       ? [{id:kind.startsWith('split')?'original-split-1':'original',date:'2026-01-01',vendor:'=literal text',description:'New',amount:'12.50',category:'Supplies',paymentMethod:'Cash',submittedBy:'owner'}]
-      : [{id:'original',date:'2026-01-01',from:'Office',to:'Customer',purpose:'Visit',miles:'12.50',savedBy:'owner',driver:'Alex'}];
+      : [{id:'original',date:'2026-01-01',description:'Office → Customer — Visit',miles:'12.50',savedBy:'owner',driver:'Alex'}];
     if (kind.startsWith('split')) rows.push({...rows[0],id:'original-split-2',amount:'5.00',category:'Meals'});
     for (const failure of ['none','append-before','append-after','confirmation-read','confirmation-missing','confirmation-mismatch','confirmation-duplicate','delete-before','delete-after']) {
       sheets.clearTrashedCache();
@@ -61,7 +61,7 @@ try {
           fail('delete-after');return Response.json({});
         }
         if (path.includes('/values/')) {
-          if (path.endsWith('!J:J') || path.endsWith('!G:G')) return Response.json({values:[['ID'],...table.map(row=>[row[idColumn]])]});
+          if (path.endsWith('!J:J') || path.endsWith('!E:E')) return Response.json({values:[['ID'],...table.map(row=>[row[idColumn]])]});
           assert.equal(url.searchParams.get('valueRenderOption'),'UNFORMATTED_VALUE');
           let data = structuredClone(table);
           if (sid === dest && appended) {
@@ -82,7 +82,7 @@ try {
         assert.deepEqual(await queue.drainQueue(),{drained:0,failed:1});
         assert.equal(appends,0);
         assert.equal(deletions,0);
-        assert.deepEqual(JSON.parse(storage.get('biztrack_offline_queue'))[0].rows,rows);
+        assert.deepEqual(JSON.parse(storage.get('biztrack_offline_queue_v2'))[0].rows,rows);
         navigator.onLine = true;
       }
       if (failure !== 'none') {
@@ -115,5 +115,23 @@ try {
   queue.enqueue({operation:'create',spreadsheetId:'another',sheetName:'Expenses',row:{id:'later',date:'2026-01-01'}});
   assert.deepEqual(await reopenedQueue.drainQueue(),{drained:0,failed:2});
   assert.equal(writes,0,'later writes must not overtake a failed replacement');
+  // Ordinary mileage creates/edits preserve description text and numeric distance.
+  const manual = { id: 'manual', date: '2026-01-01', description: '=literal trip', miles: '12.50', savedBy: 'owner', driver: 'Alex' };
+  sheets.clearTrashedCache();
+  let mileageWrites = 0;
+  respond = async (url, options) => {
+    if (url.hostname === 'www.googleapis.com') return Response.json({ trashed: false });
+    if (!options.method) {
+      assert.ok(decodeURIComponent(url.pathname).endsWith('Mileage!E:E'));
+      return Response.json({ values: [['ID'], ['manual']] });
+    }
+    assert.equal(url.searchParams.get('valueInputOption'), 'RAW');
+    assert.deepEqual(JSON.parse(options.body).values, [['2026-01-01', '=literal trip', 12.5, 'owner', 'manual', 'Alex']]);
+    mileageWrites++;
+    return Response.json({});
+  };
+  await sheets.pushTransactions('manual-sheet', 'Mileage', [manual]);
+  await sheets.updateByUUID('manual-sheet', 'Mileage', manual);
+  assert.equal(mileageWrites, 2);
   console.log('Replacement ordering, verification, ambiguous failures, retries, and durable offline replay passed.');
 } finally {await server.close();}

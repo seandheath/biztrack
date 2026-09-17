@@ -26,11 +26,11 @@ try {
       'Past-year expenses must visibly differ from current entries');
     const [currentTrip] = await sheets.pullTransactions(company.sheetIds[2026], 'Mileage');
     const [pastTrip] = await sheets.pullTransactions(company.sheetIds[2025], 'Mileage');
-    assert.notEqual(pastTrip.to, currentTrip.to);
+    assert.notEqual(pastTrip.description, currentTrip.description);
     assert.notEqual(pastTrip.miles, currentTrip.miles);
   }
   const id = first.sheetIds[2026];
-  storage.set('bt_cache', seed);
+  storage.set('bt_cache_v2', seed);
   assert.equal(sync.loadCache(), true);
   assert.equal((await business.loadConfig(first)).name, first.name);
   await auth.ensureAuthorized(); // Local saves also work without a connection.
@@ -53,7 +53,7 @@ try {
   assert.equal(await sheets.findRowByTxnId(id, 'split-b'), null);
   assert.equal((await sheets.pullTransactions(second.sheetIds[2026], 'Expenses')).length, 3);
   assert.equal((await sheets.pullTransactions(first.sheetIds[2025], 'Expenses')).length, 3);
-  const trip = {id:'trip', date:'2024-02-03',from:'Studio',to:'Client',miles:'14.8',driver:'Alex'};
+  const trip = {id:'trip', date:'2024-02-03',description:'Studio → Client',miles:'14.8',driver:'Alex'};
   const expanded = await business.ensureYearFolder(first, 2024);
   await sheets.pushTransactions(expanded.sheetIds[2024], 'Mileage', [trip]);
   const tripNum = await sheets.findRowByTxnId(expanded.sheetIds[2024], 'trip', 'Mileage');

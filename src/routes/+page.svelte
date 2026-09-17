@@ -150,10 +150,10 @@
                 href={transactionUrl(row)}
                 class="w-full flex items-center px-4 text-left hover:opacity-80 transition-opacity"
                 style="min-height: 64px; display: flex; background-color: var(--color-surface-3);"
-                aria-label="View mileage: {row.from} to {row.to}, {row.date}"
+                aria-label="View mileage: {row.description}, {row.date}"
               >
                 <div class="flex flex-col gap-0.5 flex-1 min-w-0 pr-3">
-                  <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.from} → {row.to}</span>
+                  <span class="text-sm font-medium truncate" style="color: var(--color-text);">{row.description}</span>
                   <span class="text-xs" style="color: var(--color-text-muted);">{row.date} · Mileage</span>
                 </div>
                 <div class="flex items-center gap-1.5 flex-shrink-0">

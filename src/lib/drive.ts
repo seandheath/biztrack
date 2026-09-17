@@ -48,7 +48,7 @@ export async function createFolder(name: string, parentId: string): Promise<Driv
 }
 
 /** Read every page of a Drive file query; used by receipt and folder listings. */
-async function listFiles(query: string, context: string): Promise<DriveFile[]> {
+export async function listFiles(query: string, context: string): Promise<DriveFile[]> {
   const files: DriveFile[] = [];
   let pageToken = '';
   do {
@@ -61,6 +61,18 @@ async function listFiles(query: string, context: string): Promise<DriveFile[]> {
     pageToken = data.nextPageToken ?? '';
   } while (pageToken);
   return files;
+}
+
+/** Copy a complete spreadsheet; source identity makes interrupted upgrades recoverable. */
+export async function copyForUpgrade(sourceId: string, parentId: string, name: string, fingerprint: string): Promise<DriveFile> {
+  const response = await apiFetch(`${FILES_URL}/${encodeURIComponent(sourceId)}/copy?supportsAllDrives=true&fields=id,name`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, parents: [parentId], properties: {
+      biztrackSource: sourceId, biztrackUpgrade: '1-2', biztrackFingerprint: fingerprint,
+    } }),
+  });
+  if (!response.ok) await _throwDriveError(response, 'upgrade copy');
+  return response.json();
 }
 
 /** Existing receipt names, used to generate a unique upload filename. */

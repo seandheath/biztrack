@@ -1,3 +1,4 @@
+import { DATA_VERSION, CACHE_KEY } from './data-model.js';
 /**
  * Sync state manager.
  *
@@ -82,7 +83,6 @@ export function invalidatePull(spreadsheetId?: string): void {
   else _lastPull.clear();
 }
 
-const CACHE_KEY = 'bt_cache';
 
 // ---------------------------------------------------------------------------
 // Sync status store
@@ -128,7 +128,7 @@ export function getCachedBusinesses(): Business[] {
  */
 export function loadCache(): boolean {
   const cached = _readCache();
-  if (!cached?.businesses?.length) return false;
+  if (cached?.dataVersion !== DATA_VERSION || !cached?.businesses?.length) return false;
 
   businesses.set(cached.businesses);
   mileageFavorites.set(cached.mileageFavorites ?? {});
@@ -171,6 +171,7 @@ export function writeCache(): void {
   });
 
   const data: SyncCache = {
+    dataVersion: DATA_VERSION,
     businesses: safeBiz,
     mileageFavorites: get(mileageFavorites),
     defaultDrivers: get(defaultDrivers),
@@ -204,6 +205,7 @@ export function getCachedTransactions(spreadsheetId: string, sheetName: SheetNam
  */
 export function cacheTransactions(spreadsheetId: string, sheetName: SheetName, rows: TransactionRow[]): void {
   const existing = _readCache() ?? {
+    dataVersion: DATA_VERSION,
     businesses: get(businesses),
     mileageFavorites: get(mileageFavorites),
     defaultDrivers: get(defaultDrivers),

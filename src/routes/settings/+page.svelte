@@ -3,8 +3,7 @@
 
   import { goto } from '$app/navigation';
   import { userEmail, businesses, selectedBusiness } from '$lib/store.js';
-  import { signOut, revokeToken } from '$lib/auth.js';
-  import { queueLength } from '$lib/services/offline-queue.js';
+  import { signOut, revokeToken, pendingChangeCount } from '$lib/auth.js';
   import { appName, appCommit } from '$lib/version.js';
   let accountBusy = $state(false);
   let accountError = $state('');
@@ -14,7 +13,7 @@
   const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
 
   async function endSession(disconnect) {
-    const pending = queueLength();
+    const pending = pendingChangeCount();
     if (pending && !window.confirm(`${pending} pending change(s) have not synced. Discard them and ${disconnect ? 'disconnect' : 'sign out'}? Cancel to reconnect and sync first.`)) return;
     if (disconnect && !window.confirm('Revoke BizTrack’s Google Drive access? Other devices using this Google grant will also need to reconnect. Your Drive files will remain.')) return;
     accountBusy = true;

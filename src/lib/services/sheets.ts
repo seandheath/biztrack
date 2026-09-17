@@ -1,3 +1,4 @@
+import { MILEAGE_HEADERS } from '../data-model.js';
 import { isDemo } from '../version.js';
 import * as demo from '../demo.js';
 /**
@@ -12,8 +13,8 @@ import * as demo from '../demo.js';
  *   A=date  B=vendor  C=description  D=amount  E=category
  *   F=paymentMethod  G=receipt  H=notes  I=submittedBy  J=id (UUID)
  *
- * Mileage column order (A–H):
- *   A=date  B=from  C=to  D=purpose  E=miles  F=savedBy  G=id (UUID)  H=driver
+ * Mileage column order (A–F):
+ *   A=date  B=description  C=miles  D=savedBy  E=id (UUID)  F=driver
  */
 
 import { apiFetch, AuthError } from '../auth.js';
@@ -27,7 +28,7 @@ const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
 /** Column values as they appear in (or come from) the spreadsheet. */
 export interface TransactionRow {
-  id: string;             // UUID — Expenses col J, Mileage col G
+  id: string;             // UUID — Expenses col J, Mileage col E
   date: string;
   // Expense fields
   vendor?: string;
@@ -39,9 +40,6 @@ export interface TransactionRow {
   notes?: string;
   submittedBy?: string;
   // Mileage fields
-  from?: string;
-  to?: string;
-  purpose?: string;
   miles?: string;
   savedBy?: string;
   driver?: string;
@@ -157,9 +155,7 @@ function _rowToValues(row: TransactionRow, sheetName: SheetName): (string | numb
     // Mileage
     return [
       row.date    ?? '',
-      row.from    ?? '',
-      row.to      ?? '',
-      row.purpose ?? '',
+      row.description ?? '',
       row.miles   ?? '',
       row.savedBy ?? '',
       row.id,
@@ -188,23 +184,21 @@ function _valuesToRow(values: string[], sheetName: SheetName): TransactionRow {
     // Mileage
     return {
       date:    s(values[0]),
-      from:    s(values[1]),
-      to:      s(values[2]),
-      purpose: s(values[3]),
-      miles:   s(values[4]),
-      savedBy: s(values[5]),
-      id:      s(values[6]),
-      driver:  s(values[7]),
+      description: s(values[1]),
+      miles:   s(values[2]),
+      savedBy: s(values[3]),
+      id:      s(values[4]),
+      driver:  s(values[5]),
     };
   }
 }
 
-/** Reads all values from the UUID column (J for Expenses, G for Mileage). */
+/** Reads all values from the UUID column (J for Expenses, E for Mileage). */
 async function _readIdColumn(
   spreadsheetId: string,
   sheetName: SheetName,
 ): Promise<string[]> {
-  const col = sheetName === 'Expenses' ? 'J' : 'G';
+  const col = sheetName === 'Expenses' ? 'J' : 'E';
   const range = encodeURIComponent(`${sheetName}!${col}:${col}`);
   const url = `${SHEETS_BASE}/${spreadsheetId}/values/${range}`;
   const response = await apiFetch(url);
@@ -232,7 +226,6 @@ export async function initSpreadsheet(title: string): Promise<{
   mileageSheetId: number;
 }> {
   const EXPENSE_HEADERS = ['Date','Vendor/Payee','Description','Amount','Category','Payment Method','Receipt','Notes','Submitted By','ID'];
-  const MILEAGE_HEADERS = ['Date','From','To','Purpose/Description','Miles','Saved By','ID','Driver'];
 
   const createResponse = await apiFetch(SHEETS_BASE, {
     method: 'POST',
@@ -311,7 +304,7 @@ export async function pushTransactions(
   spreadsheetId: string,
   sheetName: SheetName,
   rows: TransactionRow[],
-  valueInputOption: 'USER_ENTERED' | 'RAW' = 'USER_ENTERED',
+  valueInputOption: 'USER_ENTERED' | 'RAW' = sheetName === 'Mileage' ? 'RAW' : 'USER_ENTERED',
 ): Promise<void> {
   if (isDemo) return demo.append(spreadsheetId, sheetName, rows);
   if (rows.length === 0) return;
@@ -335,7 +328,7 @@ export class ReplacementError extends Error {}
 // RAW preserves text literally; amounts and distances remain numeric spreadsheet cells.
 function replacementValues(row: TransactionRow, sheetName: SheetName): (string | number)[] {
   const values = _rowToValues(row, sheetName);
-  const column = sheetName === 'Expenses' ? 3 : 4;
+  const column = sheetName === 'Expenses' ? 3 : 2;
   if (values[column] !== '') {
     values[column] = Number(values[column]);
     if (!Number.isFinite(values[column])) throw new ReplacementError('Invalid amount or distance. The original has not been deleted.');
@@ -399,10 +392,10 @@ export async function updateByUUID(
   if (idx === -1) throw new Error(`Row with UUID ${row.id} not found in ${sheetName}`);
   const rowNum = idx + 2; // row 1 is header; data index 0 → sheet row 2
 
-  const values = _rowToValues(row, sheetName);
+  const values = sheetName === 'Mileage' ? replacementValues(row, sheetName) : _rowToValues(row, sheetName);
   const endCol = _colLetter(values.length);
   const range  = encodeURIComponent(`${sheetName}!A${rowNum}:${endCol}${rowNum}`);
-  const url    = `${SHEETS_BASE}/${spreadsheetId}/values/${range}?valueInputOption=USER_ENTERED`;
+  const url    = `${SHEETS_BASE}/${spreadsheetId}/values/${range}?valueInputOption=${sheetName === 'Mileage' ? 'RAW' : 'USER_ENTERED'}`;
 
   const response = await apiFetch(url, {
     method: 'PUT',
@@ -536,7 +529,7 @@ export async function readRow(
   rowNum: number,
 ): Promise<TransactionRow> {
   if (isDemo) return demo.readRow(spreadsheetId, sheetName, rowNum);
-  const endCol = sheetName === 'Expenses' ? 'J' : 'H';
+  const endCol = sheetName === 'Expenses' ? 'J' : 'F';
   const range = encodeURIComponent(`${sheetName}!A${rowNum}:${endCol}${rowNum}`);
   const url = `${SHEETS_BASE}/${spreadsheetId}/values/${range}`;
 
@@ -545,7 +538,7 @@ export async function readRow(
 
   const data = await response.json();
   const row: string[] = data.values?.[0] ?? [];
-  const colCount = sheetName === 'Expenses' ? 10 : 8;
+  const colCount = sheetName === 'Expenses' ? 10 : 6;
   const padded = Array.from({ length: colCount }, (_, i) => String(row[i] ?? ''));
   return _valuesToRow(padded, sheetName);
 }

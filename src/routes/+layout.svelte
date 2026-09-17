@@ -6,6 +6,9 @@
 
   import '../app.css';
   import Spinner from '../components/Spinner.svelte';
+  import UpgradeScreen from '../components/UpgradeScreen.svelte';
+  import { inspectUpgrade, hasLegacyQueue, hasUnfinishedUpgrade } from '$lib/upgrade.js';
+  import { CONFIG_FILE, CACHE_KEY, requireCurrentData, DataVersionError } from '$lib/data-model.js';
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { isDemo, appName, appBase, storageKey } from '$lib/version.js';
@@ -15,6 +18,7 @@
     loadGisScript,
     requestToken,
     signOut,
+    pendingChangeCount,
     restoreSession,
     getEmail,
     getSessionVersion,
@@ -32,7 +36,7 @@
   import { discoverYearFolders, ensureYearFolder } from '$lib/business.js';
   import { findFile, downloadJson } from '$lib/drive.js';
   import * as storage from '$lib/storage.js';
-  import { drainQueue, queueLength } from '$lib/services/offline-queue.js';
+  import { drainQueue } from '$lib/services/offline-queue.js';
   import { syncStatus, loadCache, writeCache, getCachedBusinesses } from '$lib/sync.js';
 
   /** @type {{ children: import('svelte').Snippet }} */
@@ -98,6 +102,9 @@
 
   /** True while initFromDrive() is in flight — prevents flash of empty-state */
   let appLoading = $state(false);
+  let dataReady = $state(false);
+  let upgradePlan = $state(/** @type {import('$lib/upgrade.js').UpgradePlan | null} */(null));
+  let dataError = $state('');
 
   /** Prevents initFromDrive() from re-running on the email-only onTokenUpdate callback */
   let driveInitialized = false;
@@ -108,8 +115,8 @@
 
   /**
    * Discovers business structure from Drive on every session start.
-   * Reads profile.json for the {name, folderId} index, then for each business
-   * finds config.json (→ id) and scans year subfolders (→ sheetIds etc.).
+   * Reads profile-v2.json for the {name, folderId} index, then for each business
+   * finds config-v2.json (→ id) and scans year subfolders (→ sheetIds etc.).
    * Populates the businesses store from scratch — no localStorage cache.
    */
   /**
@@ -134,18 +141,20 @@
       const hydrated = await Promise.all(
         profile.businesses.map(async ({ name, folderId }) => {
           try {
-            // config.json holds the stable business UUID and user preferences
-            const configFileId = await findFile('config.json', folderId);
+            // config-v2.json holds the stable business UUID and user preferences
+            const configFileId = await findFile(CONFIG_FILE, folderId);
+            if (!configFileId) throw new DataVersionError(`Configuration missing for ${name}. Restore its version 2 config before continuing.`);
             let id = null;
             if (configFileId) {
               const cfg = await downloadJson(configFileId);
+              requireCurrentData(cfg);
               id = cfg.id ?? null;
             }
             const skeleton = { name, folderId, configFileId, id, yearFolders: {}, sheetIds: {}, receiptFolderIds: {} };
             const discovered = await discoverYearFolders(skeleton);
             return await ensureYearFolder(discovered, currentYear);
           } catch (err) {
-            if (err instanceof AuthError) throw err;
+            if (err instanceof AuthError || err instanceof DataVersionError) throw err;
             console.warn(`[init] failed to hydrate "${name}":`, err);
             // Fall back to cached version to preserve sheetIds and transaction access
             const cached = cachedByFolder.get(folderId);
@@ -177,7 +186,8 @@
 
   onMount(() => {
     if (isDemo) {
-      storage.set('bt_cache', seedDemo());
+      storage.set(CACHE_KEY, seedDemo());
+      dataReady = true;
       loadCache();
       userEmail.set('alex@example.com');
       restoring = false;
@@ -190,7 +200,7 @@
 
     isOnline = navigator.onLine;
     const drainIfReady = () => {
-      if (isTokenValid()) drainQueue().catch(console.warn);
+      if (dataReady && !upgradePlan && isTokenValid()) drainQueue().catch(console.warn);
     };
     const setOnline = () => { isOnline = true; prepareSignIn(); drainIfReady(); };
     const setOffline = () => { isOnline = false; cancelReconnection(new AuthError('Connection lost. Your unfinished work is still here.')); };
@@ -217,6 +227,8 @@
         workspaceMounted = false;
         workspaceLocked = false;
         driveInitialized = false;
+        dataReady = false;
+        upgradePlan = null;
         return;
       }
       if (token) {
@@ -227,25 +239,31 @@
       if (token && !driveInitialized) {
         driveInitialized = true;
         const version = getSessionVersion();
-        const hadCache = loadCache();
-        appLoading = !hadCache;
-        syncStatus.set('yellow');
-        initFromDrive(version)
-          .then((usedFallback) => {
+        appLoading = true;
+        dataError = '';
+        const prepare = async () => {
+          const cached = !hasLegacyQueue() && !hasUnfinishedUpgrade() && loadCache();
+          if (cached) { dataReady = true; appLoading = false; }
+          try {
+            const root = await ensureBizTrackFolder();
+            const plan = await inspectUpgrade(root);
             if (disposed || version !== getSessionVersion()) return;
+            if (plan) { dataReady = false; upgradePlan = plan; return; }
+            const usedFallback = await initFromDrive(version);
+            if (disposed || version !== getSessionVersion()) return;
+            dataReady = true;
             writeCache();
             syncStatus.set(usedFallback ? 'yellow' : 'green');
             drainIfReady();
-          })
-          .catch((err) => {
+          } catch (err) {
             if (disposed || version !== getSessionVersion()) return;
             driveInitialized = false;
-            console.warn('[sync] Drive init failed:', err);
+            dataReady = !!cached && !navigator.onLine;
+            dataError = err.message || 'Could not check the data format. Reconnect and retry.';
             syncStatus.set('red');
-          })
-          .finally(() => {
-            if (!disposed && version === getSessionVersion()) appLoading = false;
-          });
+          } finally { if (!disposed && version === getSessionVersion()) appLoading = false; }
+        };
+        prepare().catch(err => { dataReady = false; dataError = err.message; appLoading = false; driveInitialized = false; });
       } else if (token) {
         // Reconnection resumes pending calls without remounting forms or reloading business selection.
         drainIfReady();
@@ -265,7 +283,7 @@
         refreshBannerVisible = seconds === 0 || reconnectPending;
         if ($isAuthenticated && seconds === 0) expireToken();
       }
-      reloadBlocked = isEntryForm || signingIn || hasPendingOperations();
+      reloadBlocked = isEntryForm || signingIn || !!upgradePlan || hasPendingOperations();
     };
     const onVisibility = () => {
       checkExpiry();
@@ -354,7 +372,7 @@
   }
 
   async function handleChangeAccount() {
-    const pending = queueLength();
+    const pending = pendingChangeCount();
     if (pending && !window.confirm(`${pending} pending change(s) have not synced. Discard them and sign out? Cancel to reconnect and sync first.`)) return;
     if (workspaceMounted && isEntryForm && !window.confirm('Sign out and discard the unfinished form and receipt?')) return;
     signingIn = true;
@@ -372,7 +390,7 @@
   }
 
   function reloadUpdate() {
-    if (!isEntryForm && !signingIn && !hasPendingOperations()) window.location.reload();
+    if (!isEntryForm && !signingIn && !upgradePlan && !hasPendingOperations()) window.location.reload();
   }
 </script>
 
@@ -663,7 +681,15 @@
           <p>This feature is not available in the demo.</p>
           <a href={resolve('/')} class="underline">Back to demo</a>
         </div>
-      {:else if appLoading}
+      {:else if upgradePlan}
+        <UpgradeScreen plan={upgradePlan} />
+      {:else if dataError && !dataReady}
+        <div class="p-6 flex flex-col gap-4">
+          <p role="alert">{dataError}</p>
+          <button type="button" onclick={() => window.location.reload()}>Retry</button>
+          <a href="https://biztrack.lol/">Version chooser</a>
+        </div>
+      {:else if appLoading || !dataReady}
         <div class="flex items-center justify-center min-h-[60vh]">
           <span style="color: var(--color-primary);"><Spinner size="w-8 h-8" /></span>
         </div>

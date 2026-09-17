@@ -1,6 +1,6 @@
 import type { TransactionRow } from './services/sheets.js';
 
-/** A business entity tracked in BizTrack, as stored in memory and profile.json. */
+/** A business entity tracked in BizTrack, as stored in memory and profile-v2.json. */
 export interface Business {
   id: string;
   name: string;
@@ -11,33 +11,31 @@ export interface Business {
   receiptFolderIds: Record<number, string>;
 }
 
-/** Per-business configuration stored in Drive as config.json. */
+/** Per-business configuration stored in Drive as config-v2.json. */
 export interface BusinessConfig {
   id?: string;
   name: string;
-  mileage_favorites: MileageFavorite[];
+  dataVersion: number;
   categories: string[];
 }
 
-/** A saved mileage route favorite, stored in profile.json keyed by business folderId. */
+/** A saved mileage route favorite, stored in profile-v2.json keyed by business folderId. */
 export interface MileageFavorite {
   name: string;
-  from: string;
-  to: string;
+  description: string;
   miles: number;
-  purpose: string;
   driver: string;
-  roundTrip?: boolean;
 }
 
-/** Minimal business reference stored in profile.json (name + folderId only). */
+/** Minimal business reference stored in profile-v2.json (name + folderId only). */
 export interface ProfileBusiness {
   name: string;
   folderId: string;
 }
 
-/** The full profile.json payload synced to Drive. */
+/** The full profile-v2.json payload synced to Drive. */
 export interface ProfileData {
+  dataVersion: number;
   businesses: ProfileBusiness[];
   mileage_favorites: Record<string, MileageFavorite[]>;
   default_drivers?: Record<string, string>;
@@ -58,6 +56,7 @@ export interface DriveFile {
 
 /** Sync cache structure stored in localStorage. */
 export interface SyncCache {
+  dataVersion: number;
   businesses: Business[];
   mileageFavorites: Record<string, MileageFavorite[]>;
   defaultDrivers: Record<string, string>;

@@ -1,3 +1,4 @@
+import { DATA_VERSION } from './data-model.js';
 import type { Business, BusinessConfig, SyncCache } from './types.js';
 import type { TransactionRow } from './services/sheets.js';
 
@@ -59,7 +60,7 @@ export function change(sheetId: string, name: SheetName, id: string, row?: Trans
 export function seedDemo(now = new Date()): SyncCache {
   companies.clear(); configs.clear(); sheets.clear();
   const year = now.getFullYear();
-  const cache: SyncCache = { businesses: [], businessConfigs: {}, transactions: {}, mileageFavorites: {}, defaultDrivers: {} };
+  const cache: SyncCache = { dataVersion: DATA_VERSION, businesses: [], businessConfigs: {}, transactions: {}, mileageFavorites: {}, defaultDrivers: {} };
   for (const [id, name] of [
     ['demo-studio', 'Northstar Studio'],
     ['demo-garden', 'Juniper Gardens'],
@@ -70,7 +71,7 @@ export function seedDemo(now = new Date()): SyncCache {
     const business: Business = { id, name, folderId: id, configFileId: `config-${id}`, yearFolders: {}, sheetIds: {}, receiptFolderIds: {} };
     const config: BusinessConfig = { id, name, categories: garden
       ? ['Uncategorized', 'Plants & Materials', 'Equipment', 'Fuel', 'Repairs']
-      : ['Uncategorized', 'Supplies', 'Office Expenses', 'Meals', 'Travel'], mileage_favorites: [] };
+      : ['Uncategorized', 'Supplies', 'Office Expenses', 'Meals', 'Travel'], dataVersion: DATA_VERSION };
     companies.set(id, business); configs.set(id, config);
     for (const y of [year, year - 1]) {
       const company = ensureYear(business, y);
@@ -88,8 +89,8 @@ export function seedDemo(now = new Date()): SyncCache {
         ]);
         append(sheetId, 'Mileage', [
           { id: `${sheetId}-trip`, date, driver, savedBy: email, ...(garden
-            ? { from: 'Tree farm', to: 'Riverside Park', purpose: 'Deliver and plant maple saplings', miles: '46.2' }
-            : { from: 'Print shop', to: 'Arts center', purpose: 'Set up art fair booth', miles: '22.4' }) },
+            ? { description: 'Tree farm → Riverside Park — Deliver and plant maple saplings', miles: '46.2' }
+            : { description: 'Print shop → Arts center — Set up art fair booth', miles: '22.4' }) },
         ]);
         continue;
       }
@@ -104,8 +105,8 @@ export function seedDemo(now = new Date()): SyncCache {
       ]);
       append(sheetId, 'Mileage', [
         { id: `${sheetId}-trip`, date, driver, savedBy: email, ...(garden
-          ? { from: 'Equipment yard', to: 'Willow Creek Apartments', purpose: 'Planting and irrigation repair', miles: '32.6' }
-          : { from: 'Studio', to: 'Client office', purpose: 'Project review', miles: '14.8' }) },
+          ? { description: 'Equipment yard → Willow Creek Apartments — Planting and irrigation repair', miles: '32.6' }
+          : { description: 'Studio → Client office — Project review', miles: '14.8' }) },
       ]);
     }
     cache.businesses.push(structuredClone(business));

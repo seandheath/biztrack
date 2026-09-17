@@ -31,8 +31,8 @@ try {
     const util = await server.ssrLoadModule('/src/lib/util.ts');
     assert.equal(auth.getEmail(), null, 'new release must not adopt another build\'s account');
     assert.equal(queue.queueLength(), 0);
-    storage.set('bt_cache', { owner: base });
-    assert.deepEqual(JSON.parse(values.get(key('bt_cache'))), { owner: base });
+    storage.set('bt_cache_v2', { owner: base });
+    assert.deepEqual(JSON.parse(values.get(key('bt_cache_v2'))), { owner: base });
     values.set(key('bt_email_hint'), 'owner@example.com');
     // Import a fresh auth module graph with a restored token, just as reopening the app does.
     values.set(key('bt_at'), 'token');
@@ -51,7 +51,7 @@ try {
     apps.push({ server, version, key, queue, storage });
   }
   // Reopen beta with legacy state: restore the account and retain the one original queue.
-  values.set('biztrack_offline_queue', JSON.stringify([{ spreadsheetId: 'sheet', sheetName: 'Expenses',
+  values.set('biztrack_offline_queue_v2', JSON.stringify([{ spreadsheetId: 'sheet', sheetName: 'Expenses',
     operation: 'create', row: { id: 'legacy' }, timestamp: 1 }]));
   for (const { version, key, storage } of apps) {
     const server = await createServer({ configFile: false, cacheDir: 'node_modules/.vite-version-test',
@@ -68,10 +68,10 @@ try {
       queue.enqueue({ spreadsheetId: 's', sheetName: 'Mileage', operation: 'create', row: { id: version.appBase } });
       await assert.rejects(auth.signOut(), /pending changes/);
       await auth.signOut(true);
-      assert.equal(storage.get('bt_cache'), null);
+      assert.equal(storage.get('bt_cache_v2'), null);
       assert.equal(values.has(key('bt_at')), false);
       assert.equal(cacheNames.has(version.shareCache), false);
-      assert.equal(JSON.parse(values.get('biztrack_offline_queue'))[0].row.id, 'legacy');
+      assert.equal(JSON.parse(values.get('biztrack_offline_queue_v2'))[0].row.id, 'legacy');
       assert.equal(values.get('bt_at'), 'token');
       assert.equal(cacheNames.has('biztrack-share'), true);
     }

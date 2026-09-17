@@ -49,12 +49,16 @@ try {
   const init = parse(layout).instance.content.body.find(node =>
     node.type === 'FunctionDeclaration' && node.id.name === 'initFromDrive');
   const startupDeps = {
+    CONFIG_FILE: 'config-v2.json',
+    DataVersionError: class extends Error {},
     ensureBizTrackFolder: async () => 'root',
     loadProfile: async () => ({ businesses: [
       { name: 'First', folderId: 'first' }, { name: 'Saved', folderId: 'saved' },
     ] }),
     getCachedBusinesses: () => [],
-    findFile: async () => null,
+    findFile: async (_name, folder) => `config-${folder}`,
+    downloadJson: async id => ({ dataVersion: 2, id }),
+    requireCurrentData: data => assert.equal(data.dataVersion, 2),
     discoverYearFolders: async business => business,
     ensureYearFolder: async business => business,
     getSessionVersion: () => 0,
@@ -195,6 +199,41 @@ try {
   assert.equal(auth.isTokenValid(), true);
   queue.clearQueue();
 
+  // Legacy-only changes must trigger the same confirmation as current changes.
+  const settings = await readFile(new URL('../src/routes/settings/+page.svelte', import.meta.url), 'utf8');
+  for (const [legacy, current] of [[1, 0], [0, 1], [1, 1]]) {
+    values.set('biztrack_offline_queue', JSON.stringify(Array(legacy).fill({ id: 'old' })));
+    values.set('biztrack_offline_queue_v2', JSON.stringify(Array(current).fill({ id: 'new' })));
+    assert.equal(auth.pendingChangeCount(), legacy + current);
+    await assert.rejects(auth.signOut(), /pending changes/);
+    await assert.rejects(auth.revokeToken(), /pending changes/);
+    for (const [source, name, disconnect] of [[layout, 'handleChangeAccount', false], [settings, 'endSession', false], [settings, 'endSession', true]]) {
+      const node = parse(source).instance.content.body.find(node => node.type === 'FunctionDeclaration' && node.id.name === name);
+      let confirmed = false;
+      const prompts = [], actions = [];
+      const deps = {
+        pendingChangeCount: auth.pendingChangeCount,
+        window: { confirm: message => { prompts.push(message); return confirmed; }, location: { replace() {} } },
+        signOut: async discard => actions.push(['signOut', discard]),
+        revokeToken: async discard => actions.push(['revokeToken', discard]),
+        resolve: path => path,
+      };
+      const handler = new Function(...Object.keys(deps), `
+        let workspaceMounted = false, isEntryForm = false, signingIn, signInError, accountBusy, accountError;
+        return (${source.slice(node.start, node.end)});
+      `)(...Object.values(deps));
+      await handler(disconnect);
+      assert.match(prompts[0], new RegExp(`^${legacy + current} pending change`));
+      assert.deepEqual(actions, [], 'cancelling preserves both queues');
+      assert.equal(auth.pendingChangeCount(), legacy + current);
+      confirmed = true;
+      await handler(disconnect);
+      assert.deepEqual(actions, [[disconnect ? 'revokeToken' : 'signOut', true]]);
+    }
+  }
+  values.delete('biztrack_offline_queue');
+  queue.clearQueue();
+
   // Sign-out during identity verification rejects both the popup and blocked save.
   auth.expireToken();
   const waiting = auth.ensureAuthorized();
@@ -205,7 +244,7 @@ try {
   aboutResponse = () => new Promise(resolve => { finishAbout = resolve; });
   const lateIdentity = grant('after-signout');
   await until(() => !!finishAbout);
-  values.set('bt_cache', '{"old":true}');
+  values.set('bt_cache_v2', '{"old":true}');
   stores.businesses.set([{ name: 'Old account' }]);
   await auth.signOut();
   finishAbout(Response.json({ user: { emailAddress: googleEmail } }));
@@ -213,7 +252,7 @@ try {
   aboutResponse = null;
   assert.equal(auth.isTokenValid(), false);
   assert.equal(auth.getEmail(), null);
-  assert.equal(values.has('bt_cache'), false);
+  assert.equal(values.has('bt_cache_v2'), false);
   assert.equal(values.has('bt_at'), false);
   assert.equal(values.has('bt_email_hint'), false);
   assert.equal(lastUpdate.email, null);
@@ -240,7 +279,7 @@ try {
   queue.enqueue({ spreadsheetId: 's', sheetName: 'Mileage', operation: 'create', row: { id: 'second' } });
   finishWrite(Response.json({}));
   assert.deepEqual(await drain, { drained: 1, failed: 1 });
-  assert.equal(JSON.parse(values.get('biztrack_offline_queue'))[0].row.id, 'second');
+  assert.equal(JSON.parse(values.get('biztrack_offline_queue_v2'))[0].row.id, 'second');
   respond = () => Response.json({ trashed: false });
   assert.deepEqual(await queue.drainQueue(), { drained: 1, failed: 0 });
 
@@ -263,7 +302,10 @@ try {
   await assert.rejects(auth.revokeToken(), /did not confirm/);
   assert.equal(auth.isTokenValid(), true, 'failed revocation must not claim disconnection');
   revokeSuccess = true;
-  await auth.revokeToken();
+  values.set('biztrack_offline_queue', '[{"id":"legacy-discard"}]');
+  await auth.revokeToken(true);
+  assert.equal(auth.pendingChangeCount(), 0);
+  assert.equal(values.has('biztrack_offline_queue'), false);
   assert.equal(revocations, 2);
   assert.equal(auth.getEmail(), null);
   assert.equal(auth.hasPendingOperations(), false);

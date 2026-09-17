@@ -1,3 +1,4 @@
+import { CACHE_KEY, QUEUE_KEY } from './data-model.js';
 import { isDemo, storageKey, shareCache } from './version.js';
 /** Google's browser token model: reconnect explicitly, without discarding work. */
 import { GOOGLE_CLIENT_ID, DRIVE_SCOPE } from './constants.js';
@@ -128,10 +129,11 @@ export async function restoreSession(): Promise<void> {
     if (!expiry || expiry <= new Date()) { expireToken(); return; }
     // Legacy caches without an owner must not be loaded for an arbitrary account.
     if (!email) {
-      if (localStorage.getItem(storageKey('biztrack_offline_queue'))) {
+      if (localStorage.getItem(storageKey('biztrack_offline_queue')) || localStorage.getItem(storageKey(QUEUE_KEY))) {
         throw new AuthError('Unidentified pending changes exist. Sign out and review the discard warning before changing accounts.');
       }
       localStorage.removeItem(storageKey('bt_cache'));
+      localStorage.removeItem(storageKey(CACHE_KEY));
       localStorage.removeItem(storageKey('bt_biz_folder'));
     }
     email = actual;
@@ -180,10 +182,11 @@ export function requestToken(): Promise<void> {
           if (!expected) {
             // Unknown legacy data may belong to another account.
             const { queueLength } = await import('./services/offline-queue.js');
-            if (queueLength()) throw new AuthError('Pending changes have no account owner. Sign out before using a different account.');
+            if (queueLength() || localStorage.getItem(storageKey('biztrack_offline_queue'))) throw new AuthError('Pending changes have no account owner. Sign out before using a different account.');
             if (popup !== attempt || session !== version) return;
             try {
               localStorage.removeItem(storageKey('bt_cache'));
+              localStorage.removeItem(storageKey(CACHE_KEY));
               localStorage.removeItem(storageKey('bt_biz_folder'));
             } catch {}
           }
@@ -243,17 +246,27 @@ export function cancelReconnection(error: unknown = new AuthError('Reconnection 
   attempt?.reject(error);
 }
 
+/** Count both data versions before offering to discard this installation's work. */
+export function pendingChangeCount(): number {
+  if (isDemo) return 0;
+  return ['biztrack_offline_queue', QUEUE_KEY].reduce((count, key) => {
+    const queue = JSON.parse(localStorage.getItem(storageKey(key)) || '[]');
+    if (!Array.isArray(queue)) throw new AuthError('Cannot read pending changes. Preserve this device’s data.');
+    return count + queue.length;
+  }, 0);
+}
+
 /** Sign-out clears this device, but does not revoke the Google grant. */
 export async function signOut(discardPending = false): Promise<void> {
   if (isDemo) return Promise.reject(new AuthError('Google access is unavailable in the demo.'));
-  const { queueLength, clearQueue } = await import('./services/offline-queue.js');
-  if (queueLength() && !discardPending) throw new AuthError('Sync pending changes or explicitly discard them before signing out.');
+  const { clearQueue } = await import('./services/offline-queue.js');
+  if (pendingChangeCount() && !discardPending) throw new AuthError('Sync pending changes or explicitly discard them before signing out.');
   session++;
   cancelReconnection(new AuthError('Signed out. The operation was cancelled.'));
   expireToken();
   email = null;
   clearQueue();
-  for (const key of [EMAIL, 'bt_biz_folder', 'bt_cache', 'biztrack_selected_name']) {
+  for (const key of [EMAIL, 'bt_biz_folder', 'bt_cache', CACHE_KEY, 'biztrack_selected_name', 'biztrack_upgrade_1_2', 'biztrack_offline_queue']) {
     try { localStorage.removeItem(storageKey(key)); } catch {}
   }
   const [{ clearProfileCache }, { clearTrashedCache }, { resetAccountStores }, { clearCache }] = await Promise.all([
@@ -273,8 +286,7 @@ export async function signOut(discardPending = false): Promise<void> {
 /** Explicit disconnection must report revocation failure instead of claiming success. */
 export async function revokeToken(discardPending = false): Promise<void> {
   if (isDemo) return Promise.reject(new AuthError('Google access is unavailable in the demo.'));
-  const { queueLength } = await import('./services/offline-queue.js');
-  if (queueLength() && !discardPending) throw new AuthError('Sync or discard pending changes before disconnecting.');
+  if (pendingChangeCount() && !discardPending) throw new AuthError('Sync or discard pending changes before disconnecting.');
   await ensureAuthorized();
   await loadGisScript();
   await new Promise<void>((resolve, reject) => {

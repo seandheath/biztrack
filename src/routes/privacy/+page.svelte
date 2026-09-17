@@ -6,59 +6,57 @@
   <title>Privacy Policy — BizTrack</title>
 </svelte:head>
 
-<div class="max-w-2xl mx-auto px-6 py-12" style="color: var(--color-text); font-family: system-ui, sans-serif;">
-  <h1 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.25rem;">Privacy Policy</h1>
-  <p style="color: var(--color-text-muted); margin-bottom: 2rem;">Last updated: September 2026</p>
+<div class="policy max-w-2xl mx-auto px-6 py-10">
+  <h1>Privacy Policy</h1>
+  <p class="text-sm" style="color: var(--color-text-muted);">Updated: 17 September 2026</p>
 
-  <section style="margin-bottom: 2rem;">
-    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Overview</h2>
-    <p>BizTrack is a browser-based expense and mileage tracking tool. It has no backend server — your data is stored entirely in your own Google Drive account. We do not collect, transmit, or store your personal information on any server we operate.</p>
-  </section>
+  <h2>Data locations</h2>
+  <dl>
+    <dt>Your Google Drive</dt>
+    <dd>Expense/mileage spreadsheets, receipts, business configuration, personal preferences. Access controlled by Drive sharing.</dd>
+    <dt>Your browser</dt>
+    <dd>Account email, access token/expiry, cached records, preferences, pending writes, temporary shared receipts. No BizTrack encryption of local copies.</dd>
+    <dt>BizTrack</dt>
+    <dd>Static app files; no application server or business-data database. Records sync directly between your browser and Google.</dd>
+    <dt>Demo</dt>
+    <dd>Sample records and edits: tab memory only; reset on reload. No Google connection. Static app files cached on device.</dd>
+  </dl>
 
-  <section style="margin-bottom: 2rem;">
-    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Data Storage</h2>
-    <p>All expense records, mileage logs, receipt photos, and configuration data are stored in your Google Drive account, in folders and spreadsheets that you control. You can view, edit, or delete this data at any time directly in Google Drive.</p>
-  </section>
+  <h2>Google permission</h2>
+  <ul>
+    <li><strong>Full Drive access:</strong> <code>drive</code> scope; permission to view, create, modify, and delete Drive files.</li>
+    <li><strong>App use:</strong> list folders/shared drives for selection; manage the BizTrack profile folder and selected business folders.</li>
+    <li><strong>Folder selection:</strong> app behavior; not a restriction on the Google permission grant.</li>
+    <li><strong>Tokens:</strong> stored in this browser; sent to Google; no refresh tokens or BizTrack authentication server.</li>
+  </ul>
 
-  <section style="margin-bottom: 2rem;">
-    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Google Account Access</h2>
-    <p>BizTrack uses Google Sign-In and requests the <code style="background: var(--color-surface-3); padding: 0.1em 0.3em; border-radius: 3px;">drive</code> permission scope. This scope allows BizTrack to read and write files in your Google Drive so it can manage business folders you select — including folders on Shared Drives created by other users. BizTrack only accesses the specific folders you choose; it does not scan or modify unrelated files. Your short-lived access token and its expiry are saved in this browser so they can be reused until Google expires the token. Tokens are sent only to Google; BizTrack operates no authentication server and stores no refresh tokens. The granted permission technically allows access across your Drive, although BizTrack uses it for its app folder and the business folders you select.</p>
-  </section>
+  <h2>Retention and deletion</h2>
+  <ul>
+    <li><strong>Data upgrades:</strong> original spreadsheets and profiles retained in Drive; pending-write backup retained on this device until sign-out or site-data deletion.</li>
+    <li><strong>Drive files:</strong> retained until deleted through Drive or an authorized action; editable/exportable in Drive and Sheets.</li>
+    <li><strong>Sign Out:</strong> clears this version's local account data; retains Google permission and Drive files.</li>
+    <li><strong>Disconnect Google Drive:</strong> also revokes the grant; may affect other versions/devices; retains Drive files.</li>
+    <li><strong>Pending writes:</strong> sync or explicitly discard before sign-out/disconnection. Clearing site data deletes unsynced work.</li>
+    <li><strong>Unfinished forms:</strong> retained during reconnection; lost on reload/browser termination.</li>
+    <li><strong>Shared devices:</strong> sign out; browser-profile access can expose local copies.</li>
+  </ul>
 
-  <section style="margin-bottom: 2rem;">
-    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Local Storage</h2>
-    <p>BizTrack stores your account email, access token, business configuration, cached transaction records, preferences, and any pending offline changes in this browser. Pending changes are sent to Google when synced. Receipts received through the Android share feature can be held temporarily in the browser cache. These local copies are not encrypted by BizTrack and may be accessible to someone with access to your browser profile. Reconnecting before viewing the workspace is an app interface control, not encryption.</p>
-  </section>
+  <h2>Hosting and third parties</h2>
+  <ul>
+    <li><strong>App analytics:</strong> none; no advertising trackers or app-set cookies.</li>
+    <li><strong>GitHub Pages:</strong> serves app files; logs visitor IP addresses for security. <a href="https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages#data-collection">Hosting data collection</a>.</li>
+    <li><strong>Google:</strong> sign-in, Drive, Sheets; processing under <a href="https://policies.google.com/privacy">Google's Privacy Policy</a>.</li>
+    <li><strong>Hosted code:</strong> controlled by site maintainers. Fixed release archives are immutable; website hosting remains mutable.</li>
+  </ul>
 
-  <section style="margin-bottom: 2rem;">
-    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Sign Out and Disconnect</h2>
-    <p>Sign Out clears this version's account data without revoking Google permission. Disconnect Google Drive also asks Google to revoke BizTrack's grant, which can affect your other versions and devices. Neither action deletes your Drive files. Sync pending changes first, or explicitly choose to discard them. Clearing browser site data also removes local copies and any unsynced work. Unfinished forms survive reconnection within the page, but are not backed up across browser termination or manual reload.</p>
-  </section>
+  <h2>Contact</h2>
+  <ul>
+    <li><a href="mailto:info@biztrack.lol">info@biztrack.lol</a></li>
+    <li>Email contact: your address and message shared with the recipient/email providers; exclude private records and tokens.</li>
+  </ul>
 
-  <section style="margin-bottom: 2rem;">
-    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Analytics & Tracking</h2>
-    <p>BizTrack does not use analytics, advertising trackers, cookies, or any third-party tracking services. No usage data is collected.</p>
-  </section>
-
-  <section style="margin-bottom: 2rem;">
-    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Third-Party Services</h2>
-    <p>BizTrack interacts with the following Google services on your behalf:</p>
-    <ul style="margin-top: 0.5rem; padding-left: 1.5rem; line-height: 2;">
-      <li>Google Identity Services (authentication)</li>
-      <li>Google Drive API (file storage)</li>
-      <li>Google Sheets API (expense ledger)</li>
-    </ul>
-    <p style="margin-top: 0.75rem;">Your use of these services is governed by <a href="https://policies.google.com/privacy" style="color: var(--color-primary);">Google's Privacy Policy</a>.</p>
-  </section>
-
-  <section style="margin-bottom: 2rem;">
-    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Contact</h2>
-    <p>Questions about this privacy policy can be sent to <a href="mailto:info@biztrack.lol" style="color: var(--color-primary);">info@biztrack.lol</a>.</p>
-  </section>
-
-  <p style="margin-top: 3rem;">
-    <a href={resolve('/')} style="color: var(--color-primary);">← Back to BizTrack</a>
-    &nbsp;·&nbsp;
-    <a href={resolve('/terms')} style="color: var(--color-primary);">Terms of Service</a>
-  </p>
+  <nav aria-label="Policy navigation">
+    <a href={resolve('/')}>← Back to BizTrack</a>
+    <a href={resolve('/terms')}>Terms of Service</a>
+  </nav>
 </div>

@@ -6,43 +6,36 @@
   <title>Terms of Service — BizTrack</title>
 </svelte:head>
 
-<div class="max-w-2xl mx-auto px-6 py-12" style="color: var(--color-text); font-family: system-ui, sans-serif;">
-  <h1 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.25rem;">Terms of Service</h1>
-  <p style="color: var(--color-text-muted); margin-bottom: 2rem;">Last updated: March 2026</p>
+<div class="policy max-w-2xl mx-auto px-6 py-10">
+  <h1>Terms of Service</h1>
+  <p class="text-sm" style="color: var(--color-text-muted);">Updated: 17 September 2026</p>
 
-  <section style="margin-bottom: 2rem;">
-    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Acceptance</h2>
-    <p>By using BizTrack, you agree to these terms. If you do not agree, do not use the service.</p>
-  </section>
+  <h2>Use</h2>
+  <ul>
+    <li><strong>Acceptance:</strong> using BizTrack constitutes agreement to these terms; otherwise, do not use it.</li>
+    <li><strong>Purpose:</strong> expense, receipt, and mileage recordkeeping.</li>
+    <li><strong>Advice:</strong> no tax, legal, or financial advice; consult a qualified professional.</li>
+    <li><strong>Google services:</strong> subject to <a href="https://policies.google.com/terms">Google's Terms of Service</a>.</li>
+  </ul>
 
-  <section style="margin-bottom: 2rem;">
-    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Service</h2>
-    <p>BizTrack is a tool for tracking business expenses and mileage. It is provided as-is, without warranty of any kind. The service may be modified, suspended, or discontinued at any time without notice.</p>
-  </section>
+  <h2>Your responsibilities</h2>
+  <ul>
+    <li>Maintain Google account access, accurate records, and appropriate Drive sharing permissions.</li>
+    <li>Back up spreadsheets and receipts.</li>
+    <li>Sync pending writes before clearing browser data or switching versions.</li>
+    <li>Demo edits: disposable; reset on reload.</li>
+  </ul>
 
-  <section style="margin-bottom: 2rem;">
-    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Your Data</h2>
-    <p>Your expense records, receipts, and other data are stored in your own Google Drive account. You are solely responsible for maintaining access to your Google account and for the accuracy of the data you enter. We recommend periodically backing up your expense spreadsheets.</p>
-  </section>
+  <h2>Availability and liability</h2>
+  <ul>
+    <li><strong>Warranty:</strong> provided as-is, without warranties, to the extent permitted by law.</li>
+    <li><strong>Availability:</strong> service may change, suspend, or end without notice; no uptime or continued-hosting guarantee.</li>
+    <li><strong>Liability:</strong> to the extent permitted by law, BizTrack and its operators are not liable for data loss, financial loss, or other damages from use.</li>
+    <li><strong>Examples:</strong> account access loss, browser-data clearing, failed synchronization, service discontinuation.</li>
+  </ul>
 
-  <section style="margin-bottom: 2rem;">
-    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Limitation of Liability</h2>
-    <p>BizTrack and its operators are not liable for any loss of data, financial loss, or other damages arising from use of the service. This includes but is not limited to data loss due to Google account issues, browser storage clearing, or service discontinuation.</p>
-  </section>
-
-  <section style="margin-bottom: 2rem;">
-    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Google Terms</h2>
-    <p>BizTrack uses Google APIs. Your use of the service is also subject to <a href="https://policies.google.com/terms" style="color: var(--color-primary);">Google's Terms of Service</a>.</p>
-  </section>
-
-  <section style="margin-bottom: 2rem;">
-    <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Tax & Financial Advice</h2>
-    <p>BizTrack is a data entry and organization tool only. Nothing in the service constitutes tax, legal, or financial advice. Consult a qualified professional for guidance on deductions and business expenses.</p>
-  </section>
-
-  <p style="margin-top: 3rem;">
-    <a href={resolve('/')} style="color: var(--color-primary);">← Back to BizTrack</a>
-    &nbsp;·&nbsp;
-    <a href={resolve('/privacy')} style="color: var(--color-primary);">Privacy Policy</a>
-  </p>
+  <nav aria-label="Policy navigation">
+    <a href={resolve('/')}>← Back to BizTrack</a>
+    <a href={resolve('/privacy')}>Privacy Policy</a>
+  </nav>
 </div>

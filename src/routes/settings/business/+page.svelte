@@ -9,7 +9,9 @@
   import { businesses, selectedBusiness, businessConfig, mileageFavorites, defaultDrivers } from '$lib/store.js';
   import { setupBusiness, ensureYearFolder, discoverYearFolders, normalizeConfig } from '$lib/business.js';
   import { findFile, downloadJson } from '$lib/drive.js';
-  import { saveProfile } from '$lib/profile.js';
+  import { saveProfile, ensureBizTrackFolder } from '$lib/profile.js';
+  import { inspectBusinessFolder, inspectUpgrade } from '$lib/upgrade.js';
+  import UpgradeScreen from '../../../components/UpgradeScreen.svelte';
   import FolderBrowser from '../../../components/FolderBrowser.svelte';
 
   /** @type {string} */
@@ -24,8 +26,10 @@
   /** The folder selected via browser */
   let folder = $state(/** @type {{id:string,name:string}|null} */(null));
 
-  /** True when the selected folder contains an existing config.json */
+  /** True when the selected folder contains an existing config-v2.json */
   let detectedImport = $state(false);
+  let legacyImport = $state(false);
+  let upgradePlan = $state(null);
 
   // ---------------------------------------------------------------------------
   // Folder browser
@@ -42,20 +46,20 @@
     browserOpen = false;
     folder = picked;
     detectedImport = false;
+    legacyImport = false;
     name = '';
 
-    // Probe for existing config.json to detect a BizTrack business
+    // Probe for existing config-v2.json to detect a BizTrack business
     try {
-      const configId = await findFile('config.json', picked.id);
-      if (configId) {
-        const config = await downloadJson(configId);
-        normalizeConfig(config, picked.name);
-        name = config.name;
+      const detected = await inspectBusinessFolder(picked.id);
+      if (detected) {
+        name = detected.name;
         detectedImport = true;
+        legacyImport = detected.legacy;
       }
     } catch (e) {
-      // Detection failed — treat as new folder
-      console.warn('[business] import detection:', e);
+      error = e.message;
+      folder = null;
     }
   }
 
@@ -76,6 +80,10 @@
 
     loading = true;
     try {
+      if (legacyImport) {
+        upgradePlan = await inspectUpgrade(await ensureBizTrackFolder(), { name: trimmedName, folderId: folder.id });
+        return;
+      }
       const year = new Date().getFullYear();
 
       const { business, config } = await setupBusiness(trimmedName, folder.id);
@@ -86,7 +94,7 @@
       selectedBusiness.set(withYear);
       businessConfig.set(config);
 
-      // Update profile.json so other devices discover the new business
+      // Update profile-v2.json so other devices discover the new business
       const rootFolderId = localStorage.getItem(storageKey('bt_biz_folder'));
       if (rootFolderId) {
         await saveProfile(rootFolderId, get(businesses), get(mileageFavorites), get(defaultDrivers)).catch((e) => console.warn('[business] profile save:', e));
@@ -110,6 +118,9 @@
   let spinnerLabel = $derived(detectedImport ? 'Importing…' : 'Setting up…');
 </script>
 
+{#if upgradePlan}
+  <UpgradeScreen plan={upgradePlan} oncomplete={() => window.location.assign(resolve('/'))} />
+{:else}
 <div class="px-4 py-6 flex flex-col gap-5 max-w-lg mx-auto">
 
   <h2 class="text-xl font-semibold" style="color: var(--color-text);">Add Business</h2>
@@ -217,3 +228,5 @@
   onselect={handleFolderSelected}
   oncancel={() => { browserOpen = false; }}
 />
+
+{/if}
